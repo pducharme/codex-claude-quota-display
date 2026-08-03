@@ -18,6 +18,7 @@ configurée.
 - Le firmware est compilé et déjà flashé sur la carte connectée.
 - La carte est configurée et connectée au Wi-Fi.
 - Le pont tourne automatiquement avec la session macOS.
+- Un menu macOS surveille les connexions Claude Max et Codex/ChatGPT.
 - Adresse actuelle du pont : `192.168.1.252:8788`.
 - Codex et Claude répondent tous les deux correctement.
 
@@ -42,6 +43,22 @@ port `8788`. Les endpoints authentifiés sont `GET /v1/quotas` et
 `GET /v1/weather?city=Sherbrooke`. `POST /v1/refresh` lance immédiatement
 une nouvelle lecture Codex et Claude; l’écran attend la nouvelle génération
 avant de terminer son animation.
+
+L’entrée compacte de la barre de menus affiche directement les limites
+restantes **5 h / semaine** sur deux lignes, précédées de la rosace Codex et
+du petit Clawd pixelisé de Claude. Elle occupe environ la moitié de la largeur
+de la version avec les noms complets. Son menu détaille aussi
+Fable, les resets Codex, les prochaines réinitialisations et l’heure de la
+dernière actualisation dans deux cartes à jauges graduées. Une ligne indique
+aussi si l’API ESP32 est joignable et son adresse sur le réseau local. Une case
+du menu contrôle le démarrage automatique du pont API à l’ouverture de la
+session; le contrôleur de barre de menus reste disponible pour pouvoir la
+recocher. Elle vérifie également les authentifications
+toutes les cinq minutes. Si Claude n’utilise plus l’abonnement `claude.ai` ou
+si Codex n’utilise plus ChatGPT, leur connexion web est relancée sur ce Mac.
+Le menu permet également de reconnecter manuellement chaque fournisseur et de
+forcer une actualisation des quotas. Aucun jeton fournisseur n’est copié dans
+le menu ni sur l’ESP32.
 
 Pour réafficher le jeton sans réinstaller :
 
@@ -124,6 +141,11 @@ l’écran et saisir la nouvelle adresse.
 ```sh
 python3 bridge/test_quota_bridge.py
 python3 bridge/quota_bridge.py --once
+xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
+  -parse-as-library -swift-version 5 \
+  -framework AppKit -framework Foundation \
+  bridge/quota_menu.swift -o /tmp/QuotaDisplayMenu
+/tmp/QuotaDisplayMenu --self-test
 ```
 
 Sources matérielles : [dépôt officiel LilyGO](https://github.com/Xinyuan-LilyGO/T-Display-S3-Long)

@@ -130,13 +130,17 @@ Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
             "weekly": {"used_percent": 40, "resets_at": 4},
             "fable_weekly": {"used_percent": 50, "resets_at": 4},
         }
-        state = QuotaState()
+        state = QuotaState("192.168.1.252:8788")
         self.assertTrue(state.refresh())
         payload = state.payload()
         self.assertFalse(payload["refresh"]["active"])
         self.assertEqual(payload["refresh"]["generation"], 1)
         self.assertEqual(payload["providers"]["codex"]["status"], "ok")
         self.assertEqual(payload["providers"]["claude"]["status"], "ok")
+        self.assertEqual(
+            payload["api"],
+            {"status": "online", "address": "192.168.1.252:8788"},
+        )
         self.assertEqual(
             payload["providers"]["claude"]["fable_weekly"]["used_percent"],
             50,

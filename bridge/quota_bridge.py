@@ -9,6 +9,7 @@ import re
 import secrets
 import selectors
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -400,8 +401,9 @@ class WeatherCache:
 
 
 class QuotaState:
-    def __init__(self):
+    def __init__(self, api_address="127.0.0.1:8788"):
         self.lock = threading.Lock()
+        self.api_address = api_address
         self.refreshing = False
         self.refresh_generation = 0
         self.refresh_completed_at = None
@@ -489,6 +491,7 @@ class QuotaState:
         return {
             "version": 1,
             "server_time": int(time.time()),
+            "api": {"status": "online", "address": self.api_address},
             "refresh": refresh,
             "providers": providers,
         }
@@ -575,6 +578,15 @@ def refresh_loop(state, interval):
         time.sleep(interval)
 
 
+def lan_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as connection:
+            connection.connect(("1.1.1.1", 80))
+            return connection.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+
+
 def main():
     default_token = (
         Path.home()
@@ -596,7 +608,7 @@ def main():
         print(token_from(args.token_file))
         return
 
-    state = QuotaState()
+    state = QuotaState(f"{lan_ip()}:{args.port}")
     if args.once:
         state.refresh()
         print(json.dumps(state.payload(), indent=2))
