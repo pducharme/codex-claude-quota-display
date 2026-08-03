@@ -186,38 +186,44 @@ private final class CompactStatusView: NSView {
         super.draw(dirtyRect)
         let empty = QuotaWindow(usedPercent: nil, resetsAt: nil)
         drawProviderIcon(codex: true, connected: codexConnected, x: 0)
-        drawProviderIcon(codex: false, connected: claudeConnected, x: bounds.width - 15)
+        drawProviderIcon(codex: false, connected: claudeConnected, x: bounds.width - 20)
         drawDivider()
         drawRow(
             window5h: snapshot?.codex.fiveHour ?? empty,
             weekly: snapshot?.codex.weekly ?? empty,
             providerOK: snapshot?.codex.status == "ok",
-            x: 16,
-            width: bounds.width - 32,
+            x: 23,
+            width: bounds.width - 46,
             y: 1
         )
         drawRow(
             window5h: snapshot?.claude.fiveHour ?? empty,
             weekly: snapshot?.claude.weekly ?? empty,
             providerOK: snapshot?.claude.status == "ok",
-            x: 16,
-            width: bounds.width - 32,
+            x: 23,
+            width: bounds.width - 46,
             y: 11
         )
     }
 
     private func drawProviderIcon(codex: Bool, connected: Bool?, x: CGFloat) {
         statusProviderIcon(codex: codex, warning: connected == false)
-            .draw(in: NSRect(x: x, y: 4, width: 15, height: 14))
+            .draw(in: NSRect(x: x, y: 1, width: 20, height: 20))
         if connected == false {
             NSColor.systemRed.setFill()
-            NSBezierPath(ovalIn: NSRect(x: x + 11, y: 14, width: 4, height: 4)).fill()
+            NSBezierPath(ovalIn: NSRect(x: x + 15, y: 16, width: 5, height: 5)).fill()
         }
     }
 
     private func drawDivider() {
-        NSColor.separatorColor.withAlphaComponent(0.7).setFill()
-        NSRect(x: 14, y: 10.5, width: bounds.width - 28, height: 0.5).fill()
+        let divider = NSBezierPath()
+        divider.move(to: NSPoint(x: 20, y: 4.5))
+        divider.line(to: NSPoint(x: 26, y: 10.5))
+        divider.line(to: NSPoint(x: bounds.width - 26, y: 10.5))
+        divider.line(to: NSPoint(x: bounds.width - 20, y: 17.5))
+        divider.lineWidth = 0.75
+        NSColor.separatorColor.withAlphaComponent(0.8).setStroke()
+        divider.stroke()
     }
 
     private func drawRow(
@@ -573,7 +579,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             compactStatus.autoresizingMask = [.width, .height]
             button.addSubview(compactStatus)
         }
-        statusItem.length = 82
+        statusItem.length = 90
         statusItem.isVisible = true
         let menu = NSMenu()
         menu.delegate = self
