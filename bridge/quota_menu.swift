@@ -221,8 +221,9 @@ private final class CompactStatusView: NSView {
         divider.line(to: NSPoint(x: 26, y: 10.5))
         divider.line(to: NSPoint(x: bounds.width - 26, y: 10.5))
         divider.line(to: NSPoint(x: bounds.width - 20, y: 17.5))
-        divider.lineWidth = 0.75
-        NSColor.separatorColor.withAlphaComponent(0.8).setStroke()
+        divider.lineWidth = 1.25
+        divider.lineCapStyle = .round
+        NSColor.white.withAlphaComponent(0.78).setStroke()
         divider.stroke()
     }
 
