@@ -142,28 +142,117 @@ private func compactRemainingText(_ window: QuotaWindow, percent: Bool) -> Strin
 }
 
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
-    let size = NSSize(width: 14, height: 12)
+    let size = NSSize(width: 12, height: 10)
     return NSImage(size: size, flipped: false) { _ in
         let color: NSColor = warning ? .systemRed : codex ? .labelColor : .systemOrange
         color.setFill()
         if codex {
-            let center = NSPoint(x: 7, y: 6)
-            let petals = [(0.0, 4.0), (3.5, 2.0), (3.5, -2.0), (0.0, -4.0), (-3.5, -2.0), (-3.5, 2.0)]
+            let center = NSPoint(x: 6, y: 5)
+            let petals = [(0.0, 3.25), (2.8, 1.6), (2.8, -1.6), (0.0, -3.25), (-2.8, -1.6), (-2.8, 1.6)]
             for (x, y) in petals {
-                NSBezierPath(ovalIn: NSRect(x: center.x + x - 2, y: center.y + y - 2, width: 4, height: 4)).fill()
+                NSBezierPath(ovalIn: NSRect(x: center.x + x - 1.6, y: center.y + y - 1.6, width: 3.2, height: 3.2)).fill()
             }
-            NSBezierPath(ovalIn: NSRect(x: 4.5, y: 3.5, width: 5, height: 5)).fill()
+            NSBezierPath(ovalIn: NSRect(x: 4, y: 3, width: 4, height: 4)).fill()
         } else {
-            NSRect(x: 3, y: 3, width: 8, height: 7).fill()
-            NSRect(x: 1, y: 5, width: 2, height: 3).fill()
-            NSRect(x: 11, y: 5, width: 2, height: 3).fill()
-            NSRect(x: 4, y: 0, width: 2, height: 3).fill()
-            NSRect(x: 8, y: 0, width: 2, height: 3).fill()
+            NSRect(x: 2, y: 3, width: 8, height: 6).fill()
+            NSRect(x: 0, y: 5, width: 2, height: 3).fill()
+            NSRect(x: 10, y: 5, width: 2, height: 3).fill()
+            NSRect(x: 3, y: 0, width: 2, height: 3).fill()
+            NSRect(x: 7, y: 0, width: 2, height: 3).fill()
             NSColor.controlBackgroundColor.setFill()
-            NSRect(x: 5, y: 6, width: 1, height: 1).fill()
-            NSRect(x: 8, y: 6, width: 1, height: 1).fill()
+            NSRect(x: 4, y: 6, width: 1, height: 1).fill()
+            NSRect(x: 7, y: 6, width: 1, height: 1).fill()
         }
         return true
+    }
+}
+
+@MainActor
+private final class CompactStatusView: NSView {
+    var snapshot: QuotaSnapshot?
+    var bridgeOnline = false
+    var codexConnected: Bool?
+    var claudeConnected: Bool?
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let empty = QuotaWindow(usedPercent: nil, resetsAt: nil)
+        drawRow(
+            codex: true,
+            window5h: snapshot?.codex.fiveHour ?? empty,
+            weekly: snapshot?.codex.weekly ?? empty,
+            providerOK: snapshot?.codex.status == "ok",
+            connected: codexConnected,
+            y: 1
+        )
+        drawRow(
+            codex: false,
+            window5h: snapshot?.claude.fiveHour ?? empty,
+            weekly: snapshot?.claude.weekly ?? empty,
+            providerOK: snapshot?.claude.status == "ok",
+            connected: claudeConnected,
+            y: 11
+        )
+    }
+
+    private func drawRow(
+        codex: Bool,
+        window5h: QuotaWindow,
+        weekly: QuotaWindow,
+        providerOK: Bool,
+        connected: Bool?,
+        y: CGFloat
+    ) {
+        let icon = statusProviderIcon(codex: codex, warning: connected == false)
+        icon.draw(in: NSRect(x: codex ? 1 : bounds.width - 13, y: y, width: 12, height: 10))
+
+        let text = NSMutableAttributedString()
+        appendQuota(window5h, providerOK: providerOK, percent: false, to: text)
+        text.append(NSAttributedString(
+            string: "/",
+            attributes: textAttributes(color: .secondaryLabelColor)
+        ))
+        appendQuota(weekly, providerOK: providerOK, percent: true, to: text)
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = codex ? .right : .left
+        text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
+        let textRect = codex
+            ? NSRect(x: 15, y: y - 1, width: bounds.width - 16, height: 12)
+            : NSRect(x: 1, y: y - 1, width: bounds.width - 16, height: 12)
+        text.draw(in: textRect)
+    }
+
+    private func appendQuota(
+        _ window: QuotaWindow,
+        providerOK: Bool,
+        percent: Bool,
+        to text: NSMutableAttributedString
+    ) {
+        let remaining = window.remainingPercent
+        let color: NSColor
+        if !bridgeOnline || remaining == nil {
+            color = .secondaryLabelColor
+        } else if !providerOK || remaining! <= 50 {
+            color = remaining! <= 20 ? .systemRed : .systemOrange
+        } else {
+            color = .systemGreen
+        }
+        text.append(NSAttributedString(
+            string: compactRemainingText(window, percent: percent),
+            attributes: textAttributes(color: color)
+        ))
+    }
+
+    private func textAttributes(color: NSColor) -> [NSAttributedString.Key: Any] {
+        [
+            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .bold),
+            .foregroundColor: color,
+        ]
     }
 }
 
@@ -428,6 +517,7 @@ private final class QuotaDashboardView: NSView {
 @MainActor
 private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let compactStatus = CompactStatusView(frame: .zero)
     private let codexStatus = NSMenuItem(title: "Codex : vérification…", action: nil, keyEquivalent: "")
     private let claudeStatus = NSMenuItem(title: "Claude : vérification…", action: nil, keyEquivalent: "")
     private let dashboard = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 430, height: 294))
@@ -461,10 +551,12 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private func configureMenu() {
         if let button = statusItem.button {
             button.image = nil
-            button.cell?.wraps = true
-            button.cell?.usesSingleLineMode = false
+            button.title = ""
             button.setAccessibilityLabel("Quotas Codex et Claude")
             button.toolTip = "Quota Display"
+            compactStatus.frame = button.bounds
+            compactStatus.autoresizingMask = [.width, .height]
+            button.addSubview(compactStatus)
         }
         statusItem.length = 82
         statusItem.isVisible = true
@@ -537,62 +629,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func renderStatusTitle() {
-        let codex = snapshot?.codex
-        let claude = snapshot?.claude
-        let style = NSMutableParagraphStyle()
-        style.alignment = .center
-        style.minimumLineHeight = 11
-        style.maximumLineHeight = 11
-        let title = NSMutableAttributedString()
-        let empty = QuotaWindow(usedPercent: nil, resetsAt: nil)
-        func appendQuota(_ window: QuotaWindow, providerOK: Bool, percent: Bool) {
-            let remaining = window.remainingPercent
-            let color: NSColor
-            if !bridgeOnline || remaining == nil {
-                color = .secondaryLabelColor
-            } else if !providerOK || remaining! <= 50 {
-                color = remaining! <= 20 ? .systemRed : .systemOrange
-            } else {
-                color = .systemGreen
-            }
-            title.append(NSAttributedString(
-                string: compactRemainingText(window, percent: percent),
-                attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
-                    .foregroundColor: color,
-                    .paragraphStyle: style,
-                    .baselineOffset: -1.5,
-                ]
-            ))
-        }
-        func appendText(_ value: String, color: NSColor = .secondaryLabelColor) {
-            title.append(NSAttributedString(
-                string: value,
-                attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold),
-                    .foregroundColor: color,
-                    .paragraphStyle: style,
-                    .baselineOffset: -1.5,
-                ]
-            ))
-        }
-        func appendIcon(codex: Bool, warning: Bool) {
-            let attachment = NSTextAttachment()
-            attachment.image = statusProviderIcon(codex: codex, warning: warning)
-            attachment.bounds = NSRect(x: 0, y: -2.5, width: 14, height: 12)
-            title.append(NSAttributedString(attachment: attachment))
-            appendText(" ")
-        }
-        appendIcon(codex: true, warning: codexConnected == false)
-        appendQuota(codex?.fiveHour ?? empty, providerOK: codex?.status == "ok", percent: false)
-        appendText("/")
-        appendQuota(codex?.weekly ?? empty, providerOK: codex?.status == "ok", percent: true)
-        appendText("\n")
-        appendIcon(codex: false, warning: claudeConnected == false)
-        appendQuota(claude?.fiveHour ?? empty, providerOK: claude?.status == "ok", percent: false)
-        appendText("/")
-        appendQuota(claude?.weekly ?? empty, providerOK: claude?.status == "ok", percent: true)
-        statusItem.button?.attributedTitle = title
+        compactStatus.snapshot = snapshot
+        compactStatus.bridgeOnline = bridgeOnline
+        compactStatus.codexConnected = codexConnected
+        compactStatus.claudeConnected = claudeConnected
+        compactStatus.needsDisplay = true
         statusItem.button?.toolTip = snapshot?.refreshedAt.map {
             "5 h / semaine · dernière actualisation \(dateText($0, timeOnly: true))"
         } ?? "5 h / semaine · en attente du pont"
