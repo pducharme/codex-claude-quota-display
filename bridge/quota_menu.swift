@@ -143,6 +143,10 @@ private func compactRemainingText(_ window: QuotaWindow, percent: Bool) -> Strin
 
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
     let size = NSSize(width: 12, height: 10)
+    let codexIcon = "/Applications/Codex.app/Contents/Resources/icon-codex-dark-color.png"
+    if codex, let image = NSImage(contentsOfFile: codexIcon) {
+        return image
+    }
     return NSImage(size: size, flipped: false) { _ in
         let color: NSColor = warning ? .systemRed : codex ? .labelColor : .systemOrange
         color.setFill()
@@ -181,35 +185,37 @@ private final class CompactStatusView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         let empty = QuotaWindow(usedPercent: nil, resetsAt: nil)
+        drawProviderIcon(codex: true, connected: codexConnected, x: 0)
+        drawProviderIcon(codex: false, connected: claudeConnected, x: bounds.width - 15)
         drawRow(
-            codex: true,
             window5h: snapshot?.codex.fiveHour ?? empty,
             weekly: snapshot?.codex.weekly ?? empty,
             providerOK: snapshot?.codex.status == "ok",
-            connected: codexConnected,
             y: 1
         )
         drawRow(
-            codex: false,
             window5h: snapshot?.claude.fiveHour ?? empty,
             weekly: snapshot?.claude.weekly ?? empty,
             providerOK: snapshot?.claude.status == "ok",
-            connected: claudeConnected,
             y: 11
         )
     }
 
+    private func drawProviderIcon(codex: Bool, connected: Bool?, x: CGFloat) {
+        statusProviderIcon(codex: codex, warning: connected == false)
+            .draw(in: NSRect(x: x, y: 4, width: 15, height: 14))
+        if connected == false {
+            NSColor.systemRed.setFill()
+            NSBezierPath(ovalIn: NSRect(x: x + 11, y: 14, width: 4, height: 4)).fill()
+        }
+    }
+
     private func drawRow(
-        codex: Bool,
         window5h: QuotaWindow,
         weekly: QuotaWindow,
         providerOK: Bool,
-        connected: Bool?,
         y: CGFloat
     ) {
-        let icon = statusProviderIcon(codex: codex, warning: connected == false)
-        icon.draw(in: NSRect(x: codex ? 1 : bounds.width - 13, y: y, width: 12, height: 10))
-
         let text = NSMutableAttributedString()
         appendQuota(window5h, providerOK: providerOK, percent: false, to: text)
         text.append(NSAttributedString(
@@ -219,12 +225,9 @@ private final class CompactStatusView: NSView {
         appendQuota(weekly, providerOK: providerOK, percent: true, to: text)
 
         let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = codex ? .right : .left
+        paragraph.alignment = .center
         text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
-        let textRect = codex
-            ? NSRect(x: 15, y: y - 1, width: bounds.width - 16, height: 12)
-            : NSRect(x: 1, y: y - 1, width: bounds.width - 16, height: 12)
-        text.draw(in: textRect)
+        text.draw(in: NSRect(x: 16, y: y - 1, width: bounds.width - 32, height: 12))
     }
 
     private func appendQuota(
