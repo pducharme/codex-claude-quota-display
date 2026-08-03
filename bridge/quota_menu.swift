@@ -185,40 +185,39 @@ private final class CompactStatusView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         let empty = QuotaWindow(usedPercent: nil, resetsAt: nil)
-        drawProviderIcon(codex: true, connected: codexConnected, x: 0, y: 0)
-        drawLeader(from: 12, to: 18, y: 5.5)
+        drawProviderIcon(codex: true, connected: codexConnected, x: 0)
+        drawProviderIcon(codex: false, connected: claudeConnected, x: bounds.width - 15)
+        drawDivider()
         drawRow(
             window5h: snapshot?.codex.fiveHour ?? empty,
             weekly: snapshot?.codex.weekly ?? empty,
             providerOK: snapshot?.codex.status == "ok",
-            x: 18,
-            width: bounds.width - 18,
+            x: 16,
+            width: bounds.width - 32,
             y: 1
         )
         drawRow(
             window5h: snapshot?.claude.fiveHour ?? empty,
             weekly: snapshot?.claude.weekly ?? empty,
             providerOK: snapshot?.claude.status == "ok",
-            x: 0,
-            width: bounds.width - 18,
+            x: 16,
+            width: bounds.width - 32,
             y: 11
         )
-        drawLeader(from: bounds.width - 18, to: bounds.width - 12, y: 15.5)
-        drawProviderIcon(codex: false, connected: claudeConnected, x: bounds.width - 12, y: 10)
     }
 
-    private func drawProviderIcon(codex: Bool, connected: Bool?, x: CGFloat, y: CGFloat) {
+    private func drawProviderIcon(codex: Bool, connected: Bool?, x: CGFloat) {
         statusProviderIcon(codex: codex, warning: connected == false)
-            .draw(in: NSRect(x: x, y: y, width: 12, height: 11))
+            .draw(in: NSRect(x: x, y: 4, width: 15, height: 14))
         if connected == false {
             NSColor.systemRed.setFill()
-            NSBezierPath(ovalIn: NSRect(x: x + 8, y: y + 7, width: 4, height: 4)).fill()
+            NSBezierPath(ovalIn: NSRect(x: x + 11, y: 14, width: 4, height: 4)).fill()
         }
     }
 
-    private func drawLeader(from start: CGFloat, to end: CGFloat, y: CGFloat) {
-        NSColor.separatorColor.withAlphaComponent(0.8).setFill()
-        NSRect(x: start, y: y, width: end - start, height: 1).fill()
+    private func drawDivider() {
+        NSColor.separatorColor.withAlphaComponent(0.7).setFill()
+        NSRect(x: 14, y: 10.5, width: bounds.width - 28, height: 0.5).fill()
     }
 
     private func drawRow(
