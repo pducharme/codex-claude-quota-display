@@ -143,8 +143,10 @@ private func compactRemainingText(_ window: QuotaWindow, percent: Bool) -> Strin
 
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
     let size = NSSize(width: 12, height: 10)
-    let codexIcon = "/Applications/Codex.app/Contents/Resources/icon-codex-dark-color.png"
-    if codex, let image = NSImage(contentsOfFile: codexIcon) {
+    let applicationIcon = codex
+        ? "/Applications/Codex.app/Contents/Resources/icon-codex-dark-color.png"
+        : "/Applications/Claude.app/Contents/Resources/electron.icns"
+    if let image = NSImage(contentsOfFile: applicationIcon) {
         return image
     }
     return NSImage(size: size, flipped: false) { _ in
