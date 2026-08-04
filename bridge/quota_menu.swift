@@ -187,8 +187,8 @@ private final class CompactStatusView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         let empty = QuotaWindow(usedPercent: nil, resetsAt: nil)
-        drawProviderIcon(codex: true, connected: codexConnected, x: 0)
-        drawProviderIcon(codex: false, connected: claudeConnected, x: bounds.width - 20)
+        drawProviderIcon(codex: false, connected: claudeConnected, x: 0)
+        drawProviderIcon(codex: true, connected: codexConnected, x: bounds.width - 20)
         drawDivider()
         drawRow(
             window5h: snapshot?.codex.fiveHour ?? empty,
