@@ -45,11 +45,15 @@ une nouvelle lecture Codex et Claude; l’écran attend la nouvelle génération
 avant de terminer son animation.
 
 L’entrée compacte de la barre de menus affiche directement les limites
-restantes **5 h / semaine** sur deux lignes, précédées de la rosace Codex et
-du petit Clawd pixelisé de Claude. Elle occupe environ la moitié de la largeur
-de la version avec les noms complets. Son menu détaille aussi
+restantes **5 h / semaine** sur deux lignes, entre les icônes officielles des
+applications Claude et Codex. Elle occupe environ la moitié de la largeur de
+la version avec les noms complets. Son menu détaille aussi
 Fable, les resets Codex, les prochaines réinitialisations et l’heure de la
-dernière actualisation dans deux cartes à jauges graduées. Une ligne indique
+dernière actualisation dans deux cartes à jauges graduées. La grande barre
+indique le quota réellement restant; les cinq segments de la fenêtre 5 h et
+les sept segments de la semaine indiquent le quota qui devrait théoriquement
+rester selon le temps avant la réinitialisation. Le compte à rebours précise
+la fenêtre concernée. Une ligne indique
 aussi si l’API ESP32 est joignable et son adresse sur le réseau local. Une case
 du menu contrôle le démarrage automatique du pont API à l’ouverture de la
 session; le contrôleur de barre de menus reste disponible pour pouvoir la

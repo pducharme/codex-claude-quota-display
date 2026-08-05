@@ -141,6 +141,38 @@ private func compactRemainingText(_ window: QuotaWindow, percent: Bool) -> Strin
     return "\(remaining)\(percent ? "%" : "")"
 }
 
+private func expectedRemainingPercent(
+    _ window: QuotaWindow,
+    durationSeconds: Int,
+    now: Int = Int(Date().timeIntervalSince1970)
+) -> CGFloat? {
+    guard let reset = window.resetsAt, durationSeconds > 0 else { return nil }
+    let remaining = CGFloat(reset - now) / CGFloat(durationSeconds) * 100
+    return max(0, min(100, remaining))
+}
+
+private func resetCountdown(
+    fiveHour: QuotaWindow,
+    weekly: QuotaWindow,
+    now: Int = Int(Date().timeIntervalSince1970)
+) -> String {
+    let resets = [
+        (label: "5 h", timestamp: fiveHour.resetsAt),
+        (label: "1 sem", timestamp: weekly.resetsAt),
+    ].compactMap { item -> (String, Int)? in
+        guard let timestamp = item.timestamp, timestamp > now else { return nil }
+        return (item.label, timestamp)
+    }
+    guard let reset = resets.min(by: { $0.1 < $1.1 }) else { return "◷  —" }
+    let hours = Double(reset.1 - now) / 3600
+    return String(
+        format: "◷  %@ · %.1f h",
+        locale: Locale(identifier: "fr_CA"),
+        reset.0,
+        hours
+    )
+}
+
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
     let size = NSSize(width: 12, height: 10)
     let applicationIcon = codex
@@ -388,14 +420,26 @@ private final class QuotaDashboardView: NSView {
             color: .labelColor
         )
         drawText(
-            resetCountdown(provider),
+            resetCountdown(fiveHour: provider.fiveHour, weekly: provider.weekly),
             in: NSRect(x: 220, y: y + 1, width: 182, height: 20),
             font: .monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
             color: .secondaryLabelColor,
             alignment: .right
         )
-        drawQuotaRow(label: "5 h", window: provider.fiveHour, y: y + 28)
-        drawQuotaRow(label: "1 sem", window: provider.weekly, y: y + 58)
+        drawQuotaRow(
+            label: "5 h",
+            window: provider.fiveHour,
+            durationSeconds: 5 * 3600,
+            segmentCount: 5,
+            y: y + 28
+        )
+        drawQuotaRow(
+            label: "1 sem",
+            window: provider.weekly,
+            durationSeconds: 7 * 24 * 3600,
+            segmentCount: 7,
+            y: y + 58
+        )
         if let compactWindow {
             drawCompactQuota(label: compactLabel, window: compactWindow, y: y + 91)
         } else {
@@ -403,7 +447,13 @@ private final class QuotaDashboardView: NSView {
         }
     }
 
-    private func drawQuotaRow(label: String, window: QuotaWindow, y: CGFloat) {
+    private func drawQuotaRow(
+        label: String,
+        window: QuotaWindow,
+        durationSeconds: Int,
+        segmentCount: Int,
+        y: CGFloat
+    ) {
         drawText(
             label,
             in: NSRect(x: 22, y: y - 2, width: 46, height: 18),
@@ -412,7 +462,11 @@ private final class QuotaDashboardView: NSView {
         )
         let bar = NSRect(x: 72, y: y, width: 292, height: 10)
         drawBar(in: bar, percent: window.remainingPercent)
-        drawSegments(in: NSRect(x: 72, y: y + 14, width: 292, height: 5), percent: window.remainingPercent)
+        drawSegments(
+            in: NSRect(x: 72, y: y + 14, width: 292, height: 5),
+            expectedPercent: expectedRemainingPercent(window, durationSeconds: durationSeconds),
+            count: segmentCount
+        )
         drawText(
             remainingText(window),
             in: NSRect(x: 372, y: y - 5, width: 45, height: 22),
@@ -434,11 +488,10 @@ private final class QuotaDashboardView: NSView {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private func drawSegments(in rect: NSRect, percent: Int?) {
-        let count = 8
+    private func drawSegments(in rect: NSRect, expectedPercent: CGFloat?, count: Int) {
         let gap: CGFloat = 4
         let width = (rect.width - CGFloat(count - 1) * gap) / CGFloat(count)
-        let filled = percent.map { Int(ceil(CGFloat($0) / 100 * CGFloat(count))) } ?? 0
+        let filled = expectedPercent.map { $0 / 100 * CGFloat(count) } ?? 0
         for index in 0..<count {
             let segment = NSRect(
                 x: rect.minX + CGFloat(index) * (width + gap),
@@ -446,8 +499,18 @@ private final class QuotaDashboardView: NSView {
                 width: width,
                 height: rect.height
             )
-            (index < filled ? NSColor.systemBlue.withAlphaComponent(0.64) : NSColor.tertiaryLabelColor.withAlphaComponent(0.28)).setFill()
+            NSColor.tertiaryLabelColor.withAlphaComponent(0.28).setFill()
             NSBezierPath(roundedRect: segment, xRadius: 2.5, yRadius: 2.5).fill()
+            let fraction = max(0, min(1, filled - CGFloat(index)))
+            guard fraction > 0 else { continue }
+            NSColor.systemTeal.withAlphaComponent(0.7).setFill()
+            let fill = NSRect(
+                x: segment.minX,
+                y: segment.minY,
+                width: segment.width * fraction,
+                height: segment.height
+            )
+            NSBezierPath(roundedRect: fill, xRadius: 2.5, yRadius: 2.5).fill()
         }
     }
 
@@ -486,15 +549,6 @@ private final class QuotaDashboardView: NSView {
             NSColor.systemBlue.withAlphaComponent(0.72).setFill()
             NSBezierPath(ovalIn: NSRect(x: 224 + CGFloat(index) * 14, y: y, width: 7, height: 7)).fill()
         }
-    }
-
-    private func resetCountdown(_ provider: ProviderQuotas) -> String {
-        let resets = [provider.fiveHour.resetsAt, provider.weekly.resetsAt, provider.fableWeekly.resetsAt]
-            .compactMap { $0 }
-            .filter { $0 > Int(Date().timeIntervalSince1970) }
-        guard let reset = resets.min() else { return "◷  —" }
-        let hours = Double(reset - Int(Date().timeIntervalSince1970)) / 3600
-        return String(format: "◷  dans %.1f h", locale: Locale(identifier: "fr_CA"), hours)
     }
 
     private func drawAPIStatus(y: CGFloat) {
@@ -840,12 +894,24 @@ private struct QuotaMenu {
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             let autoLaunchOn = autoLaunchEnabled(from: CommandResult(status: 0, output: "disabled services = {}"), label: "test")
             let autoLaunchOff = autoLaunchEnabled(from: CommandResult(status: 0, output: "\"test\" => disabled"), label: "test")
+            let expectedHalf = expectedRemainingPercent(
+                QuotaWindow(usedPercent: 60, resetsAt: 19_000),
+                durationSeconds: 18_000,
+                now: 10_000
+            )
+            let weeklyReset = resetCountdown(
+                fiveHour: QuotaWindow(usedPercent: nil, resetsAt: nil),
+                weekly: QuotaWindow(usedPercent: 40, resetsAt: 13_600),
+                now: 10_000
+            )
             guard
                 claudeGood, !claudeWrongMode, codexGood, !codexWrongMode,
                 quotas?.codex.weekly.remainingPercent == 93,
                 quotas?.claude.fiveHour.remainingPercent == 100,
                 quotas?.claude.fableWeekly.remainingPercent == 72,
                 compactRemainingText(quotas!.codex.weekly, percent: true) == "93%",
+                expectedHalf == 50,
+                weeklyReset.contains("1 sem"),
                 quotas?.apiAddress == "192.168.1.252:8788",
                 autoLaunchOn == true, autoLaunchOff == false
             else { exit(1) }
