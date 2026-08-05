@@ -54,7 +54,7 @@ indique le quota réellement restant; les cinq segments de la fenêtre 5 h et
 les sept segments de la semaine indiquent le quota qui devrait théoriquement
 rester selon le temps avant la réinitialisation. Le compte à rebours précise
 la fenêtre concernée. Une ligne indique
-aussi si l’API ESP32 est joignable et son adresse sur le réseau local. Une case
+aussi si l’API est joignable et son adresse sur le réseau local. Une case
 du menu contrôle le démarrage automatique du pont API à l’ouverture de la
 session; le contrôleur de barre de menus reste disponible pour pouvoir la
 recocher. Elle vérifie également les authentifications

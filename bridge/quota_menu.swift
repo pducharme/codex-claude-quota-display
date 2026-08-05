@@ -356,7 +356,7 @@ private final class QuotaDashboardView: NSView {
 
     private var accessibilitySummary: String {
         guard let snapshot else { return "Chargement des quotas" }
-        return "Codex, 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)). Claude, 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)). API ESP32 \(apiOnline ? "en ligne" : "hors ligne") à \(snapshot.apiAddress). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true))."
+        return "Codex, 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)). Claude, 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)). API \(snapshot.apiAddress), \(apiOnline ? "en ligne" : "hors ligne"). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true))."
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -554,25 +554,12 @@ private final class QuotaDashboardView: NSView {
     private func drawAPIStatus(y: CGFloat) {
         let color: NSColor = apiOnline ? .systemGreen : .systemRed
         color.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 96, y: y + 4, width: 7, height: 7)).fill()
+        NSBezierPath(ovalIn: NSRect(x: 22, y: y + 4, width: 7, height: 7)).fill()
         drawText(
-            "API ESP32",
-            in: NSRect(x: 110, y: y, width: 76, height: 16),
+            "API \(snapshot?.apiAddress ?? "port 8788")  -  \(apiOnline ? "En ligne" : "Hors ligne")",
+            in: NSRect(x: 36, y: y, width: bounds.width - 58, height: 16),
             font: .systemFont(ofSize: 11, weight: .semibold),
             color: .secondaryLabelColor
-        )
-        drawText(
-            apiOnline ? "en ligne" : "hors ligne",
-            in: NSRect(x: 188, y: y, width: 66, height: 16),
-            font: .systemFont(ofSize: 11, weight: .semibold),
-            color: color
-        )
-        drawText(
-            snapshot?.apiAddress ?? "port 8788",
-            in: NSRect(x: 256, y: y, width: 150, height: 16),
-            font: .monospacedDigitSystemFont(ofSize: 10, weight: .medium),
-            color: .secondaryLabelColor,
-            alignment: .right
         )
     }
 
