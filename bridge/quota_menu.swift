@@ -390,6 +390,8 @@ private final class QuotaDashboardView: NSView {
             compactWindow: snapshot?.claude.fableWeekly,
             compactCount: nil
         )
+        NSColor.separatorColor.setFill()
+        NSRect(x: 22, y: 244, width: bounds.width - 44, height: 1).fill()
         drawText(
             "Dernière actualisation · \(dateText(snapshot?.refreshedAt, timeOnly: true))",
             in: NSRect(x: 22, y: 248, width: bounds.width - 44, height: 16),
