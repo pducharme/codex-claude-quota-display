@@ -555,12 +555,29 @@ private final class QuotaDashboardView: NSView {
         let color: NSColor = apiOnline ? .systemGreen : .systemRed
         color.setFill()
         NSBezierPath(ovalIn: NSRect(x: 22, y: y + 4, width: 7, height: 7)).fill()
-        drawText(
-            "API \(snapshot?.apiAddress ?? "port 8788")  -  \(apiOnline ? "En ligne" : "Hors ligne")",
-            in: NSRect(x: 36, y: y, width: bounds.width - 58, height: 16),
-            font: .systemFont(ofSize: 11, weight: .semibold),
-            color: .secondaryLabelColor
+        let line = NSMutableAttributedString(
+            string: "API  ",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
         )
+        line.append(NSAttributedString(
+            string: "[\(snapshot?.apiAddress ?? "port 8788")]",
+            attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+                .baselineOffset: 0.5,
+            ]
+        ))
+        line.append(NSAttributedString(
+            string: "  -  \(apiOnline ? "En ligne" : "Hors ligne")",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: color,
+            ]
+        ))
+        line.draw(in: NSRect(x: 36, y: y, width: bounds.width - 58, height: 16))
     }
 
     private func drawText(
