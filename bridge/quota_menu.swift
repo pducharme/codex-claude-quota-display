@@ -16,6 +16,19 @@ private struct AuthState {
     let label: String
 }
 
+private func applicationMenu() -> NSMenu {
+    let main = NSMenu()
+    let editItem = NSMenuItem(title: "Édition", action: nil, keyEquivalent: "")
+    let edit = NSMenu(title: "Édition")
+    edit.addItem(withTitle: "Couper", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+    edit.addItem(withTitle: "Copier", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+    edit.addItem(withTitle: "Coller", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+    edit.addItem(withTitle: "Tout sélectionner", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+    editItem.submenu = edit
+    main.addItem(editItem)
+    return main
+}
+
 private struct ClaudeDesktopCredential {
     let accessToken: String
     let expiresAt: Date
@@ -1046,6 +1059,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NSApp.mainMenu = applicationMenu()
         configureMenu()
         checkAuthentication(autoPrompt: true)
         refreshClaudeDesktopIfAuthorized()
@@ -1183,7 +1197,9 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         address.widthAnchor.constraint(equalToConstant: 360).isActive = true
         token.widthAnchor.constraint(equalToConstant: 360).isActive = true
         alert.accessoryView = fields
+        alert.window.initialFirstResponder = address
 
+        NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         saveQuotaSource(host: address.stringValue, token: token.stringValue)
     }
@@ -1636,6 +1652,7 @@ private struct QuotaMenu {
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             let desktopSample = #"{"five_hour":{"utilization":12.8,"resets_at":"2026-09-02T22:00:00Z"},"seven_day":{"utilization":39,"resets_at":"2026-09-08T04:00:00Z"},"seven_day_fable":{"utilization":81,"resets_at":"2026-09-08T04:00:00Z"}}"#
             let desktopQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopSample.utf8))
+            let editMenu = applicationMenu().items.first?.submenu
             let organization = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
             let credential = bestClaudeDesktopCredential(
                 in: [
@@ -1670,6 +1687,7 @@ private struct QuotaMenu {
                 (desktopQuotas?["weekly"] as? [String: Any])?["used_percent"] as? Int == 39,
                 (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,
                 credential?.accessToken == "test-token",
+                editMenu?.items.first(where: { $0.keyEquivalent == "v" })?.action == #selector(NSText.paste(_:)),
                 compactRemainingText(quotas!.codex.weekly, percent: true) == "93%",
                 hourlyReset == "2h 30m",
                 weeklyReset == "5j 2h",
