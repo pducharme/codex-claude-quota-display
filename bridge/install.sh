@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 APP_DIR="$HOME/Library/Application Support/Quota Display"
+PYTHON=$(command -v python3)
 PLIST="$HOME/Library/LaunchAgents/com.pducharme.quota-display.plist"
 MENU_PLIST="$HOME/Library/LaunchAgents/com.pducharme.quota-display-menu.plist"
 LABEL="com.pducharme.quota-display"
@@ -24,15 +25,17 @@ codesign --force --sign - "$MENU_APP" >/dev/null
 sed \
   -e "s|__APP_DIR__|$APP_DIR|g" \
   -e "s|__HOME__|$HOME|g" \
+  -e "s|__PYTHON__|$PYTHON|g" \
+  -e "s|__BRIDGE_SCRIPT__|$APP_DIR/quota_bridge.py|g" \
   "$SCRIPT_DIR/com.pducharme.quota-display.plist.template" > "$PLIST"
 chmod 600 "$PLIST"
 sed \
-  -e "s|__APP_DIR__|$APP_DIR|g" \
   -e "s|__HOME__|$HOME|g" \
+  -e "s|__MENU_EXECUTABLE__|$MENU_APP/Contents/MacOS/QuotaDisplayMenu|g" \
   "$SCRIPT_DIR/com.pducharme.quota-display-menu.plist.template" > "$MENU_PLIST"
 chmod 600 "$MENU_PLIST"
 
-/usr/bin/python3 "$APP_DIR/quota_bridge.py" \
+"$PYTHON" "$APP_DIR/quota_bridge.py" \
   --token-file "$APP_DIR/token" --show-token >/dev/null
 
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
@@ -51,9 +54,9 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
   sleep 1
 done
 
-TOKEN=$(/usr/bin/python3 "$APP_DIR/quota_bridge.py" \
+TOKEN=$("$PYTHON" "$APP_DIR/quota_bridge.py" \
   --token-file "$APP_DIR/token" --show-token)
-LAN_IP=$(/usr/bin/python3 -c 'import socket
+LAN_IP=$("$PYTHON" -c 'import socket
 try:
     s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(("1.1.1.1",80))
     print(s.getsockname()[0]);s.close()

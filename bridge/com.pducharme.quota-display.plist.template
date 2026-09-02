@@ -6,8 +6,8 @@
   <string>com.pducharme.quota-display</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/python3</string>
-    <string>__APP_DIR__/quota_bridge.py</string>
+    <string>__PYTHON__</string>
+    <string>__BRIDGE_SCRIPT__</string>
     <string>--token-file</string>
     <string>__APP_DIR__/token</string>
   </array>

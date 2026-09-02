@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+CONSOLE_USER=$(/usr/bin/stat -f '%Su' /dev/console)
+case "$CONSOLE_USER" in
+  ""|root|loginwindow)
+    echo "Aucune session macOS ouverte pour installer Quota Display." >&2
+    exit 1
+    ;;
+esac
+
+USER_UID=$(/usr/bin/id -u "$CONSOLE_USER")
+USER_GROUP=$(/usr/bin/id -gn "$CONSOLE_USER")
+USER_HOME=$(/usr/bin/dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | /usr/bin/awk '{print $2}')
+APP="/Applications/Quota Display.app"
+RESOURCES="$APP/Contents/Resources"
+APP_SUPPORT="$USER_HOME/Library/Application Support/Quota Display"
+LAUNCH_AGENTS="$USER_HOME/Library/LaunchAgents"
+LOGS="$USER_HOME/Library/Logs"
+BRIDGE_PLIST="$LAUNCH_AGENTS/com.pducharme.quota-display.plist"
+MENU_PLIST="$LAUNCH_AGENTS/com.pducharme.quota-display-menu.plist"
+DOMAIN="gui/$USER_UID"
+
+PYTHON=""
+for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+  if [ -x "$candidate" ]; then
+    PYTHON="$candidate"
+    break
+  fi
+done
+if [ -z "$PYTHON" ]; then
+  echo "Python 3 est requis. Installez-le avec Homebrew, puis relancez ce paquet." >&2
+  exit 1
+fi
+
+/bin/mkdir -p "$APP_SUPPORT" "$LAUNCH_AGENTS" "$LOGS"
+/usr/sbin/chown "$CONSOLE_USER:$USER_GROUP" "$APP_SUPPORT" "$LAUNCH_AGENTS" "$LOGS"
+/bin/chmod 700 "$APP_SUPPORT"
+
+"$PYTHON" "$RESOURCES/quota_bridge.py" \
+  --token-file "$APP_SUPPORT/token" --show-token >/dev/null
+/usr/sbin/chown "$CONSOLE_USER:$USER_GROUP" "$APP_SUPPORT/token"
+/bin/chmod 600 "$APP_SUPPORT/token"
+
+/usr/bin/sed \
+  -e "s|__APP_DIR__|$APP_SUPPORT|g" \
+  -e "s|__HOME__|$USER_HOME|g" \
+  -e "s|__PYTHON__|$PYTHON|g" \
+  -e "s|__BRIDGE_SCRIPT__|$RESOURCES/quota_bridge.py|g" \
+  "$RESOURCES/com.pducharme.quota-display.plist.template" > "$BRIDGE_PLIST"
+/usr/bin/sed \
+  -e "s|__HOME__|$USER_HOME|g" \
+  -e "s|__MENU_EXECUTABLE__|$APP/Contents/MacOS/QuotaDisplayMenu|g" \
+  "$RESOURCES/com.pducharme.quota-display-menu.plist.template" > "$MENU_PLIST"
+/usr/sbin/chown "$CONSOLE_USER:$USER_GROUP" "$BRIDGE_PLIST" "$MENU_PLIST"
+/bin/chmod 600 "$BRIDGE_PLIST" "$MENU_PLIST"
+/usr/bin/plutil -lint "$BRIDGE_PLIST" "$MENU_PLIST" >/dev/null
+
+for label in com.pducharme.quota-display com.pducharme.quota-display-menu; do
+  /bin/launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true
+  /bin/launchctl enable "$DOMAIN/$label"
+done
+/bin/sleep 1
+/bin/launchctl bootstrap "$DOMAIN" "$BRIDGE_PLIST"
+/bin/launchctl kickstart -k "$DOMAIN/com.pducharme.quota-display"
+/bin/launchctl bootstrap "$DOMAIN" "$MENU_PLIST"
+/bin/launchctl kickstart -k "$DOMAIN/com.pducharme.quota-display-menu"
+
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if /usr/bin/curl -fsS http://127.0.0.1:8788/health >/dev/null 2>&1; then
+    exit 0
+  fi
+  /bin/sleep 1
+done
+
+echo "Quota Display est installé, mais son API locale n'a pas démarré." >&2
+exit 1

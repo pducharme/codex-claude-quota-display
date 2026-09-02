@@ -19,24 +19,28 @@ configurée.
 - La carte est configurée et connectée au Wi-Fi.
 - Le pont tourne automatiquement avec la session macOS.
 - Un menu macOS surveille les connexions Claude Max et Codex/ChatGPT.
-- Adresse actuelle du pont : `192.168.1.252:8788`.
+- L’adresse actuelle du pont se copie depuis le menu macOS.
 - Codex et Claude répondent tous les deux correctement.
 
 ## 1. Installer le pont Mac
 
-Cette étape est déjà effectuée sur ce Mac. Pour réinstaller ou mettre à jour le
-service :
+Télécharger le fichier `.pkg` de la
+[dernière Release](https://github.com/pducharme/codex-claude-quota-display/releases/latest),
+puis l’ouvrir. Il installe le Companion, le pont API et leur démarrage
+automatique. Comme cette première version n’est pas notariée, macOS peut
+demander un clic droit sur le paquet, **Ouvrir**, ou une confirmation dans
+**Réglages Système → Confidentialité et sécurité**.
+
+Pour installer depuis les sources :
 
 ```sh
 cd bridge
 ./install.sh
 ```
 
-L’installateur affiche :
-
-- l’adresse IP et le port du pont;
-- le jeton de lecture à saisir dans l’écran;
-- l’état du service.
+Après l’installation, ouvrir le menu **Quota Display**, puis choisir
+**Copier la configuration API** pour copier l’adresse et le jeton destinés aux
+mini-écrans et aux autres Companions.
 
 Le pont actualise les fournisseurs toutes les cinq minutes et écoute sur le
 port `8788`. Les endpoints authentifiés sont `GET /v1/quotas` et
@@ -65,20 +69,18 @@ fournisseur. Aucun jeton fournisseur n’est copié dans le menu ni sur l’ESP3
 
 ### Utiliser le Mac mini comme source
 
-1. Installer le pont sur le Mac mini avec `bridge/install.sh`, puis connecter
-   Codex et Claude sur ce Mac.
+1. Installer le paquet de la Release sur le Mac mini, puis connecter Codex et
+   Claude sur ce Mac.
 2. Sur le MBP, ouvrir **Source des quotas…** et saisir l’adresse `IP:8788` et
    le jeton affichés par le Mac mini.
 3. Décocher **Démarrer l’API avec la session** sur le MBP si son pont local ne
    sert plus.
 4. Configurer les mini-écrans avec cette même adresse et ce même jeton.
 
-Pour réafficher le jeton sans réinstaller :
+Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-/usr/bin/python3 "$HOME/Library/Application Support/Quota Display/quota_bridge.py" \
-  --token-file "$HOME/Library/Application Support/Quota Display/token" \
-  --show-token
+bridge/build_pkg.sh 1.0.0
 ```
 
 ## 2. Compiler et flasher
@@ -102,8 +104,8 @@ Au premier démarrage, l’écran crée un réseau Wi-Fi nommé
 
 1. Connecter un téléphone ou le Mac à ce réseau.
 2. Ouvrir `http://192.168.4.1`.
-3. Saisir le Wi-Fi, `192.168.1.252:8788` comme pont, le jeton obtenu avec la
-   commande ci-dessus et la ville météo.
+3. Saisir le Wi-Fi, l’adresse et le jeton copiés depuis le Companion, puis la
+   ville météo.
 4. Enregistrer. L’écran redémarre et commence à se synchroniser.
 
 Pour changer la ville ou effacer la configuration, maintenir le bouton
@@ -146,7 +148,7 @@ portail. La ville par défaut est `Sherbrooke`.
 - L’actualisation automatique toutes les cinq minutes reste active.
 
 L’adresse IP du Mac peut changer après un redémarrage du routeur. Si cela
-arrive, réserver `192.168.1.252` dans le DHCP du routeur ou réinitialiser
+arrive, réserver l’adresse du Mac mini dans le DHCP du routeur ou réinitialiser
 l’écran et saisir la nouvelle adresse.
 
 ## Vérifications

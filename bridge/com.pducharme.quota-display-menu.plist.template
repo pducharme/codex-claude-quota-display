@@ -6,7 +6,7 @@
   <string>com.pducharme.quota-display-menu</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__APP_DIR__/Quota Display Menu.app/Contents/MacOS/QuotaDisplayMenu</string>
+    <string>__MENU_EXECUTABLE__</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

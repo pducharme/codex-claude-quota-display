@@ -697,6 +697,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let dashboard = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 470, height: 250))
     private let refreshItem = NSMenuItem(title: "Actualiser les quotas", action: nil, keyEquivalent: "r")
     private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
+    private let copyAPIItem = NSMenuItem(title: "Copier la configuration API", action: nil, keyEquivalent: "")
     private let autoLaunchItem = NSMenuItem(title: "Démarrer l’API avec la session", action: nil, keyEquivalent: "")
     private let connectionsItem = NSMenuItem(title: "Connexions", action: nil, keyEquivalent: "")
     private let bridgeLabel = "com.pducharme.quota-display"
@@ -765,6 +766,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         sourceItem.target = self
         sourceItem.action = #selector(chooseQuotaSource)
         menu.addItem(sourceItem)
+        copyAPIItem.target = self
+        copyAPIItem.action = #selector(copyAPIConfiguration)
+        copyAPIItem.toolTip = "Copie l’adresse et le jeton nécessaires aux mini-écrans et aux Companions distants."
+        menu.addItem(copyAPIItem)
         autoLaunchItem.target = self
         autoLaunchItem.action = #selector(toggleAutoLaunch)
         autoLaunchItem.state = .mixed
@@ -798,6 +803,30 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             sourceItem.title = "Source des quotas : ce Mac…"
             connectionsItem.title = "Connexions"
             connectionsItem.isEnabled = true
+        }
+    }
+
+    @objc private func copyAPIConfiguration() {
+        let source = configuredBridgeSource
+        guard
+            let address = snapshot?.apiAddress,
+            let token = try? String(contentsOf: source.tokenURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            token.count >= 16
+        else {
+            copyAPIItem.title = "Configuration API indisponible"
+            restoreCopyAPITitle()
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("Adresse: \(address)\nJeton: \(token)", forType: .string)
+        copyAPIItem.title = "Configuration API copiée ✓"
+        restoreCopyAPITitle()
+    }
+
+    private func restoreCopyAPITitle() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.copyAPIItem.title = "Copier la configuration API"
         }
     }
 
