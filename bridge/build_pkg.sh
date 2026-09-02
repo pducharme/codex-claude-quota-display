@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.0.4}
+VERSION=${1:-1.0.5}
 if ! printf '%s\n' "$VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "Version invalide: $VERSION" >&2
   exit 2
@@ -15,11 +15,15 @@ MACOS="$APP/Contents/MacOS"
 RESOURCES="$APP/Contents/Resources"
 OUTPUT_DIR="$REPO_DIR/dist"
 PACKAGE_NAME="Quota-Display-$VERSION.pkg"
+ZIP_NAME="Quota-Display-$VERSION.zip"
+SPARKLE_ROOT=$("$SCRIPT_DIR/prepare_sparkle.sh")
 
-/bin/mkdir -p "$MACOS" "$RESOURCES" "$OUTPUT_DIR"
+/bin/mkdir -p "$MACOS" "$RESOURCES" "$APP/Contents/Frameworks" "$OUTPUT_DIR"
 for arch in arm64 x86_64; do
   /usr/bin/xcrun swiftc -target "$arch-apple-macosx13.0" \
     -parse-as-library -swift-version 5 -O \
+    -F "$SPARKLE_ROOT" -framework Sparkle \
+    -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -framework AppKit -framework Foundation -framework LocalAuthentication \
     -framework Security -lsqlite3 \
     "$SCRIPT_DIR/quota_menu.swift" -o "$WORK_DIR/QuotaDisplayMenu-$arch"
@@ -29,8 +33,10 @@ done
   "$WORK_DIR/QuotaDisplayMenu-x86_64" \
   -output "$MACOS/QuotaDisplayMenu"
 /usr/bin/install -m 644 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" "$APP/Contents/Info.plist"
+/usr/bin/ditto "$SPARKLE_ROOT/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 /usr/bin/install -m 644 "$SCRIPT_DIR/Assets/CodexIcon.png" "$RESOURCES/CodexIcon.png"
 /usr/bin/install -m 644 "$REPO_DIR/THIRD_PARTY_NOTICES.md" "$RESOURCES/THIRD_PARTY_NOTICES.md"
+/usr/bin/install -m 644 "$SPARKLE_ROOT/LICENSE" "$RESOURCES/Sparkle-LICENSE.txt"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/bin/install -m 755 "$SCRIPT_DIR/quota_bridge.py" "$RESOURCES/quota_bridge.py"
@@ -44,6 +50,8 @@ done
 /usr/bin/codesign --force --deep --sign - "$APP" >/dev/null
 /usr/bin/codesign --verify --deep --strict "$APP"
 "$MACOS/QuotaDisplayMenu" --self-test
+/bin/rm -f "$OUTPUT_DIR/$ZIP_NAME"
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUTPUT_DIR/$ZIP_NAME"
 COPYFILE_DISABLE=1 /usr/bin/pkgbuild \
   --root "$WORK_DIR/root" \
   --scripts "$SCRIPT_DIR/package" \
@@ -56,6 +64,7 @@ COPYFILE_DISABLE=1 /usr/bin/pkgbuild \
 (
   cd "$OUTPUT_DIR"
   /usr/bin/shasum -a 256 "$PACKAGE_NAME" > "$PACKAGE_NAME.sha256"
+  /usr/bin/shasum -a 256 "$ZIP_NAME" > "$ZIP_NAME.sha256"
 )
 
 echo "$OUTPUT_DIR/$PACKAGE_NAME"

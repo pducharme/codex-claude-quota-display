@@ -88,8 +88,16 @@ ni à l’ESP32.
 Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-bridge/build_pkg.sh 1.0.4
+bridge/build_pkg.sh 1.0.5
 ```
+
+À partir de la version 1.0.5, le Companion utilise le même mécanisme Sparkle 2
+qu’AgentLimits. Il vérifie les mises à jour au démarrage puis toutes les 24 h;
+le sous-menu **Mises à jour** permet aussi de vérifier immédiatement ou de
+désactiver les vérifications automatiques. La mise à jour est téléchargée et
+installée dans l’app après confirmation. La 1.0.5 doit encore être installée
+une fois avec le `.pkg`; les versions suivantes pourront l’être directement
+depuis le Companion.
 
 ## 2. Compiler et flasher
 
@@ -164,12 +172,14 @@ l’écran et saisir la nouvelle adresse.
 ```sh
 python3 bridge/test_quota_bridge.py
 python3 bridge/quota_bridge.py --once
+SPARKLE_ROOT=$(bridge/prepare_sparkle.sh)
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
   -parse-as-library -swift-version 5 \
+  -F "$SPARKLE_ROOT" -framework Sparkle \
   -framework AppKit -framework Foundation -framework LocalAuthentication \
   -framework Security -lsqlite3 \
   bridge/quota_menu.swift -o /tmp/QuotaDisplayMenu
-/tmp/QuotaDisplayMenu --self-test
+DYLD_FRAMEWORK_PATH="$SPARKLE_ROOT" /tmp/QuotaDisplayMenu --self-test
 ```
 
 Sources matérielles : [dépôt officiel LilyGO](https://github.com/Xinyuan-LilyGO/T-Display-S3-Long)

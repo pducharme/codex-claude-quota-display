@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Quota Display</title>
+        <item>
+            <title>1.0.5</title>
+            <pubDate>Wed, 02 Sep 2026 19:21:21 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:version>1.0.5</sparkle:version>
+            <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.5/Quota-Display-1.0.5.zip" length="1394776" type="application/octet-stream" sparkle:edSignature="wZtTD7UaE3iz4BXfWtQaA5K7j2zzf0opTyKW+/GnT2ae6jxma+yzZDkkdWf2Pg9Kz9QkZRY6cBJNoaAU99sIDw=="/>
+        </item>
+    </channel>
+</rss>

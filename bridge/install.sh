@@ -10,22 +10,28 @@ LABEL="com.pducharme.quota-display"
 MENU_LABEL="com.pducharme.quota-display-menu"
 DOMAIN="gui/$(id -u)"
 MENU_APP="$APP_DIR/Quota Display Menu.app"
+SPARKLE_ROOT=$("$SCRIPT_DIR/prepare_sparkle.sh")
 
 mkdir -p "$APP_DIR" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" \
-  "$MENU_APP/Contents/MacOS" "$MENU_APP/Contents/Resources"
+  "$MENU_APP/Contents/MacOS" "$MENU_APP/Contents/Resources" "$MENU_APP/Contents/Frameworks"
 install -m 700 "$SCRIPT_DIR/quota_bridge.py" "$APP_DIR/quota_bridge.py"
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
   -parse-as-library -swift-version 5 -O \
+  -F "$SPARKLE_ROOT" -framework Sparkle \
+  -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
   -framework AppKit -framework Foundation -framework LocalAuthentication \
   -framework Security -lsqlite3 \
   "$SCRIPT_DIR/quota_menu.swift" -o "$MENU_APP/Contents/MacOS/QuotaDisplayMenu"
 install -m 600 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" \
   "$MENU_APP/Contents/Info.plist"
+/usr/bin/ditto "$SPARKLE_ROOT/Sparkle.framework" "$MENU_APP/Contents/Frameworks/Sparkle.framework"
 install -m 644 "$SCRIPT_DIR/Assets/CodexIcon.png" \
   "$MENU_APP/Contents/Resources/CodexIcon.png"
 install -m 644 "$SCRIPT_DIR/../THIRD_PARTY_NOTICES.md" \
   "$MENU_APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
-codesign --force --sign - "$MENU_APP" >/dev/null
+install -m 644 "$SPARKLE_ROOT/LICENSE" \
+  "$MENU_APP/Contents/Resources/Sparkle-LICENSE.txt"
+codesign --force --deep --sign - "$MENU_APP" >/dev/null
 "$MENU_APP/Contents/MacOS/QuotaDisplayMenu" --self-test
 sed \
   -e "s|__APP_DIR__|$APP_DIR|g" \

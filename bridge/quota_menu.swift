@@ -5,6 +5,7 @@ import Foundation
 import LocalAuthentication
 import Security
 import SQLite3
+import Sparkle
 
 private struct CommandResult {
     let status: Int32
@@ -287,6 +288,26 @@ private func claudeDesktopWindow(_ value: Any?) -> [String: Any] {
     ]
 }
 
+private func claudePlanName(from root: [String: Any]) -> String? {
+    let organization = root["organization"] as? [String: Any]
+    let tier = (organization?["rate_limit_tier"] as? String)?.lowercased()
+        ?? (root["rate_limit_tier"] as? String)?.lowercased()
+    let multiplier = ["20x", "5x"].first { tier?.hasSuffix("_\($0)") == true }
+    let stated = (organization?["subscription_type"] as? String)
+        ?? (root["subscription_type"] as? String)
+        ?? (organization?["organization_type"] as? String)
+    let lower = stated?.lowercased() ?? tier
+    guard let lower else { return nil }
+    let base = lower.contains("max") ? "Max"
+        : lower.contains("team") ? "Team"
+        : lower.contains("enterprise") ? "Enterprise"
+        : lower.contains("pro") ? "Pro"
+        : lower.contains("free") ? "Free"
+        : lower.split(whereSeparator: { $0 == "_" || $0 == "-" })
+            .map { $0.capitalized }.joined(separator: " ")
+    return multiplier.map { "\(base) \($0.uppercased())" } ?? base
+}
+
 private func claudeDesktopQuotaSnapshot(from data: Data, plan: String? = nil) -> [String: Any]? {
     guard let source = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return nil
@@ -298,7 +319,7 @@ private func claudeDesktopQuotaSnapshot(from data: Data, plan: String? = nil) ->
         "weekly": claudeDesktopWindow(source["seven_day"]),
         "fable_weekly": claudeDesktopWindow(source["seven_day_fable"]),
     ]
-    if let plan { value["plan"] = plan }
+    if let plan = claudePlanName(from: source) ?? plan { value["plan"] = plan }
     let windows = ["five_hour", "weekly", "fable_weekly"]
     guard windows.contains(where: {
         (value[$0] as? [String: Any])?["used_percent"] is Int
@@ -1014,10 +1035,18 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
     private let copyAPIItem = NSMenuItem(title: "Copier la configuration API", action: nil, keyEquivalent: "")
     private let autoLaunchItem = NSMenuItem(title: "Démarrer l’API avec la session", action: nil, keyEquivalent: "")
+    private let updatesItem = NSMenuItem(title: "Mises à jour", action: nil, keyEquivalent: "")
+    private let checkUpdateItem = NSMenuItem(title: "Vérifier les mises à jour…", action: nil, keyEquivalent: "")
+    private let automaticUpdateItem = NSMenuItem(title: "Vérifier automatiquement", action: nil, keyEquivalent: "")
     private let connectionsItem = NSMenuItem(title: "Connexions", action: nil, keyEquivalent: "")
     private let claudeActionItem = NSMenuItem(title: "Autoriser Claude Desktop…", action: nil, keyEquivalent: "")
     private let bridgeLabel = "com.pducharme.quota-display"
     private let launchDomain = "gui/\(getuid())"
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
     private var codexConnected: Bool?
     private var claudeConnected: Bool?
     private var snapshot: QuotaSnapshot?
@@ -1060,6 +1089,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         NSApp.mainMenu = applicationMenu()
+        restartBridgeAfterUpdateIfNeeded()
         configureMenu()
         checkAuthentication(autoPrompt: true)
         refreshClaudeDesktopIfAuthorized()
@@ -1109,6 +1139,16 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         autoLaunchItem.state = .mixed
         autoLaunchItem.toolTip = "Contrôle le démarrage du pont API Python à la prochaine ouverture de session."
         menu.addItem(autoLaunchItem)
+        let updates = NSMenu()
+        checkUpdateItem.target = self
+        checkUpdateItem.action = #selector(checkUpdates)
+        updates.addItem(checkUpdateItem)
+        automaticUpdateItem.target = self
+        automaticUpdateItem.action = #selector(toggleAutomaticUpdateChecks)
+        automaticUpdateItem.state = updaterController.updater.automaticallyChecksForUpdates ? .on : .off
+        updates.addItem(automaticUpdateItem)
+        updatesItem.submenu = updates
+        menu.addItem(updatesItem)
         let connections = NSMenu()
         codexStatus.isEnabled = false
         claudeStatus.isEnabled = false
@@ -1259,6 +1299,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 
     func menuWillOpen(_ menu: NSMenu) {
         updateSourceItems()
+        checkUpdateItem.isEnabled = updaterController.updater.canCheckForUpdates
+        automaticUpdateItem.state = updaterController.updater.automaticallyChecksForUpdates ? .on : .off
         checkAuthentication(autoPrompt: false)
         loadAutoLaunchState()
         loadQuotas()
@@ -1414,6 +1456,28 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                     self.loadAutoLaunchState()
                 }
             }
+        }
+    }
+
+    @objc private func checkUpdates() {
+        updaterController.checkForUpdates(nil)
+    }
+
+    @objc private func toggleAutomaticUpdateChecks() {
+        let enabled = !updaterController.updater.automaticallyChecksForUpdates
+        updaterController.updater.automaticallyChecksForUpdates = enabled
+        automaticUpdateItem.state = enabled ? .on : .off
+    }
+
+    private func restartBridgeAfterUpdateIfNeeded() {
+        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String else { return }
+        let key = "lastLaunchedBundleVersion"
+        let defaults = UserDefaults.standard
+        let previous = defaults.string(forKey: key)
+        defaults.set(version, forKey: key)
+        guard previous != nil, previous != version else { return }
+        DispatchQueue.global(qos: .utility).async { [launchDomain, bridgeLabel] in
+            _ = run("/bin/launchctl", ["kickstart", "-k", "\(launchDomain)/\(bridgeLabel)"])
         }
     }
 
@@ -1574,11 +1638,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                     error == nil,
                     200...299 ~= status,
                     let data,
-                    let value = claudeDesktopQuotaSnapshot(
-                        from: data,
-                        plan: self.snapshot?.claude.plan
-                    ),
-                    let output = try? JSONSerialization.data(withJSONObject: value)
+                    let initialValue = claudeDesktopQuotaSnapshot(from: data, plan: self.snapshot?.claude.plan)
                 else {
                     if status == 401 || status == 403 { self.claudeDesktopCredential = nil }
                     self.claudeConnected = false
@@ -1590,24 +1650,49 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                     completion(false, failure)
                     return
                 }
-                do {
-                    try FileManager.default.createDirectory(
-                        at: self.appSupportURL,
-                        withIntermediateDirectories: true
-                    )
-                    try output.write(to: self.claudeDesktopQuotaURL, options: .atomic)
-                    try FileManager.default.setAttributes(
-                        [.posixPermissions: 0o600],
-                        ofItemAtPath: self.claudeDesktopQuotaURL.path
-                    )
-                    self.claudeConnected = true
-                    self.claudeStatus.title = "Claude : Claude Desktop connecté"
-                    self.claudeActionItem.title = "Reconnecter Claude Desktop…"
-                    self.renderStatusTitle()
-                    completion(true, "")
-                } catch {
-                    completion(false, error.localizedDescription)
+
+                let finish: ([String: Any]) -> Void = { value in
+                    do {
+                        let output = try JSONSerialization.data(withJSONObject: value)
+                        try FileManager.default.createDirectory(
+                            at: self.appSupportURL,
+                            withIntermediateDirectories: true
+                        )
+                        try output.write(to: self.claudeDesktopQuotaURL, options: .atomic)
+                        try FileManager.default.setAttributes(
+                            [.posixPermissions: 0o600],
+                            ofItemAtPath: self.claudeDesktopQuotaURL.path
+                        )
+                        self.claudeConnected = true
+                        self.claudeStatus.title = "Claude : Claude Desktop connecté"
+                        self.claudeActionItem.title = "Reconnecter Claude Desktop…"
+                        self.renderStatusTitle()
+                        completion(true, "")
+                    } catch {
+                        completion(false, error.localizedDescription)
+                    }
                 }
+
+                guard initialValue["plan"] == nil else {
+                    finish(initialValue)
+                    return
+                }
+                var profileRequest = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/profile")!)
+                profileRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+                profileRequest.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
+                profileRequest.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+                profileRequest.setValue("claude-cli (external, cli)", forHTTPHeaderField: "User-Agent")
+                URLSession.shared.dataTask(with: profileRequest) { profileData, profileResponse, _ in
+                    let profileStatus = (profileResponse as? HTTPURLResponse)?.statusCode ?? 0
+                    let plan = profileData
+                        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                        .flatMap(claudePlanName)
+                    DispatchQueue.main.async {
+                        let value = claudeDesktopQuotaSnapshot(from: data, plan: profileStatus == 200 ? plan : nil)
+                            ?? initialValue
+                        finish(value)
+                    }
+                }.resume()
             }
         }.resume()
     }
@@ -1650,7 +1735,7 @@ private struct QuotaMenu {
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
             let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
-            let desktopSample = #"{"five_hour":{"utilization":12.8,"resets_at":"2026-09-02T22:00:00Z"},"seven_day":{"utilization":39,"resets_at":"2026-09-08T04:00:00Z"},"seven_day_fable":{"utilization":81,"resets_at":"2026-09-08T04:00:00Z"}}"#
+            let desktopSample = #"{"subscription_type":"max","organization":{"rate_limit_tier":"default_claude_max_5x"},"five_hour":{"utilization":12.8,"resets_at":"2026-09-02T22:00:00Z"},"seven_day":{"utilization":39,"resets_at":"2026-09-08T04:00:00Z"},"seven_day_fable":{"utilization":81,"resets_at":"2026-09-08T04:00:00Z"}}"#
             let desktopQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopSample.utf8))
             let editMenu = applicationMenu().items.first?.submenu
             let organization = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -1676,6 +1761,9 @@ private struct QuotaMenu {
             let remoteBridge = bridgeBaseURL(from: "192.168.1.20:8788")
             let bundledIcon = Bundle.main.bundleURL.pathExtension != "app"
                 || Bundle.main.url(forResource: "CodexIcon", withExtension: "png").flatMap(NSImage.init(contentsOf:)) != nil
+            let sparkleConfigured = Bundle.main.bundleURL.pathExtension != "app"
+                || ((Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String)?.hasPrefix("https://") == true
+                    && (Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String)?.isEmpty == false)
             guard
                 claudeGood, !claudeWrongMode, codexGood, !codexWrongMode,
                 quotas?.codex.weekly.remainingPercent == 93,
@@ -1686,6 +1774,7 @@ private struct QuotaMenu {
                 (desktopQuotas?["five_hour"] as? [String: Any])?["used_percent"] as? Int == 12,
                 (desktopQuotas?["weekly"] as? [String: Any])?["used_percent"] as? Int == 39,
                 (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,
+                desktopQuotas?["plan"] as? String == "Max 5X",
                 credential?.accessToken == "test-token",
                 editMenu?.items.first(where: { $0.keyEquivalent == "v" })?.action == #selector(NSText.paste(_:)),
                 compactRemainingText(quotas!.codex.weekly, percent: true) == "93%",
@@ -1698,6 +1787,7 @@ private struct QuotaMenu {
                 bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
                 shellQuoted("a'b") == "'a'\\''b'",
                 bundledIcon,
+                sparkleConfigured,
                 quotas?.apiAddress == "192.168.1.252:8788",
                 autoLaunchOn == true, autoLaunchOff == false
             else { exit(1) }

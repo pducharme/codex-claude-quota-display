@@ -11,14 +11,26 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>1.0.5</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>1.0.5</string>
   <key>LSUIElement</key>
   <true/>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>SUFeedURL</key>
+  <string>https://raw.githubusercontent.com/pducharme/codex-claude-quota-display/agent/macos-quota-menu/appcast.xml</string>
+  <key>SUPublicEDKey</key>
+  <string>+Itrot6/r0s+Bi+4FJTQ2QLbo9Af6t7iDoSSm1tqiOI=</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUScheduledCheckInterval</key>
+  <integer>86400</integer>
+  <key>SUAutomaticallyUpdate</key>
+  <false/>
+  <key>SUAllowsAutomaticUpdates</key>
   <true/>
 </dict>
 </plist>

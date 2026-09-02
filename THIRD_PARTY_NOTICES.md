@@ -1,5 +1,8 @@
 # Third-party notices
 
+The macOS Companion bundles Sparkle 2.9.6. Its full license is included in
+the application as `Sparkle-LICENSE.txt`.
+
 The Claude Desktop credential-cache reader is based on Quotio:
 https://github.com/nguyenphutrong/quotio
 
