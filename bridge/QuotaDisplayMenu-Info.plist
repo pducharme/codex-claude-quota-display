@@ -8,12 +8,14 @@
   <string>com.pducharme.QuotaDisplayMenu</string>
   <key>CFBundleName</key>
   <string>Quota Display</string>
+  <key>CFBundleIconFile</key>
+  <string>QuotaDisplay.icns</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.5</string>
+  <string>1.0.6</string>
   <key>CFBundleVersion</key>
-  <string>1.0.5</string>
+  <string>1.0.6</string>
   <key>LSUIElement</key>
   <true/>
   <key>LSMinimumSystemVersion</key>

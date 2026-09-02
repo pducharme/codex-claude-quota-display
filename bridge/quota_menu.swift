@@ -1761,6 +1761,8 @@ private struct QuotaMenu {
             let remoteBridge = bridgeBaseURL(from: "192.168.1.20:8788")
             let bundledIcon = Bundle.main.bundleURL.pathExtension != "app"
                 || Bundle.main.url(forResource: "CodexIcon", withExtension: "png").flatMap(NSImage.init(contentsOf:)) != nil
+            let bundledAppIcon = Bundle.main.bundleURL.pathExtension != "app"
+                || Bundle.main.url(forResource: "QuotaDisplay", withExtension: "icns").flatMap(NSImage.init(contentsOf:)) != nil
             let sparkleConfigured = Bundle.main.bundleURL.pathExtension != "app"
                 || ((Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String)?.hasPrefix("https://") == true
                     && (Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String)?.isEmpty == false)
@@ -1786,7 +1788,7 @@ private struct QuotaMenu {
                 bridgeBaseURL(from: "ftp://192.168.1.20:8788") == nil,
                 bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
                 shellQuoted("a'b") == "'a'\\''b'",
-                bundledIcon,
+                bundledIcon, bundledAppIcon,
                 sparkleConfigured,
                 quotas?.apiAddress == "192.168.1.252:8788",
                 autoLaunchOn == true, autoLaunchOff == false

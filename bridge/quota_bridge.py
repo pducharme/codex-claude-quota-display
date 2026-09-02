@@ -314,7 +314,7 @@ def read_codex(timeout=20):
                 "clientInfo": {
                     "name": "quota-display",
                     "title": "Quota Display",
-                    "version": "1.0.5",
+                    "version": "1.0.6",
                 },
                 "capabilities": {"experimentalApi": False},
             },

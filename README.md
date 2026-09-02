@@ -88,16 +88,16 @@ ni à l’ESP32.
 Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-bridge/build_pkg.sh 1.0.5
+bridge/build_pkg.sh 1.0.6
 ```
 
 À partir de la version 1.0.5, le Companion utilise le même mécanisme Sparkle 2
 qu’AgentLimits. Il vérifie les mises à jour au démarrage puis toutes les 24 h;
 le sous-menu **Mises à jour** permet aussi de vérifier immédiatement ou de
 désactiver les vérifications automatiques. La mise à jour est téléchargée et
-installée dans l’app après confirmation. La 1.0.5 doit encore être installée
-une fois avec le `.pkg`; les versions suivantes pourront l’être directement
-depuis le Companion.
+installée dans l’app après confirmation. Une version antérieure à la 1.0.5 doit
+d’abord être remplacée une fois avec le `.pkg`; les versions suivantes pourront
+l’être directement depuis le Companion.
 
 ## 2. Compiler et flasher
 
