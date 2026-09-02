@@ -53,6 +53,10 @@ class RestartableAXS15231 : public Arduino_AXS15231 {
 
   void restart() {
     tftInit();
+    _currentX = -1;
+    _currentY = -1;
+    _currentW = 0;
+    _currentH = 0;
     setRotation(0);
     setAddrWindow(0, 0, LCD_WIDTH, LCD_HEIGHT);
   }
