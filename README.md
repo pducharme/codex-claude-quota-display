@@ -65,23 +65,30 @@ distant, le Companion ne demande pas de reconnecter Codex ou Claude localement;
 du menu contrôle toujours le démarrage automatique du pont API local à
 l’ouverture de la session. En mode local, le Companion vérifie les
 authentifications toutes les cinq minutes et permet de reconnecter chaque
-fournisseur. Aucun jeton fournisseur n’est copié dans le menu ni sur l’ESP32.
+fournisseur. Il utilise directement Codex.app et, après une autorisation
+explicite dans **Connexions**, la session de Claude Desktop. Le jeton Claude
+reste en mémoire; seul un cache local des pourcentages et des heures de remise
+à zéro est écrit sur disque. Aucun jeton fournisseur n’est envoyé au pont API
+ni à l’ESP32.
 
 ### Utiliser le Mac mini comme source
 
-1. Installer le paquet de la Release sur le Mac mini, puis connecter Codex et
-   Claude Code sur ce Mac. Le menu **Connexions** ouvre maintenant la commande
-   de connexion dans Terminal et indique clairement si une commande manque.
-2. Sur le MBP, ouvrir **Source des quotas…** et saisir l’adresse `IP:8788` et
+1. Installer le paquet de la Release sur le Mac mini, ouvrir Codex.app et
+   Claude Desktop, puis connecter les deux applications.
+2. Dans **Connexions**, choisir **Autoriser Claude Desktop…**. macOS demande
+   l’accès à `Claude Safe Storage`; cette autorisation remplace l’installation
+   de Claude Code en ligne de commande. La CLI reste seulement un repli si elle
+   est déjà présente.
+3. Sur le MBP, ouvrir **Source des quotas…** et saisir l’adresse `IP:8788` et
    le jeton affichés par le Mac mini.
-3. Décocher **Démarrer l’API avec la session** sur le MBP si son pont local ne
+4. Décocher **Démarrer l’API avec la session** sur le MBP si son pont local ne
    sert plus.
-4. Configurer les mini-écrans avec cette même adresse et ce même jeton.
+5. Configurer les mini-écrans avec cette même adresse et ce même jeton.
 
 Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-bridge/build_pkg.sh 1.0.1
+bridge/build_pkg.sh 1.0.2
 ```
 
 ## 2. Compiler et flasher
@@ -159,7 +166,8 @@ python3 bridge/test_quota_bridge.py
 python3 bridge/quota_bridge.py --once
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
   -parse-as-library -swift-version 5 \
-  -framework AppKit -framework Foundation \
+  -framework AppKit -framework Foundation -framework LocalAuthentication \
+  -framework Security -lsqlite3 \
   bridge/quota_menu.swift -o /tmp/QuotaDisplayMenu
 /tmp/QuotaDisplayMenu --self-test
 ```

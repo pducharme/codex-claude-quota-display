@@ -16,12 +16,15 @@ mkdir -p "$APP_DIR" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" \
 install -m 700 "$SCRIPT_DIR/quota_bridge.py" "$APP_DIR/quota_bridge.py"
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
   -parse-as-library -swift-version 5 -O \
-  -framework AppKit -framework Foundation \
+  -framework AppKit -framework Foundation -framework LocalAuthentication \
+  -framework Security -lsqlite3 \
   "$SCRIPT_DIR/quota_menu.swift" -o "$MENU_APP/Contents/MacOS/QuotaDisplayMenu"
 install -m 600 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" \
   "$MENU_APP/Contents/Info.plist"
 install -m 644 "$SCRIPT_DIR/Assets/CodexIcon.png" \
   "$MENU_APP/Contents/Resources/CodexIcon.png"
+install -m 644 "$SCRIPT_DIR/../THIRD_PARTY_NOTICES.md" \
+  "$MENU_APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
 codesign --force --sign - "$MENU_APP" >/dev/null
 "$MENU_APP/Contents/MacOS/QuotaDisplayMenu" --self-test
 sed \

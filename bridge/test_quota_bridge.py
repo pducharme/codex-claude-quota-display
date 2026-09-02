@@ -1,20 +1,34 @@
 #!/usr/bin/env python3
 import json
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from quota_bridge import (
     QuotaState,
+    command_path,
     parse_claude_usage,
     parse_codex_limits,
+    read_claude_desktop_cache,
     read_claude_plan,
     read_weather,
 )
 
 
 class QuotaParsingTest(unittest.TestCase):
+    @patch("quota_bridge.shutil.which", return_value=None)
+    @patch("quota_bridge.subprocess.run")
+    def test_command_path_uses_interactive_shell(self, run, _which):
+        with tempfile.TemporaryDirectory() as directory:
+            command = Path(directory) / "provider-cli"
+            command.write_text("#!/bin/sh\n")
+            command.chmod(0o700)
+            run.return_value.stdout = f"shell startup text\n{command}\n"
+            self.assertEqual(command_path("provider-cli"), str(command))
+
     def test_codex_windows_are_mapped_by_duration(self):
         result = {
             "rateLimits": {
@@ -95,6 +109,22 @@ Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
             windows["fable_weekly"]["resets_at"],
             windows["weekly"]["resets_at"],
         )
+
+    def test_fresh_claude_desktop_cache_is_parsed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "claude-desktop-quotas.json"
+            path.write_text(json.dumps({
+                "updated_at": 1_000,
+                "plan": "Max 5X",
+                "five_hour": {"used_percent": 12.8, "resets_at": 2_000},
+                "weekly": {"used_percent": 39, "resets_at": 3_000},
+                "fable_weekly": {"used_percent": 81, "resets_at": 3_000},
+            }))
+            windows = read_claude_desktop_cache(path, now=1_100)
+            self.assertEqual(windows["five_hour"]["used_percent"], 12)
+            self.assertEqual(windows["plan"], "Max 5X")
+            with self.assertRaises(ValueError):
+                read_claude_desktop_cache(path, now=2_000)
 
     @patch("quota_bridge.subprocess.run")
     def test_claude_plan_uses_keychain_tier(self, run):

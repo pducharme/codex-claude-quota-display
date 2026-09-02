@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.0.0}
+VERSION=${1:-1.0.2}
 if ! printf '%s\n' "$VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "Version invalide: $VERSION" >&2
   exit 2
@@ -20,7 +20,8 @@ PACKAGE_NAME="Quota-Display-$VERSION.pkg"
 for arch in arm64 x86_64; do
   /usr/bin/xcrun swiftc -target "$arch-apple-macosx13.0" \
     -parse-as-library -swift-version 5 -O \
-    -framework AppKit -framework Foundation \
+    -framework AppKit -framework Foundation -framework LocalAuthentication \
+    -framework Security -lsqlite3 \
     "$SCRIPT_DIR/quota_menu.swift" -o "$WORK_DIR/QuotaDisplayMenu-$arch"
 done
 /usr/bin/lipo -create \
@@ -29,6 +30,7 @@ done
   -output "$MACOS/QuotaDisplayMenu"
 /usr/bin/install -m 644 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" "$APP/Contents/Info.plist"
 /usr/bin/install -m 644 "$SCRIPT_DIR/Assets/CodexIcon.png" "$RESOURCES/CodexIcon.png"
+/usr/bin/install -m 644 "$REPO_DIR/THIRD_PARTY_NOTICES.md" "$RESOURCES/THIRD_PARTY_NOTICES.md"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/bin/install -m 755 "$SCRIPT_DIR/quota_bridge.py" "$RESOURCES/quota_bridge.py"

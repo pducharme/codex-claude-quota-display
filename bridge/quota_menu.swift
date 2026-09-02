@@ -1,6 +1,10 @@
 import AppKit
+import CommonCrypto
 import Darwin
 import Foundation
+import LocalAuthentication
+import Security
+import SQLite3
 
 private struct CommandResult {
     let status: Int32
@@ -10,6 +14,283 @@ private struct CommandResult {
 private struct AuthState {
     let connected: Bool
     let label: String
+}
+
+private struct ClaudeDesktopCredential {
+    let accessToken: String
+    let expiresAt: Date
+}
+
+private enum ClaudeDesktopError: LocalizedError {
+    case unavailable
+    case keychain(OSStatus)
+    case invalidData
+    case noAccount
+    case http(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            return "Les données de connexion de Claude Desktop sont introuvables."
+        case .keychain(let status):
+            return status == errSecInteractionNotAllowed
+                ? "L’accès au trousseau doit être autorisé de nouveau."
+                : "Le trousseau a refusé l’accès à Claude Safe Storage (\(status))."
+        case .invalidData:
+            return "Les données de connexion de Claude Desktop ne sont pas reconnues."
+        case .noAccount:
+            return "Aucun compte Claude Desktop actif avec un jeton valide n’a été trouvé."
+        case .http(let status):
+            return "Anthropic a refusé la lecture des quotas (HTTP \(status))."
+        }
+    }
+}
+
+private var claudeDesktopDirectory: URL {
+    FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Claude")
+}
+
+private var claudeDesktopConfigURL: URL {
+    claudeDesktopDirectory.appendingPathComponent("config.json")
+}
+
+private var claudeDesktopCookieURLs: [URL] {
+    ["Cookies", "Network/Cookies"].map(claudeDesktopDirectory.appendingPathComponent)
+}
+
+private func claudeDesktopHasCredentialMaterial() -> Bool {
+    guard
+        let data = try? Data(contentsOf: claudeDesktopConfigURL),
+        let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        root["oauth:tokenCache"] is String || root["oauth:tokenCacheV2"] is String
+    else { return false }
+    return claudeDesktopCookieURLs.contains { FileManager.default.fileExists(atPath: $0.path) }
+}
+
+private func claudeSafeStorageKey(allowPrompt: Bool) throws -> Data {
+    let context = LAContext()
+    context.interactionNotAllowed = !allowPrompt
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "Claude Safe Storage",
+        kSecAttrAccount as String: "Claude Key",
+        kSecReturnData as String: true,
+        kSecMatchLimit as String: kSecMatchLimitOne,
+        kSecUseAuthenticationContext as String: context,
+    ]
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    guard status == errSecSuccess, let data = result as? Data else {
+        throw ClaudeDesktopError.keychain(status)
+    }
+    return data
+}
+
+private func claudeDesktopKey(from password: Data) throws -> Data {
+    let salt = Data("saltysalt".utf8)
+    var key = Data(count: kCCKeySizeAES128)
+    let keyCount = key.count
+    let status = key.withUnsafeMutableBytes { keyBytes in
+        password.withUnsafeBytes { passwordBytes in
+            salt.withUnsafeBytes { saltBytes in
+                CCKeyDerivationPBKDF(
+                    CCPBKDFAlgorithm(kCCPBKDF2),
+                    passwordBytes.bindMemory(to: Int8.self).baseAddress,
+                    password.count,
+                    saltBytes.bindMemory(to: UInt8.self).baseAddress,
+                    salt.count,
+                    CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
+                    1003,
+                    keyBytes.bindMemory(to: UInt8.self).baseAddress,
+                    keyCount
+                )
+            }
+        }
+    }
+    guard status == kCCSuccess else { throw ClaudeDesktopError.invalidData }
+    return key
+}
+
+private func decryptClaudeDesktop(_ encrypted: Data, key: Data) throws -> Data {
+    guard encrypted.starts(with: Data("v10".utf8)) else {
+        throw ClaudeDesktopError.invalidData
+    }
+    let payload = encrypted.dropFirst(3)
+    let iv = Data(repeating: 0x20, count: kCCBlockSizeAES128)
+    var output = Data(count: payload.count + kCCBlockSizeAES128)
+    var outputLength = 0
+    let capacity = output.count
+    let status = output.withUnsafeMutableBytes { outputBytes in
+        payload.withUnsafeBytes { payloadBytes in
+            key.withUnsafeBytes { keyBytes in
+                iv.withUnsafeBytes { ivBytes in
+                    CCCrypt(
+                        CCOperation(kCCDecrypt),
+                        CCAlgorithm(kCCAlgorithmAES),
+                        CCOptions(kCCOptionPKCS7Padding),
+                        keyBytes.baseAddress,
+                        key.count,
+                        ivBytes.baseAddress,
+                        payloadBytes.baseAddress,
+                        payload.count,
+                        outputBytes.baseAddress,
+                        capacity,
+                        &outputLength
+                    )
+                }
+            }
+        }
+    }
+    guard status == kCCSuccess else { throw ClaudeDesktopError.invalidData }
+    output.count = outputLength
+    return output
+}
+
+private func sha256(_ data: Data) -> Data {
+    var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+    data.withUnsafeBytes { bytes in
+        _ = CC_SHA256(bytes.baseAddress, CC_LONG(bytes.count), &digest)
+    }
+    return Data(digest)
+}
+
+private func activeClaudeDesktopOrganization(key: Data) -> String? {
+    for url in claudeDesktopCookieURLs where FileManager.default.fileExists(atPath: url.path) {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            continue
+        }
+        defer { sqlite3_close(database) }
+        sqlite3_busy_timeout(database, 500)
+        let sql = "SELECT host_key, value, encrypted_value FROM cookies WHERE name='lastActiveOrg' AND host_key IN ('.claude.ai','claude.ai') ORDER BY last_update_utc DESC LIMIT 1"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            continue
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { continue }
+        let host = sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? "claude.ai"
+        if
+            let text = sqlite3_column_text(statement, 1).map({ String(cString: $0) }),
+            UUID(uuidString: text) != nil
+        {
+            return text.lowercased()
+        }
+        guard let bytes = sqlite3_column_blob(statement, 2) else { continue }
+        let encrypted = Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 2)))
+        guard let decrypted = try? decryptClaudeDesktop(encrypted, key: key) else { continue }
+        let prefix = sha256(Data(host.utf8))
+        guard
+            decrypted.starts(with: prefix),
+            let text = String(data: decrypted.dropFirst(prefix.count), encoding: .utf8),
+            UUID(uuidString: text) != nil
+        else { continue }
+        return text.lowercased()
+    }
+    return nil
+}
+
+private func decodedClaudeDesktopCache(_ value: Any?, key: Data) -> [String: Any]? {
+    guard
+        let encoded = value as? String,
+        let encrypted = Data(base64Encoded: encoded),
+        let decrypted = try? decryptClaudeDesktop(encrypted, key: key)
+    else { return nil }
+    return try? JSONSerialization.jsonObject(with: decrypted) as? [String: Any]
+}
+
+private func bestClaudeDesktopCredential(
+    in cache: [String: Any]?, organization: String,
+    now: Date = Date()
+) -> ClaudeDesktopCredential? {
+    guard let cache else { return nil }
+    let marker = ":https://api.anthropic.com:"
+    let minimumExpiry = now.addingTimeInterval(120).timeIntervalSince1970 * 1000
+    var candidates: [(rank: Int, value: ClaudeDesktopCredential)] = []
+    for (cacheKey, raw) in cache {
+        guard
+            cacheKey.lowercased().contains(organization),
+            let markerRange = cacheKey.range(of: marker),
+            let entry = raw as? [String: Any],
+            let token = entry["token"] as? String,
+            !token.isEmpty,
+            let expiry = (entry["expiresAt"] as? NSNumber)?.doubleValue,
+            expiry > minimumExpiry
+        else { continue }
+        let scopes = cacheKey[markerRange.upperBound...]
+            .split(whereSeparator: \.isWhitespace).map(String.init)
+        guard scopes.contains("user:profile") else { continue }
+        let clientID = String(cacheKey[..<markerRange.lowerBound].split(separator: ":").first ?? "")
+        let inference = scopes.contains("user:inference")
+        let production = clientID == "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+        candidates.append((
+            (production && inference ? 100 : 0) + (inference ? 10 : 0) + scopes.count,
+            ClaudeDesktopCredential(
+                accessToken: token,
+                expiresAt: Date(timeIntervalSince1970: expiry / 1000)
+            )
+        ))
+    }
+    return candidates.max { $0.rank < $1.rank }?.value
+}
+
+private func loadClaudeDesktopCredential(allowPrompt: Bool) throws -> ClaudeDesktopCredential {
+    guard
+        claudeDesktopHasCredentialMaterial(),
+        let configData = try? Data(contentsOf: claudeDesktopConfigURL),
+        let root = try? JSONSerialization.jsonObject(with: configData) as? [String: Any]
+    else { throw ClaudeDesktopError.unavailable }
+    let password = try claudeSafeStorageKey(allowPrompt: allowPrompt)
+    let key = try claudeDesktopKey(from: password)
+    guard let organization = activeClaudeDesktopOrganization(key: key) else {
+        throw ClaudeDesktopError.noAccount
+    }
+    let v2 = decodedClaudeDesktopCache(root["oauth:tokenCacheV2"], key: key)
+    let v1 = decodedClaudeDesktopCache(root["oauth:tokenCache"], key: key)
+    guard
+        let credential = bestClaudeDesktopCredential(in: v2, organization: organization)
+            ?? bestClaudeDesktopCredential(in: v1, organization: organization)
+    else { throw ClaudeDesktopError.noAccount }
+    return credential
+}
+
+private func epoch(fromISO8601 value: Any?) -> Int? {
+    guard let value = value as? String, !value.isEmpty else { return nil }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let date = formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    return date.map { Int($0.timeIntervalSince1970) }
+}
+
+private func claudeDesktopWindow(_ value: Any?) -> [String: Any] {
+    guard
+        let value = value as? [String: Any],
+        let utilization = (value["utilization"] as? NSNumber)?.doubleValue
+    else { return ["used_percent": NSNull(), "resets_at": NSNull()] }
+    return [
+        "used_percent": max(0, min(100, Int(utilization))),
+        "resets_at": epoch(fromISO8601: value["resets_at"]) ?? NSNull(),
+    ]
+}
+
+private func claudeDesktopQuotaSnapshot(from data: Data, plan: String? = nil) -> [String: Any]? {
+    guard let source = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+    }
+    var value: [String: Any] = [
+        "updated_at": Int(Date().timeIntervalSince1970),
+        "source": "claude-desktop",
+        "five_hour": claudeDesktopWindow(source["five_hour"]),
+        "weekly": claudeDesktopWindow(source["seven_day"]),
+        "fable_weekly": claudeDesktopWindow(source["seven_day_fable"]),
+    ]
+    if let plan { value["plan"] = plan }
+    let windows = ["five_hour", "weekly", "fable_weekly"]
+    guard windows.contains(where: {
+        (value[$0] as? [String: Any])?["used_percent"] is Int
+    }) else { return nil }
+    return value
 }
 
 private struct QuotaWindow {
@@ -43,7 +324,7 @@ private func shellQuoted(_ value: String) -> String {
 
 private func executable(named name: String) -> String? {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
-    let candidates = [
+    var candidates = [
         name == "codex" ? "/Applications/Codex.app/Contents/Resources/codex" : "",
         name == "codex" ? "\(home)/Applications/Codex.app/Contents/Resources/codex" : "",
         "\(home)/.local/bin/\(name)",
@@ -51,7 +332,16 @@ private func executable(named name: String) -> String? {
         "/usr/local/bin/\(name)",
         "/usr/bin/\(name)",
     ]
-    return candidates.first(where: FileManager.default.isExecutableFile(atPath:))
+    if name == "codex", let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") {
+        candidates.insert(app.appendingPathComponent("Contents/Resources/codex").path, at: 0)
+    }
+    if let direct = candidates.first(where: FileManager.default.isExecutableFile(atPath:)) {
+        return direct
+    }
+    let resolved = run("/bin/zsh", ["-lic", "command -v -- \(shellQuoted(name))"])
+    return resolved.output.split(separator: "\n").reversed()
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first(where: FileManager.default.isExecutableFile(atPath:))
 }
 
 private func run(_ path: String?, _ arguments: [String]) -> CommandResult {
@@ -712,6 +1002,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let copyAPIItem = NSMenuItem(title: "Copier la configuration API", action: nil, keyEquivalent: "")
     private let autoLaunchItem = NSMenuItem(title: "Démarrer l’API avec la session", action: nil, keyEquivalent: "")
     private let connectionsItem = NSMenuItem(title: "Connexions", action: nil, keyEquivalent: "")
+    private let claudeActionItem = NSMenuItem(title: "Autoriser Claude Desktop…", action: nil, keyEquivalent: "")
     private let bridgeLabel = "com.pducharme.quota-display"
     private let launchDomain = "gui/\(getuid())"
     private var codexConnected: Bool?
@@ -720,11 +1011,25 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var bridgeOnline = false
     private var checking = false
     private var loadingQuotas = false
+    private var refreshingClaudeDesktop = false
+    private var claudeDesktopCredential: ClaudeDesktopCredential?
     private var autoPrompted = Set<String>()
 
     private var appSupportURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Quota Display")
+    }
+
+    private var claudeDesktopAuthorizationURL: URL {
+        appSupportURL.appendingPathComponent("claude-desktop-authorized")
+    }
+
+    private var claudeDesktopQuotaURL: URL {
+        appSupportURL.appendingPathComponent("claude-desktop-quotas.json")
+    }
+
+    private var claudeDesktopAuthorized: Bool {
+        FileManager.default.fileExists(atPath: claudeDesktopAuthorizationURL.path)
     }
 
     private var configuredBridgeSource: (url: URL, tokenURL: URL, remote: Bool) {
@@ -743,13 +1048,17 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         NSApp.setActivationPolicy(.accessory)
         configureMenu()
         checkAuthentication(autoPrompt: true)
+        refreshClaudeDesktopIfAuthorized()
         loadAutoLaunchState()
         loadQuotas()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.loadQuotas() }
         }
         Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkAuthentication(autoPrompt: true) }
+            Task { @MainActor in
+                self?.checkAuthentication(autoPrompt: true)
+                self?.refreshClaudeDesktopIfAuthorized()
+            }
         }
     }
 
@@ -795,9 +1104,9 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         connections.addItem(reconnectCodex)
         connections.addItem(.separator())
         connections.addItem(claudeStatus)
-        let reconnectClaude = NSMenuItem(title: "Reconnecter Claude Max…", action: #selector(loginClaude), keyEquivalent: "")
-        reconnectClaude.target = self
-        connections.addItem(reconnectClaude)
+        claudeActionItem.target = self
+        claudeActionItem.action = #selector(loginClaude)
+        connections.addItem(claudeActionItem)
         connectionsItem.submenu = connections
         menu.addItem(connectionsItem)
         statusItem.menu = menu
@@ -818,6 +1127,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             sourceItem.title = "Source des quotas : ce Mac…"
             connectionsItem.title = "Connexions"
             connectionsItem.isEnabled = true
+            let desktop = claudeDesktopHasCredentialMaterial()
+            claudeActionItem.title = desktop
+                ? (claudeDesktopAuthorized ? "Reconnecter Claude Desktop…" : "Autoriser Claude Desktop…")
+                : "Reconnecter Claude Code…"
         }
     }
 
@@ -938,20 +1251,41 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private func checkAuthentication(autoPrompt: Bool) {
         guard !configuredBridgeSource.remote, !checking else { return }
         checking = true
-        let claude = executable(named: "claude")
-        let codex = executable(named: "codex")
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let claude = claudeState(from: run(claude, ["auth", "status", "--json"]))
-            let codex = codexState(from: run(codex, ["login", "status"]))
+            let claudePath = executable(named: "claude")
+            let codexPath = executable(named: "codex")
+            let desktop = claudeDesktopHasCredentialMaterial()
+            let cliClaude = claudeState(from: run(claudePath, ["auth", "status", "--json"]))
+            let authorized = FileManager.default.fileExists(
+                atPath: FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Library/Application Support/Quota Display/claude-desktop-authorized").path
+            )
+            let claude = cliClaude.connected || !desktop
+                ? cliClaude
+                : AuthState(
+                    connected: authorized,
+                    label: authorized ? "Claude Desktop autorisé" : "Claude Desktop à autoriser"
+                )
+            let codex = codexState(from: run(codexPath, ["login", "status"]))
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.checking = false
-                self.apply(claude: claude, codex: codex, autoPrompt: autoPrompt)
+                self.apply(
+                    claude: claude,
+                    codex: codex,
+                    claudeDesktopAvailable: desktop,
+                    autoPrompt: autoPrompt
+                )
             }
         }
     }
 
-    private func apply(claude: AuthState, codex: AuthState, autoPrompt: Bool) {
+    private func apply(
+        claude: AuthState,
+        codex: AuthState,
+        claudeDesktopAvailable: Bool,
+        autoPrompt: Bool
+    ) {
         guard !configuredBridgeSource.remote else {
             updateSourceItems()
             return
@@ -960,11 +1294,14 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         codexConnected = codex.connected
         claudeStatus.title = "Claude : \(claude.label)"
         codexStatus.title = "Codex : \(codex.label)"
+        claudeActionItem.title = claudeDesktopAvailable
+            ? (claudeDesktopAuthorized ? "Reconnecter Claude Desktop…" : "Autoriser Claude Desktop…")
+            : "Reconnecter Claude Code…"
         renderStatusTitle()
 
         if claude.connected { autoPrompted.remove("claude") }
         if codex.connected { autoPrompted.remove("codex") }
-        if autoPrompt && !claude.connected && autoPrompted.insert("claude").inserted {
+        if autoPrompt && !claude.connected && !claudeDesktopAvailable && autoPrompted.insert("claude").inserted {
             launchLogin(provider: "claude")
         }
         if autoPrompt && !codex.connected && autoPrompted.insert("codex").inserted {
@@ -1065,7 +1402,25 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     @objc private func loginClaude() {
-        launchLogin(provider: "claude")
+        guard claudeDesktopHasCredentialMaterial() else {
+            launchLogin(provider: "claude")
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Autoriser Claude Desktop"
+        alert.informativeText = "macOS demandera la permission de lire « Claude Safe Storage ». Le jeton reste uniquement en mémoire; seuls les pourcentages et les heures de remise à zéro sont enregistrés localement."
+        alert.addButton(withTitle: "Autoriser")
+        alert.addButton(withTitle: "Annuler")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        setStatus(provider: "claude", text: "autorisation en cours…")
+        refreshClaudeDesktop(allowPrompt: true) { [weak self] success, message in
+            guard let self else { return }
+            if success {
+                self.triggerRefresh()
+            } else {
+                self.showLoginError(provider: "claude", message: message)
+            }
+        }
     }
 
     @objc private func loginCodex() {
@@ -1076,7 +1431,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let path = executable(named: provider)
         guard let path else {
             setStatus(provider: provider, text: "commande introuvable")
-            showLoginError(provider: provider, message: "La commande n’est pas installée sur ce Mac. Installez-la, puis réessayez.")
+            showLoginError(
+                provider: provider,
+                message: "La commande n’est pas installée sur ce Mac. Installez-la, puis réessayez."
+            )
             return
         }
         let arguments = provider == "claude"
@@ -1118,7 +1476,124 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     @objc private func refreshQuotas() {
-        triggerRefresh()
+        if !configuredBridgeSource.remote && claudeDesktopAuthorized {
+            refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
+                self?.triggerRefresh()
+            }
+        } else {
+            triggerRefresh()
+        }
+    }
+
+    private func refreshClaudeDesktopIfAuthorized() {
+        guard !configuredBridgeSource.remote, claudeDesktopAuthorized else { return }
+        refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
+            self?.triggerRefresh()
+        }
+    }
+
+    private func refreshClaudeDesktop(
+        allowPrompt: Bool,
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        guard !refreshingClaudeDesktop else {
+            completion(false, "Une actualisation Claude Desktop est déjà en cours.")
+            return
+        }
+        refreshingClaudeDesktop = true
+        if
+            let credential = claudeDesktopCredential,
+            credential.expiresAt > Date().addingTimeInterval(120)
+        {
+            fetchClaudeDesktopUsage(credential, completion: completion)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try loadClaudeDesktopCredential(allowPrompt: allowPrompt) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let credential):
+                    self.claudeDesktopCredential = credential
+                    if allowPrompt {
+                        do {
+                            try FileManager.default.createDirectory(
+                                at: self.appSupportURL,
+                                withIntermediateDirectories: true
+                            )
+                            try self.writePrivate("yes", to: self.claudeDesktopAuthorizationURL)
+                        } catch {
+                            self.refreshingClaudeDesktop = false
+                            completion(false, error.localizedDescription)
+                            return
+                        }
+                    }
+                    self.fetchClaudeDesktopUsage(credential, completion: completion)
+                case .failure(let error):
+                    self.refreshingClaudeDesktop = false
+                    self.claudeConnected = false
+                    self.setStatus(provider: "claude", text: "autorisation requise")
+                    self.renderStatusTitle()
+                    completion(false, error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func fetchClaudeDesktopUsage(
+        _ credential: ClaudeDesktopCredential,
+        completion: @escaping (Bool, String) -> Void
+    ) {
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        request.setValue("claude-code/2.1.69", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                defer { self.refreshingClaudeDesktop = false }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard
+                    error == nil,
+                    200...299 ~= status,
+                    let data,
+                    let value = claudeDesktopQuotaSnapshot(
+                        from: data,
+                        plan: self.snapshot?.claude.plan
+                    ),
+                    let output = try? JSONSerialization.data(withJSONObject: value)
+                else {
+                    if status == 401 || status == 403 { self.claudeDesktopCredential = nil }
+                    self.claudeConnected = false
+                    self.setStatus(provider: "claude", text: "lecture impossible")
+                    self.renderStatusTitle()
+                    let failure = status > 0
+                        ? ClaudeDesktopError.http(status).localizedDescription
+                        : (error?.localizedDescription ?? ClaudeDesktopError.invalidData.localizedDescription)
+                    completion(false, failure)
+                    return
+                }
+                do {
+                    try FileManager.default.createDirectory(
+                        at: self.appSupportURL,
+                        withIntermediateDirectories: true
+                    )
+                    try output.write(to: self.claudeDesktopQuotaURL, options: .atomic)
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: 0o600],
+                        ofItemAtPath: self.claudeDesktopQuotaURL.path
+                    )
+                    self.claudeConnected = true
+                    self.claudeStatus.title = "Claude : Claude Desktop connecté"
+                    self.claudeActionItem.title = "Reconnecter Claude Desktop…"
+                    self.renderStatusTitle()
+                    completion(true, "")
+                } catch {
+                    completion(false, error.localizedDescription)
+                }
+            }
+        }.resume()
     }
 
     private func triggerRefresh() {
@@ -1159,6 +1634,18 @@ private struct QuotaMenu {
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
             let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
+            let desktopSample = #"{"five_hour":{"utilization":12.8,"resets_at":"2026-09-02T22:00:00Z"},"seven_day":{"utilization":39,"resets_at":"2026-09-08T04:00:00Z"},"seven_day_fable":{"utilization":81,"resets_at":"2026-09-08T04:00:00Z"}}"#
+            let desktopQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopSample.utf8))
+            let organization = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            let credential = bestClaudeDesktopCredential(
+                in: [
+                    "9d1c250a-e61b-44d9-88ed-5944d1962f5e:\(organization):https://api.anthropic.com:user:profile user:inference": [
+                        "token": "test-token", "expiresAt": 2_000_000,
+                    ],
+                ],
+                organization: organization,
+                now: Date(timeIntervalSince1970: 1_000)
+            )
             let autoLaunchOn = autoLaunchEnabled(from: CommandResult(status: 0, output: "disabled services = {}"), label: "test")
             let autoLaunchOff = autoLaunchEnabled(from: CommandResult(status: 0, output: "\"test\" => disabled"), label: "test")
             let hourlyReset = resetCountdown(QuotaWindow(usedPercent: 60, resetsAt: 19_000), now: 10_000)
@@ -1179,6 +1666,10 @@ private struct QuotaMenu {
                 quotas?.claude.fiveHour.remainingPercent == 100,
                 quotas?.claude.plan == "Max 5X",
                 quotas?.claude.fableWeekly.remainingPercent == 72,
+                (desktopQuotas?["five_hour"] as? [String: Any])?["used_percent"] as? Int == 12,
+                (desktopQuotas?["weekly"] as? [String: Any])?["used_percent"] as? Int == 39,
+                (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,
+                credential?.accessToken == "test-token",
                 compactRemainingText(quotas!.codex.weekly, percent: true) == "93%",
                 hourlyReset == "2h 30m",
                 weeklyReset == "5j 2h",

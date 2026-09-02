@@ -214,13 +214,87 @@ def parse_claude_usage(text, now=None):
     return windows
 
 
+def read_claude_desktop_cache(
+    path=None, now=None, max_age=900
+):
+    """Read the non-secret quota snapshot produced by the macOS menu app."""
+    path = path or (
+        Path.home()
+        / "Library/Application Support/Quota Display/claude-desktop-quotas.json"
+    )
+    value = json.loads(Path(path).read_text())
+    updated_at = value.get("updated_at")
+    now = int(time.time() if now is None else now)
+    if not isinstance(updated_at, int) or not 0 <= now - updated_at <= max_age:
+        raise ValueError("Claude Desktop quota cache is stale")
+    windows = {
+        key: _window(
+            (value.get(key) or {}).get("used_percent"),
+            (value.get(key) or {}).get("resets_at"),
+        )
+        for key in EMPTY_WINDOWS
+    }
+    if all(window["used_percent"] is None for window in windows.values()):
+        raise ValueError("Claude Desktop quota cache has no usage windows")
+    windows["plan"] = (
+        value.get("plan") if isinstance(value.get("plan"), str) else None
+    )
+    return windows
+
+
+def command_path(name, installed=(), bundle_id=None, bundle_relative=None):
+    for path in installed:
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    if bundle_id and bundle_relative:
+        try:
+            result = subprocess.run(
+                [
+                    "/usr/bin/mdfind",
+                    f"kMDItemCFBundleIdentifier == '{bundle_id}'",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            for value in result.stdout.splitlines():
+                path = Path(value.strip()) / bundle_relative
+                if path.is_file() and os.access(path, os.X_OK):
+                    return str(path)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    direct = shutil.which(name)
+    if direct:
+        return direct
+    try:
+        result = subprocess.run(
+            ["/bin/zsh", "-lic", 'command -v -- "$1"', "--", name],
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for value in reversed(result.stdout.splitlines()):
+        path = Path(value.strip()).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return None
+
+
 def read_codex(timeout=20):
     installed = (
         Path.home() / "Applications/Codex.app/Contents/Resources/codex",
         Path("/Applications/Codex.app/Contents/Resources/codex"),
     )
-    bundled = next((path for path in installed if path.is_file()), None)
-    codex = str(bundled) if bundled else shutil.which("codex")
+    codex = command_path(
+        "codex",
+        installed,
+        bundle_id="com.openai.codex",
+        bundle_relative="Contents/Resources/codex",
+    )
     if not codex:
         raise RuntimeError("codex executable not found")
 
@@ -240,7 +314,7 @@ def read_codex(timeout=20):
                 "clientInfo": {
                     "name": "quota-display",
                     "title": "Quota Display",
-                    "version": "1.0.0",
+                    "version": "1.0.2",
                 },
                 "capabilities": {"experimentalApi": False},
             },
@@ -278,8 +352,12 @@ def read_codex(timeout=20):
 
 
 def read_claude(timeout=40):
+    try:
+        return read_claude_desktop_cache()
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
     installed = Path.home() / ".local" / "bin" / "claude"
-    claude = str(installed) if installed.is_file() else shutil.which("claude")
+    claude = command_path("claude", (installed,))
     if not claude:
         raise RuntimeError("claude executable not found")
     env = os.environ.copy()
