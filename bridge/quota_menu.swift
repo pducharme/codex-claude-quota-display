@@ -426,6 +426,16 @@ private func autoLaunchEnabled(from result: CommandResult, label: String) -> Boo
     return !result.output.contains("\"\(label)\" => disabled")
 }
 
+private func launchdPID(from output: String) -> pid_t? {
+    for line in output.split(separator: "\n") {
+        let fields = line.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1)
+        if fields.count == 2, fields[0].trimmingCharacters(in: .whitespaces) == "pid" {
+            return Int32(fields[1].trimmingCharacters(in: .whitespaces))
+        }
+    }
+    return nil
+}
+
 private func quotaWindow(_ value: Any?) -> QuotaWindow {
     let value = value as? [String: Any]
     return QuotaWindow(
@@ -1041,6 +1051,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let connectionsItem = NSMenuItem(title: "Connexions", action: nil, keyEquivalent: "")
     private let claudeActionItem = NSMenuItem(title: "Autoriser Claude Desktop…", action: nil, keyEquivalent: "")
     private let bridgeLabel = "com.pducharme.quota-display"
+    private let menuLabel = "com.pducharme.quota-display-menu"
     private let launchDomain = "gui/\(getuid())"
     private let updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
@@ -1087,6 +1098,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard claimSingleInstance() else {
+            NSApp.terminate(nil)
+            return
+        }
         NSApp.setActivationPolicy(.accessory)
         NSApp.mainMenu = applicationMenu()
         restartBridgeAfterUpdateIfNeeded()
@@ -1163,6 +1178,13 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         connections.addItem(claudeActionItem)
         connectionsItem.submenu = connections
         menu.addItem(connectionsItem)
+        menu.addItem(.separator())
+        let aboutItem = NSMenuItem(title: "À propos de Quota Display", action: #selector(showAbout), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+        let quitItem = NSMenuItem(title: "Quitter Quota Display", action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
         statusItem.menu = menu
         updateSourceItems()
         renderStatusTitle()
@@ -1469,6 +1491,33 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         automaticUpdateItem.state = enabled ? .on : .off
     }
 
+    private func claimSingleInstance() -> Bool {
+        let currentPID = getpid()
+        let target = "\(launchDomain)/\(menuLabel)"
+        let managedPID = launchdPID(from: run("/bin/launchctl", ["print", target]).output)
+        if let managedPID, managedPID != currentPID {
+            return false
+        }
+        if let identifier = Bundle.main.bundleIdentifier {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+                where app.processIdentifier != currentPID
+            {
+                app.terminate()
+            }
+        }
+        return true
+    }
+
+    @objc private func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(nil)
+    }
+
+    @objc private func quitApp() {
+        _ = run("/bin/launchctl", ["bootout", "\(launchDomain)/\(menuLabel)"])
+        NSApp.terminate(nil)
+    }
+
     private func restartBridgeAfterUpdateIfNeeded() {
         guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String else { return }
         let key = "lastLaunchedBundleVersion"
@@ -1750,6 +1799,7 @@ private struct QuotaMenu {
             )
             let autoLaunchOn = autoLaunchEnabled(from: CommandResult(status: 0, output: "disabled services = {}"), label: "test")
             let autoLaunchOff = autoLaunchEnabled(from: CommandResult(status: 0, output: "\"test\" => disabled"), label: "test")
+            let parsedLaunchPID = launchdPID(from: "state = running\n\tpid = 4321\n")
             let hourlyReset = resetCountdown(QuotaWindow(usedPercent: 60, resetsAt: 19_000), now: 10_000)
             let weeklyReset = resetCountdown(QuotaWindow(usedPercent: 40, resetsAt: 450_640), now: 10_000)
             let expectedHalf = expectedRemainingPercent(
@@ -1791,7 +1841,8 @@ private struct QuotaMenu {
                 bundledIcon, bundledAppIcon,
                 sparkleConfigured,
                 quotas?.apiAddress == "192.168.1.252:8788",
-                autoLaunchOn == true, autoLaunchOff == false
+                autoLaunchOn == true, autoLaunchOff == false,
+                parsedLaunchPID == 4321
             else { exit(1) }
             print("quota menu self-test: ok")
             return

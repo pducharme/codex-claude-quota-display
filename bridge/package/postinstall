@@ -55,6 +55,7 @@ fi
 /usr/sbin/chown "$CONSOLE_USER:$USER_GROUP" "$BRIDGE_PLIST" "$MENU_PLIST"
 /bin/chmod 600 "$BRIDGE_PLIST" "$MENU_PLIST"
 /usr/bin/plutil -lint "$BRIDGE_PLIST" "$MENU_PLIST" >/dev/null
+/usr/sbin/chown -R "$CONSOLE_USER:$USER_GROUP" "$APP"
 
 for label in com.pducharme.quota-display com.pducharme.quota-display-menu; do
   /bin/launchctl bootout "$DOMAIN/$label" >/dev/null 2>&1 || true

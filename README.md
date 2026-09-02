@@ -88,7 +88,7 @@ ni à l’ESP32.
 Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-bridge/build_pkg.sh 1.0.6
+bridge/build_pkg.sh 1.0.7
 ```
 
 À partir de la version 1.0.5, le Companion utilise le même mécanisme Sparkle 2
@@ -98,6 +98,11 @@ désactiver les vérifications automatiques. La mise à jour est téléchargée 
 installée dans l’app après confirmation. Une version antérieure à la 1.0.5 doit
 d’abord être remplacée une fois avec le `.pkg`; les versions suivantes pourront
 l’être directement depuis le Companion.
+
+Si la version 1.0.6 ou une version antérieure a été installée, installer la
+1.0.7 une fois avec le `.pkg`. Cette migration rend l’app modifiable par
+l’utilisateur et retire le `KeepAlive` du menu : les prochaines mises à jour
+Sparkle ne demanderont plus Touch ID et ne lanceront plus un deuxième menu.
 
 ## 2. Compiler et flasher
 
