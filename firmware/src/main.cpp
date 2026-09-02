@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_system.h>
 #include <ArduinoJson.h>
 #include <DNSServer.h>
 #include <HTTPClient.h>
@@ -32,6 +33,7 @@ constexpr uint8_t TOUCH_ADDRESS = 0x58;
 constexpr uint32_t TOUCH_READ_COMMAND = 0xD0070000;
 constexpr uint32_t TOUCH_CLEAR_COMMAND = 0xD00002AB;
 constexpr int BACKLIGHT = 185;
+constexpr uint32_t LCD_RESTART_MS = 30UL * 60UL * 1000UL;
 constexpr uint32_t REFRESH_MS = 5UL * 60UL * 1000UL;
 constexpr uint32_t RETRY_MS = 30UL * 1000UL;
 constexpr int CONTENT_TOP = 4;
@@ -45,8 +47,18 @@ constexpr bool ROTATE_CLOCKWISE = false;
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     TFT_CS, TFT_SCLK, TFT_SDIO0, TFT_SDIO1, TFT_SDIO2, TFT_SDIO3);
-Arduino_GFX *panel =
-    new Arduino_AXS15231(bus, TFT_RST, 0, false, LCD_WIDTH, LCD_HEIGHT);
+class RestartableAXS15231 : public Arduino_AXS15231 {
+ public:
+  using Arduino_AXS15231::Arduino_AXS15231;
+
+  void restart() {
+    tftInit();
+    setRotation(0);
+    setAddrWindow(0, 0, LCD_WIDTH, LCD_HEIGHT);
+  }
+};
+RestartableAXS15231 *panel =
+    new RestartableAXS15231(bus, TFT_RST, 0, false, LCD_WIDTH, LCD_HEIGHT);
 Arduino_Canvas *view = new Arduino_Canvas(VIEW_WIDTH, VIEW_HEIGHT, nullptr);
 uint16_t *rotated = nullptr;
 uint16_t *transitionFrom = nullptr;
@@ -64,6 +76,7 @@ String weatherCity = "Sherbrooke";
 uint32_t lastFetchMillis = 0;
 uint32_t serverEpochAtFetch = 0;
 uint32_t nextFetchMillis = 0;
+uint32_t nextLcdRestartMillis = 0;
 bool online = false;
 bool bridgeRefreshActive = false;
 uint32_t bridgeRefreshGeneration = 0;
@@ -86,6 +99,7 @@ struct Window {
 
 struct Provider {
   String status = "loading";
+  String plan = "--";
   Window fiveHour;
   Window weekly;
   Window fableWeekly;
@@ -111,6 +125,7 @@ struct Weather {
   String region;
   String condition;
   float temperature = 0;
+  float apparentTemperature = 0;
   int code = -1;
   int forecastCount = 0;
   ForecastDay forecast[5];
@@ -341,6 +356,10 @@ void drawProviderCard(int x, const char *name, const Provider &provider,
     drawClaudeMascot(x + 22, y + 21, frame);
   }
   text(x + 44, y + 12, name, COLOR_TEXT, 2);
+  int planX = x + 52 + strlen(name) * 12;
+  int planWidth = provider.plan.length() * 6 + 12;
+  view->fillRoundRect(planX, y + 11, planWidth, 16, 7, COLOR_CELL);
+  text(planX + 6, y + 15, provider.plan, accent, 1);
 
   uint16_t providerStatus =
       !online ? COLOR_RED :
@@ -526,6 +545,15 @@ void drawWeatherPage(int pull = 0, bool refreshing = false, int frame = 0) {
     view->drawCircle(29 + valueWidth, top + 69, 4, COLOR_TEXT);
     text(39 + valueWidth, top + 71, "C", COLOR_TEXT, 3);
     drawWeatherIcon(206, top + 64, weather.code, frame);
+
+    int apparentTemperature = static_cast<int>(
+        weather.apparentTemperature +
+        (weather.apparentTemperature >= 0 ? 0.5 : -0.5));
+    String feelsLike = "RESSENTI " + String(apparentTemperature);
+    text(24, top + 122, feelsLike, COLOR_MUTED, 1);
+    int feelsLikeWidth = feelsLike.length() * 6;
+    view->drawCircle(28 + feelsLikeWidth, top + 123, 2, COLOR_MUTED);
+    text(34 + feelsLikeWidth, top + 122, "C", COLOR_MUTED, 1);
 
     view->fillRoundRect(273, top + 10, 345, 132, 9, COLOR_CELL);
     for (int index = 0; index < weather.forecastCount; ++index) {
@@ -766,6 +794,7 @@ void readProvider(JsonObjectConst providers, const char *name,
   JsonObjectConst source = providers[name].as<JsonObjectConst>();
   if (source.isNull()) return;
   provider.status = source["status"] | "error";
+  provider.plan = source["plan"] | "--";
   provider.fiveHour = jsonWindow(source["five_hour"]);
   provider.weekly = jsonWindow(source["weekly"]);
   provider.fableWeekly = jsonWindow(source["fable_weekly"]);
@@ -836,7 +865,9 @@ bool fetchQuotas() {
   serverEpochAtFetch = document["server_time"].as<uint32_t>();
   lastFetchMillis = millis();
   online = true;
-  Serial.println("Quota data refreshed");
+  Serial.printf("Quota data refreshed: uptime=%lus reset=%d\n",
+                static_cast<unsigned long>(millis() / 1000UL),
+                static_cast<int>(esp_reset_reason()));
   return true;
 }
 
@@ -895,6 +926,8 @@ bool fetchWeather() {
   weather.region = source["region"] | "";
   weather.condition = source["condition"] | "VARIABLE";
   weather.temperature = source["temperature_c"] | 0.0;
+  weather.apparentTemperature =
+      source["apparent_temperature_c"] | weather.temperature;
   weather.code = source["weather_code"] | -1;
   weather.forecastCount = 0;
   for (JsonObjectConst day : source["forecast"].as<JsonArrayConst>()) {
@@ -1165,10 +1198,20 @@ void setupDisplay() {
                 probeI2C(TOUCH_ADDRESS) == 0 ? "ready" : "not found");
 }
 
+void restartDisplay() {
+  Serial.println("LCD restart started");
+  ledcWrite(1, 0);
+  panel->restart();
+  drawCurrentPage();
+  ledcWrite(1, BACKLIGHT);
+  Serial.println("LCD restart completed");
+}
+
 }  // namespace
 
 void setup() {
   Serial.begin(115200);
+  Serial.printf("Boot reset reason: %d\n", static_cast<int>(esp_reset_reason()));
   setupDisplay();
   clearConfigurationIfRequested();
 
@@ -1179,6 +1222,7 @@ void setup() {
   bool fetched = fetchAll();
   nextFetchMillis = millis() + (fetched ? REFRESH_MS : RETRY_MS);
   drawCurrentPage();
+  nextLcdRestartMillis = millis() + LCD_RESTART_MS;
 }
 
 void loop() {
@@ -1188,6 +1232,12 @@ void loop() {
   }
 
   handleTouch();
+
+  if (!swipeTracking &&
+      static_cast<int32_t>(millis() - nextLcdRestartMillis) >= 0) {
+    restartDisplay();
+    nextLcdRestartMillis = millis() + LCD_RESTART_MS;
+  }
 
   if (!swipeTracking &&
       static_cast<int32_t>(millis() - nextFetchMillis) >= 0) {

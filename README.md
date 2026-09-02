@@ -123,7 +123,7 @@ portail. La ville par défaut est `Sherbrooke`.
 - La carte **Claude** affiche aussi une ligne compacte **Fable** sous les deux
   compteurs, avec le pourcentage restant et une mini-jauge pleine largeur.
 - Glisser vers la gauche affiche la météo : `Sherbrooke, QC`, la température
-  actuelle en grand, une icône animée correspondant au soleil, aux nuages, à
+  actuelle, le ressenti, une icône animée correspondant au soleil, aux nuages, à
   la pluie, à la neige ou à l’orage, puis les minimums et maximums des cinq
   prochains jours. Glisser vers la droite revient aux quotas. Les pages entrent
   et sortent avec une transition horizontale accélérée puis ralentie.

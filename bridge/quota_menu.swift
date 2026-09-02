@@ -23,6 +23,7 @@ private struct QuotaWindow {
 
 private struct ProviderQuotas {
     let status: String
+    let plan: String?
     let fiveHour: QuotaWindow
     let weekly: QuotaWindow
     let fableWeekly: QuotaWindow
@@ -39,6 +40,7 @@ private struct QuotaSnapshot {
 private func executable(named name: String) -> String? {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     let candidates = [
+        name == "codex" ? "/Applications/Codex.app/Contents/Resources/codex" : "",
         "\(home)/.local/bin/\(name)",
         "/opt/homebrew/bin/\(name)",
         "/usr/local/bin/\(name)",
@@ -108,6 +110,7 @@ private func providerQuotas(_ value: Any?) -> ProviderQuotas? {
     let resets = value["banked_resets"] as? [String: Any]
     return ProviderQuotas(
         status: value["status"] as? String ?? "error",
+        plan: value["plan"] as? String,
         fiveHour: quotaWindow(value["five_hour"]),
         weekly: quotaWindow(value["weekly"]),
         fableWeekly: quotaWindow(value["fable_weekly"]),
@@ -151,26 +154,13 @@ private func expectedRemainingPercent(
     return max(0, min(100, remaining))
 }
 
-private func resetCountdown(
-    fiveHour: QuotaWindow,
+private func weeklyResetCountdown(
     weekly: QuotaWindow,
     now: Int = Int(Date().timeIntervalSince1970)
 ) -> String {
-    let resets = [
-        (label: "5 h", timestamp: fiveHour.resetsAt),
-        (label: "1 sem", timestamp: weekly.resetsAt),
-    ].compactMap { item -> (String, Int)? in
-        guard let timestamp = item.timestamp, timestamp > now else { return nil }
-        return (item.label, timestamp)
-    }
-    guard let reset = resets.min(by: { $0.1 < $1.1 }) else { return "◷  —" }
-    let hours = Double(reset.1 - now) / 3600
-    return String(
-        format: "◷  %@ · %.1f h",
-        locale: Locale(identifier: "fr_CA"),
-        reset.0,
-        hours
-    )
+    guard let reset = weekly.resetsAt, reset > now else { return "◷  1 sem · —" }
+    let hours = (reset - now) / 3600
+    return "◷  1 sem · \(hours / 24)j, \(hours % 24)h"
 }
 
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
@@ -356,7 +346,7 @@ private final class QuotaDashboardView: NSView {
 
     private var accessibilitySummary: String {
         guard let snapshot else { return "Chargement des quotas" }
-        return "Codex, 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)). Claude, 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)). API \(snapshot.apiAddress), \(apiOnline ? "en ligne" : "hors ligne"). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true))."
+        return "Codex, forfait \(snapshot.codex.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)). Claude, forfait \(snapshot.claude.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)). API \(snapshot.apiAddress), \(apiOnline ? "en ligne" : "hors ligne"). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true))."
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -367,6 +357,7 @@ private final class QuotaDashboardView: NSView {
 
         let empty = ProviderQuotas(
             status: "loading",
+            plan: nil,
             fiveHour: QuotaWindow(usedPercent: nil, resetsAt: nil),
             weekly: QuotaWindow(usedPercent: nil, resetsAt: nil),
             fableWeekly: QuotaWindow(usedPercent: nil, resetsAt: nil),
@@ -416,13 +407,13 @@ private final class QuotaDashboardView: NSView {
         stateColor.setFill()
         NSBezierPath(ovalIn: NSRect(x: 22, y: y + 7, width: 7, height: 7)).fill()
         drawText(
-            title,
+            provider.plan.map { "\(title) · \($0)" } ?? title,
             in: NSRect(x: 36, y: y, width: 170, height: 22),
             font: .systemFont(ofSize: 15, weight: .bold),
             color: .labelColor
         )
         drawText(
-            resetCountdown(fiveHour: provider.fiveHour, weekly: provider.weekly),
+            weeklyResetCountdown(weekly: provider.weekly),
             in: NSRect(x: 220, y: y + 1, width: 182, height: 20),
             font: .monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
             color: .secondaryLabelColor,
@@ -896,7 +887,7 @@ private struct QuotaMenu {
             )).connected
             let codexGood = codexState(from: CommandResult(status: 0, output: "Logged in using ChatGPT")).connected
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
-            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2}},"claude":{"status":"ok","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
+            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             let autoLaunchOn = autoLaunchEnabled(from: CommandResult(status: 0, output: "disabled services = {}"), label: "test")
             let autoLaunchOff = autoLaunchEnabled(from: CommandResult(status: 0, output: "\"test\" => disabled"), label: "test")
@@ -905,19 +896,20 @@ private struct QuotaMenu {
                 durationSeconds: 18_000,
                 now: 10_000
             )
-            let weeklyReset = resetCountdown(
-                fiveHour: QuotaWindow(usedPercent: nil, resetsAt: nil),
-                weekly: QuotaWindow(usedPercent: 40, resetsAt: 13_600),
+            let weeklyReset = weeklyResetCountdown(
+                weekly: QuotaWindow(usedPercent: 40, resetsAt: 450_640),
                 now: 10_000
             )
             guard
                 claudeGood, !claudeWrongMode, codexGood, !codexWrongMode,
                 quotas?.codex.weekly.remainingPercent == 93,
+                quotas?.codex.plan == "Pro 20X",
                 quotas?.claude.fiveHour.remainingPercent == 100,
+                quotas?.claude.plan == "Max 5X",
                 quotas?.claude.fableWeekly.remainingPercent == 72,
                 compactRemainingText(quotas!.codex.weekly, percent: true) == "93%",
                 expectedHalf == 50,
-                weeklyReset.contains("1 sem"),
+                weeklyReset == "◷  1 sem · 5j, 2h",
                 quotas?.apiAddress == "192.168.1.252:8788",
                 autoLaunchOn == true, autoLaunchOff == false
             else { exit(1) }

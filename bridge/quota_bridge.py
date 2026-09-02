@@ -55,6 +55,11 @@ def parse_codex_limits(result):
     snapshots = result.get("rateLimitsByLimitId") or {}
     limits = snapshots.get("codex") or result.get("rateLimits") or {}
     windows = {key: value.copy() for key, value in EMPTY_WINDOWS.items()}
+    windows["plan"] = {
+        "plus": "Plus",
+        "prolite": "Pro 5X",
+        "pro": "Pro 20X",
+    }.get(limits.get("planType"))
 
     for candidate in (limits.get("primary"), limits.get("secondary")):
         if not isinstance(candidate, dict):
@@ -95,6 +100,36 @@ def parse_codex_limits(result):
         "expirations": expirations,
     }
     return windows
+
+
+def read_claude_plan():
+    try:
+        result = subprocess.run(
+            [
+                "/usr/bin/security",
+                "find-generic-password",
+                "-s",
+                "Claude Code-credentials",
+                "-w",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        oauth = json.loads(result.stdout).get("claudeAiOauth") or {}
+    except (AttributeError, json.JSONDecodeError):
+        return None
+    subscription = str(oauth.get("subscriptionType") or "").lower()
+    tier = str(oauth.get("rateLimitTier") or "").lower()
+    if subscription == "max":
+        return "Max 20X" if "20x" in tier else "Max 5X" if "5x" in tier else "Max"
+    return "Pro" if subscription == "pro" else None
 
 
 def _clock(hour, minute, meridiem):
@@ -180,7 +215,8 @@ def parse_claude_usage(text, now=None):
 
 
 def read_codex(timeout=20):
-    codex = shutil.which("codex")
+    bundled = Path("/Applications/Codex.app/Contents/Resources/codex")
+    codex = str(bundled) if bundled.is_file() else shutil.which("codex")
     if not codex:
         raise RuntimeError("codex executable not found")
 
@@ -238,7 +274,8 @@ def read_codex(timeout=20):
 
 
 def read_claude(timeout=40):
-    claude = shutil.which("claude")
+    installed = Path.home() / ".local" / "bin" / "claude"
+    claude = str(installed) if installed.is_file() else shutil.which("claude")
     if not claude:
         raise RuntimeError("claude executable not found")
     env = os.environ.copy()
@@ -269,7 +306,9 @@ def read_claude(timeout=40):
         output = ANSI_RE.sub("", result.stderr or result.stdout).strip().splitlines()
         detail = " | ".join(output[-8:])[:800] if output else "no diagnostic output"
         raise RuntimeError(f"Claude /usage failed ({result.returncode}): {detail}")
-    return parse_claude_usage(result.stdout)
+    usage = parse_claude_usage(result.stdout)
+    usage["plan"] = read_claude_plan()
+    return usage
 
 
 def _weather_label(code):
@@ -333,7 +372,7 @@ def read_weather(city):
             {
                 "latitude": place["latitude"],
                 "longitude": place["longitude"],
-                "current": "temperature_2m,weather_code",
+                "current": "temperature_2m,apparent_temperature,weather_code",
                 "daily": (
                     "temperature_2m_max,temperature_2m_min,weather_code"
                 ),
@@ -369,6 +408,9 @@ def read_weather(city):
         "city": place["name"],
         "region": _region_short(place),
         "temperature_c": round(float(current["temperature_2m"]), 1),
+        "apparent_temperature_c": round(
+            float(current["apparent_temperature"]), 1
+        ),
         "weather_code": code,
         "condition": _weather_label(code),
         "forecast": days,

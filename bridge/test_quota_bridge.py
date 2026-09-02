@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import unittest
 from datetime import datetime
 from unittest.mock import patch
@@ -8,6 +9,7 @@ from quota_bridge import (
     QuotaState,
     parse_claude_usage,
     parse_codex_limits,
+    read_claude_plan,
     read_weather,
 )
 
@@ -16,6 +18,7 @@ class QuotaParsingTest(unittest.TestCase):
     def test_codex_windows_are_mapped_by_duration(self):
         result = {
             "rateLimits": {
+                "planType": "pro",
                 "primary": {
                     "usedPercent": 23,
                     "windowDurationMins": 10080,
@@ -51,6 +54,15 @@ class QuotaParsingTest(unittest.TestCase):
         windows = parse_codex_limits(result)
         self.assertEqual(windows["five_hour"]["used_percent"], 48)
         self.assertEqual(windows["weekly"]["used_percent"], 23)
+        self.assertEqual(windows["plan"], "Pro 20X")
+        self.assertEqual(
+            parse_codex_limits({"rateLimits": {"planType": "plus"}})["plan"],
+            "Plus",
+        )
+        self.assertEqual(
+            parse_codex_limits({"rateLimits": {"planType": "prolite"}})["plan"],
+            "Pro 5X",
+        )
         self.assertEqual(windows["banked_resets"]["available_count"], 2)
         self.assertEqual(
             [
@@ -84,6 +96,24 @@ Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
             windows["weekly"]["resets_at"],
         )
 
+    @patch("quota_bridge.subprocess.run")
+    def test_claude_plan_uses_keychain_tier(self, run):
+        run.return_value.returncode = 0
+        for subscription, tier, expected in (
+            ("pro", "default_claude_pro", "Pro"),
+            ("max", "default_claude_max_5x", "Max 5X"),
+            ("max", "default_claude_max_20x", "Max 20X"),
+        ):
+            run.return_value.stdout = json.dumps(
+                {
+                    "claudeAiOauth": {
+                        "subscriptionType": subscription,
+                        "rateLimitTier": tier,
+                    }
+                }
+            )
+            self.assertEqual(read_claude_plan(), expected)
+
     @patch("quota_bridge._read_json")
     def test_weather_has_location_current_conditions_and_five_days(self, read_json):
         read_json.side_effect = [
@@ -98,7 +128,11 @@ Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
                 ]
             },
             {
-                "current": {"temperature_2m": 21.9, "weather_code": 0},
+                "current": {
+                    "temperature_2m": 21.9,
+                    "apparent_temperature": 24.2,
+                    "weather_code": 0,
+                },
                 "daily": {
                     "time": [
                         "2026-07-26",
@@ -116,6 +150,7 @@ Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
         weather = read_weather("Sherbrooke")
         self.assertEqual((weather["city"], weather["region"]), ("Sherbrooke", "QC"))
         self.assertEqual(weather["condition"], "ENSOLEILLE")
+        self.assertEqual(weather["apparent_temperature_c"], 24.2)
         self.assertEqual(len(weather["forecast"]), 5)
 
     @patch("quota_bridge.read_codex")
