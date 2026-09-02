@@ -245,14 +245,45 @@ uint16_t quotaColor(int remaining) {
   return COLOR_GREEN;
 }
 
+int expectedRemainingPercent(const Window &window, uint32_t durationSeconds) {
+  if (!window.resetAt || !serverEpochAtFetch || !durationSeconds) return -1;
+  uint32_t nowEpoch =
+      serverEpochAtFetch + ((millis() - lastFetchMillis) / 1000UL);
+  if (window.resetAt <= nowEpoch) return 0;
+  uint32_t remaining = window.resetAt - nowEpoch;
+  return min(100, static_cast<int>((remaining * 100ULL) / durationSeconds));
+}
+
+void drawTimeSegments(int x, int y, int width, const Window &window,
+                      uint32_t durationSeconds, int count, uint16_t accent) {
+  constexpr int gap = 3;
+  constexpr int height = 4;
+  int segmentWidth = (width - (count - 1) * gap) / count;
+  int expected = expectedRemainingPercent(window, durationSeconds);
+  int filled = max(0, expected) * count;
+  for (int index = 0; index < count; ++index) {
+    int segmentX = x + index * (segmentWidth + gap);
+    view->fillRoundRect(segmentX, y, segmentWidth, height, 2, COLOR_TRACK);
+    if (expected < 0) continue;
+    int fraction = min(100, max(0, filled - index * 100));
+    if (fraction > 0) {
+      view->fillRoundRect(segmentX, y, segmentWidth * fraction / 100,
+                          height, 2, accent);
+    }
+  }
+}
+
 void drawQuotaCell(int x, int y, int width, const char *label,
-                   const Window &window, uint16_t accent) {
+                   const Window &window, uint16_t accent,
+                   uint32_t durationSeconds, int segmentCount) {
   view->fillRoundRect(x, y, width, 101, 8, COLOR_CELL);
   text(x + 9, y + 7, label, COLOR_MUTED, 1);
   if (!window.available) {
     text(x + 9, y + 30, "--", COLOR_MUTED, 3);
     text(x + 55, y + 37, "NON FOURNI", COLOR_MUTED, 1);
     view->fillRoundRect(x + 9, y + 68, width - 18, 8, 4, COLOR_TRACK);
+    drawTimeSegments(x + 9, y + 79, width - 18, window,
+                     durationSeconds, segmentCount, accent);
     return;
   }
 
@@ -269,7 +300,9 @@ void drawQuotaCell(int x, int y, int width, const char *label,
     view->fillRoundRect(x + 9, y + 68, fill, 8, 4,
                         remaining > 50 ? accent : quotaColor(remaining));
   }
-  text(x + 9, y + 84, "RESET " + countdown(window.resetAt), COLOR_MUTED, 1);
+  drawTimeSegments(x + 9, y + 79, barWidth, window,
+                   durationSeconds, segmentCount, accent);
+  text(x + 9, y + 89, "RESET " + countdown(window.resetAt), COLOR_MUTED, 1);
 }
 
 void drawCompactQuota(int x, int y, int width, const char *label,
@@ -368,9 +401,9 @@ void drawProviderCard(int x, const char *name, const Provider &provider,
   view->fillCircle(x + width - 19, y + 19, 4, providerStatus);
 
   drawQuotaCell(x + 12, y + 39, cellWidth, "5 HEURES",
-                provider.fiveHour, accent);
+                provider.fiveHour, accent, 5UL * 3600UL, 5);
   drawQuotaCell(x + 159, y + 39, cellWidth, "SEMAINE",
-                provider.weekly, accent);
+                provider.weekly, accent, 7UL * 24UL * 3600UL, 7);
   if (codexLogo) {
     drawCompactResets(x + 12, y + 151);
   } else {

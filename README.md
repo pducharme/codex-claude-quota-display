@@ -46,23 +46,32 @@ avant de terminer son animation.
 
 L’entrée compacte de la barre de menus affiche directement les limites
 restantes **5 h / semaine** sur deux lignes, entre les icônes officielles des
-applications Claude et Codex. Elle occupe environ la moitié de la largeur de
-la version avec les noms complets. Son menu détaille aussi
-Fable, les resets Codex, les prochaines réinitialisations et l’heure de la
-dernière actualisation dans deux cartes à jauges graduées. La grande barre
-indique le quota réellement restant; les cinq segments de la fenêtre 5 h et
-les sept segments de la semaine indiquent le quota qui devrait théoriquement
-rester selon le temps avant la réinitialisation. Le compte à rebours précise
-la fenêtre concernée. Une ligne indique
-aussi si l’API est joignable et son adresse sur le réseau local. Une case
-du menu contrôle le démarrage automatique du pont API à l’ouverture de la
-session; le contrôleur de barre de menus reste disponible pour pouvoir la
-recocher. Elle vérifie également les authentifications
-toutes les cinq minutes. Si Claude n’utilise plus l’abonnement `claude.ai` ou
-si Codex n’utilise plus ChatGPT, leur connexion web est relancée sur ce Mac.
-Le menu permet également de reconnecter manuellement chaque fournisseur et de
-forcer une actualisation des quotas. Aucun jeton fournisseur n’est copié dans
-le menu ni sur l’ESP32.
+applications Claude et Codex. Son menu reprend le look du mini-écran dans
+deux cartes côte à côte et conserve les commandes macOS dessous. La grande
+jauge indique le quota réellement restant; les cinq segments de la fenêtre
+5 h et les sept segments de la vraie semaine indiquent le niveau qui devrait
+théoriquement rester selon le temps avant la réinitialisation. Le menu affiche
+aussi Fable, les resets Codex, les comptes à rebours, l’heure de la dernière
+actualisation et l’état de l’API.
+
+**Source des quotas…** permet d’utiliser soit l’API de ce Mac, soit une API
+distante avec la même adresse et le même jeton qu’un mini-écran. En mode
+distant, le Companion ne demande pas de reconnecter Codex ou Claude localement;
+**Actualiser les quotas** déclenche l’actualisation sur le Mac source. La case
+du menu contrôle toujours le démarrage automatique du pont API local à
+l’ouverture de la session. En mode local, le Companion vérifie les
+authentifications toutes les cinq minutes et permet de reconnecter chaque
+fournisseur. Aucun jeton fournisseur n’est copié dans le menu ni sur l’ESP32.
+
+### Utiliser le Mac mini comme source
+
+1. Installer le pont sur le Mac mini avec `bridge/install.sh`, puis connecter
+   Codex et Claude sur ce Mac.
+2. Sur le MBP, ouvrir **Source des quotas…** et saisir l’adresse `IP:8788` et
+   le jeton affichés par le Mac mini.
+3. Décocher **Démarrer l’API avec la session** sur le MBP si son pont local ne
+   sert plus.
+4. Configurer les mini-écrans avec cette même adresse et ce même jeton.
 
 Pour réafficher le jeton sans réinstaller :
 

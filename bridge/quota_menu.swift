@@ -150,17 +150,21 @@ private func expectedRemainingPercent(
     now: Int = Int(Date().timeIntervalSince1970)
 ) -> CGFloat? {
     guard let reset = window.resetsAt, durationSeconds > 0 else { return nil }
-    let remaining = CGFloat(reset - now) / CGFloat(durationSeconds) * 100
-    return max(0, min(100, remaining))
+    return max(0, min(100, CGFloat(reset - now) / CGFloat(durationSeconds) * 100))
 }
 
-private func weeklyResetCountdown(
-    weekly: QuotaWindow,
+private func resetCountdown(
+    _ window: QuotaWindow,
     now: Int = Int(Date().timeIntervalSince1970)
 ) -> String {
-    guard let reset = weekly.resetsAt, reset > now else { return "◷  1 sem · —" }
-    let hours = (reset - now) / 3600
-    return "◷  1 sem · \(hours / 24)j, \(hours % 24)h"
+    guard let reset = window.resetsAt, reset > now else { return "—" }
+    let seconds = reset - now
+    let days = seconds / 86_400
+    let hours = seconds % 86_400 / 3_600
+    let minutes = seconds % 3_600 / 60
+    if days > 0 { return "\(days)j \(hours)h" }
+    if hours > 0 { return "\(hours)h \(minutes)m" }
+    return "\(minutes)m"
 }
 
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
@@ -316,8 +320,39 @@ private func dateText(_ timestamp: Int?, timeOnly: Bool = false) -> String {
     return formatter.string(from: date)
 }
 
+private func bridgeBaseURL(from value: String?) -> URL? {
+    let value = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let candidate = value.isEmpty ? "http://127.0.0.1:8788" : value.contains("://") ? value : "http://\(value)"
+    guard
+        let components = URLComponents(string: candidate),
+        ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
+        components.host != nil,
+        components.user == nil,
+        components.password == nil,
+        components.query == nil,
+        components.fragment == nil,
+        components.path.isEmpty || components.path == "/"
+    else { return nil }
+    return components.url
+}
+
+private func isLocalBridge(_ url: URL) -> Bool {
+    url.host == "127.0.0.1" || url.host == "localhost" || url.host == "::1"
+}
+
 @MainActor
 private final class QuotaDashboardView: NSView {
+    private let screenColor = NSColor(srgbRed: 7 / 255, green: 10 / 255, blue: 18 / 255, alpha: 1)
+    private let cellColor = NSColor(srgbRed: 19 / 255, green: 27 / 255, blue: 43 / 255, alpha: 1)
+    private let trackColor = NSColor(srgbRed: 35 / 255, green: 46 / 255, blue: 66 / 255, alpha: 1)
+    private let textColor = NSColor(srgbRed: 230 / 255, green: 237 / 255, blue: 245 / 255, alpha: 1)
+    private let mutedColor = NSColor(srgbRed: 124 / 255, green: 141 / 255, blue: 164 / 255, alpha: 1)
+    private let codexColor = NSColor(srgbRed: 56 / 255, green: 189 / 255, blue: 248 / 255, alpha: 1)
+    private let claudeColor = NSColor(srgbRed: 217 / 255, green: 119 / 255, blue: 87 / 255, alpha: 1)
+    private let greenColor = NSColor(srgbRed: 52 / 255, green: 211 / 255, blue: 153 / 255, alpha: 1)
+    private let amberColor = NSColor(srgbRed: 251 / 255, green: 191 / 255, blue: 36 / 255, alpha: 1)
+    private let redColor = NSColor(srgbRed: 248 / 255, green: 113 / 255, blue: 113 / 255, alpha: 1)
+
     var apiOnline = false {
         didSet {
             needsDisplay = true
@@ -351,9 +386,9 @@ private final class QuotaDashboardView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let card = bounds.insetBy(dx: 8, dy: 6)
-        NSColor.controlBackgroundColor.withAlphaComponent(0.46).setFill()
-        NSBezierPath(roundedRect: card, xRadius: 12, yRadius: 12).fill()
+        let screen = bounds.insetBy(dx: 8, dy: 6)
+        screenColor.setFill()
+        NSBezierPath(roundedRect: screen, xRadius: 12, yRadius: 12).fill()
 
         let empty = ProviderQuotas(
             status: "loading",
@@ -363,126 +398,162 @@ private final class QuotaDashboardView: NSView {
             fableWeekly: QuotaWindow(usedPercent: nil, resetsAt: nil),
             bankedResets: nil
         )
-        drawProvider(
-            title: "Codex",
+        let gap: CGFloat = 8
+        let panelWidth = (screen.width - 24) / 2
+        drawProviderCard(
+            title: "CODEX",
             provider: snapshot?.codex ?? empty,
-            y: 16,
-            compactLabel: "Resets en banque",
+            rect: NSRect(x: screen.minX + 8, y: screen.minY + 8, width: panelWidth, height: 158),
+            panelColor: NSColor(srgbRed: 8 / 255, green: 29 / 255, blue: 48 / 255, alpha: 1),
+            accent: codexColor,
+            codex: true,
+            compactLabel: "RESETS:",
             compactWindow: nil,
             compactCount: snapshot?.codex.bankedResets
         )
-        NSColor.separatorColor.setFill()
-        NSRect(x: 22, y: 124, width: bounds.width - 44, height: 1).fill()
-        drawProvider(
-            title: "Claude Code",
+        drawProviderCard(
+            title: "CLAUDE",
             provider: snapshot?.claude ?? empty,
-            y: 136,
-            compactLabel: "Fable",
+            rect: NSRect(x: screen.minX + 8 + panelWidth + gap, y: screen.minY + 8, width: panelWidth, height: 158),
+            panelColor: NSColor(srgbRed: 43 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1),
+            accent: claudeColor,
+            codex: false,
+            compactLabel: "FABLE:",
             compactWindow: snapshot?.claude.fableWeekly,
             compactCount: nil
         )
-        NSColor.separatorColor.setFill()
-        NSRect(x: 22, y: 244, width: bounds.width - 44, height: 1).fill()
+        trackColor.setFill()
+        NSRect(x: screen.minX + 12, y: 180, width: screen.width - 24, height: 1).fill()
         drawText(
             "Dernière actualisation · \(dateText(snapshot?.refreshedAt, timeOnly: true))",
-            in: NSRect(x: 22, y: 248, width: bounds.width - 44, height: 16),
-            font: .systemFont(ofSize: 11, weight: .medium),
-            color: .secondaryLabelColor,
+            in: NSRect(x: screen.minX + 12, y: 185, width: screen.width - 24, height: 16),
+            font: .systemFont(ofSize: 10, weight: .semibold),
+            color: mutedColor,
             alignment: .center
         )
-        drawAPIStatus(y: 272)
+        trackColor.setFill()
+        NSRect(x: screen.minX + 12, y: 208, width: screen.width - 24, height: 1).fill()
+        drawAPIStatus(y: 219)
     }
 
-    private func drawProvider(
+    private func drawProviderCard(
         title: String,
         provider: ProviderQuotas,
-        y: CGFloat,
+        rect: NSRect,
+        panelColor: NSColor,
+        accent: NSColor,
+        codex: Bool,
         compactLabel: String,
         compactWindow: QuotaWindow?,
         compactCount: Int?
     ) {
-        let stateColor: NSColor = provider.status == "ok"
-            ? .systemGreen
-            : provider.status == "stale" ? .systemOrange : .systemRed
-        stateColor.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 22, y: y + 7, width: 7, height: 7)).fill()
-        drawText(
-            provider.plan.map { "\(title) · \($0)" } ?? title,
-            in: NSRect(x: 36, y: y, width: 170, height: 22),
-            font: .systemFont(ofSize: 15, weight: .bold),
-            color: .labelColor
+        panelColor.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10).fill()
+        accent.setFill()
+        NSBezierPath(
+            roundedRect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 4),
+            xRadius: 2,
+            yRadius: 2
+        ).fill()
+
+        statusProviderIcon(codex: codex, warning: provider.status != "ok").draw(
+            in: NSRect(x: rect.minX + 12, y: rect.minY + 12, width: 18, height: 18)
         )
         drawText(
-            weeklyResetCountdown(weekly: provider.weekly),
-            in: NSRect(x: 220, y: y + 1, width: 182, height: 20),
-            font: .monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
-            color: .secondaryLabelColor,
-            alignment: .right
+            title,
+            in: NSRect(x: rect.minX + 38, y: rect.minY + 10, width: 66, height: 20),
+            font: .systemFont(ofSize: 14, weight: .bold),
+            color: textColor
         )
-        drawQuotaRow(
-            label: "5 h",
+        let planRect = NSRect(x: rect.maxX - 91, y: rect.minY + 11, width: 65, height: 18)
+        cellColor.setFill()
+        NSBezierPath(roundedRect: planRect, xRadius: 9, yRadius: 9).fill()
+        drawText(
+            provider.plan?.uppercased() ?? "—",
+            in: planRect.insetBy(dx: 5, dy: 3),
+            font: .systemFont(ofSize: 8, weight: .bold),
+            color: accent,
+            alignment: .center
+        )
+
+        statusColor(provider.status).setFill()
+        NSBezierPath(ovalIn: NSRect(x: rect.maxX - 17, y: rect.minY + 17, width: 7, height: 7)).fill()
+
+        let cellGap: CGFloat = 8
+        let cellWidth = (rect.width - 28) / 2
+        drawQuotaCell(
+            label: "5 HEURES",
             window: provider.fiveHour,
-            durationSeconds: 5 * 3600,
-            segmentCount: 5,
-            y: y + 28
+            rect: NSRect(x: rect.minX + 10, y: rect.minY + 38, width: cellWidth, height: 90),
+            accent: accent,
+            durationSeconds: 5 * 3_600,
+            segmentCount: 5
         )
-        drawQuotaRow(
-            label: "1 sem",
+        drawQuotaCell(
+            label: "SEMAINE",
             window: provider.weekly,
-            durationSeconds: 7 * 24 * 3600,
-            segmentCount: 7,
-            y: y + 58
+            rect: NSRect(x: rect.minX + 10 + cellWidth + cellGap, y: rect.minY + 38, width: cellWidth, height: 90),
+            accent: accent,
+            durationSeconds: 7 * 86_400,
+            segmentCount: 7
         )
         if let compactWindow {
-            drawCompactQuota(label: compactLabel, window: compactWindow, y: y + 91)
+            drawCompactQuota(label: compactLabel, window: compactWindow, rect: rect, accent: accent)
         } else {
-            drawResetCount(label: compactLabel, count: compactCount, y: y + 91)
+            drawResetCount(label: compactLabel, count: compactCount, rect: rect, accent: accent)
         }
     }
 
-    private func drawQuotaRow(
+    private func drawQuotaCell(
         label: String,
         window: QuotaWindow,
+        rect: NSRect,
+        accent: NSColor,
         durationSeconds: Int,
-        segmentCount: Int,
-        y: CGFloat
+        segmentCount: Int
     ) {
+        cellColor.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
         drawText(
             label,
-            in: NSRect(x: 22, y: y - 2, width: 46, height: 18),
-            font: .systemFont(ofSize: 12, weight: .medium),
-            color: .secondaryLabelColor
-        )
-        let bar = NSRect(x: 72, y: y, width: 292, height: 10)
-        drawBar(in: bar, percent: window.remainingPercent)
-        drawSegments(
-            in: NSRect(x: 72, y: y + 14, width: 292, height: 5),
-            expectedPercent: expectedRemainingPercent(window, durationSeconds: durationSeconds),
-            count: segmentCount
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 5, width: rect.width - 16, height: 11),
+            font: .systemFont(ofSize: 7.5, weight: .bold),
+            color: mutedColor
         )
         drawText(
             remainingText(window),
-            in: NSRect(x: 372, y: y - 5, width: 45, height: 22),
-            font: .monospacedDigitSystemFont(ofSize: 14, weight: .bold),
-            color: window.remainingPercent == nil ? .secondaryLabelColor : .labelColor,
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 19, width: rect.width - 16, height: 25),
+            font: .monospacedDigitSystemFont(ofSize: 18, weight: .bold),
+            color: quotaColor(window.remainingPercent)
+        )
+        drawText(
+            window.remainingPercent == nil ? "NON FOURNI" : "LIBRE",
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 42, width: rect.width - 16, height: 10),
+            font: .systemFont(ofSize: 7, weight: .semibold),
+            color: mutedColor,
             alignment: .right
+        )
+        drawBar(
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 55, width: rect.width - 16, height: 6),
+            percent: window.remainingPercent,
+            accent: accent
+        )
+        drawTimeSegments(
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 65, width: rect.width - 16, height: 4),
+            expectedPercent: expectedRemainingPercent(window, durationSeconds: durationSeconds),
+            count: segmentCount,
+            accent: accent
+        )
+        drawText(
+            "RESET \(resetCountdown(window))",
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 74, width: rect.width - 16, height: 10),
+            font: .monospacedDigitSystemFont(ofSize: 6.5, weight: .medium),
+            color: mutedColor
         )
     }
 
-    private func drawBar(in rect: NSRect, percent: Int?) {
-        NSColor.tertiaryLabelColor.withAlphaComponent(0.34).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
-        guard let percent, percent > 0 else { return }
-        let fill = NSRect(x: rect.minX, y: rect.minY, width: rect.width * CGFloat(percent) / 100, height: rect.height)
-        let path = NSBezierPath(roundedRect: fill, xRadius: fill.height / 2, yRadius: fill.height / 2)
-        NSGraphicsContext.saveGraphicsState()
-        path.addClip()
-        NSGradient(colors: [.systemBlue, .systemTeal])?.draw(in: fill, angle: 0)
-        NSGraphicsContext.restoreGraphicsState()
-    }
-
-    private func drawSegments(in rect: NSRect, expectedPercent: CGFloat?, count: Int) {
-        let gap: CGFloat = 4
+    private func drawTimeSegments(in rect: NSRect, expectedPercent: CGFloat?, count: Int, accent: NSColor) {
+        let gap: CGFloat = 2
         let width = (rect.width - CGFloat(count - 1) * gap) / CGFloat(count)
         let filled = expectedPercent.map { $0 / 100 * CGFloat(count) } ?? 0
         for index in 0..<count {
@@ -492,74 +563,102 @@ private final class QuotaDashboardView: NSView {
                 width: width,
                 height: rect.height
             )
-            NSColor.tertiaryLabelColor.withAlphaComponent(0.28).setFill()
-            NSBezierPath(roundedRect: segment, xRadius: 2.5, yRadius: 2.5).fill()
+            trackColor.setFill()
+            NSBezierPath(roundedRect: segment, xRadius: 2, yRadius: 2).fill()
             let fraction = max(0, min(1, filled - CGFloat(index)))
             guard fraction > 0 else { continue }
-            NSColor.systemTeal.withAlphaComponent(0.7).setFill()
-            let fill = NSRect(
-                x: segment.minX,
-                y: segment.minY,
-                width: segment.width * fraction,
-                height: segment.height
-            )
-            NSBezierPath(roundedRect: fill, xRadius: 2.5, yRadius: 2.5).fill()
+            accent.withAlphaComponent(0.72).setFill()
+            NSBezierPath(
+                roundedRect: NSRect(x: segment.minX, y: segment.minY, width: segment.width * fraction, height: segment.height),
+                xRadius: 2,
+                yRadius: 2
+            ).fill()
         }
     }
 
-    private func drawCompactQuota(label: String, window: QuotaWindow, y: CGFloat) {
+    private func drawBar(in rect: NSRect, percent: Int?, accent: NSColor) {
+        trackColor.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
+        guard let percent, percent > 0 else { return }
+        let fill = NSRect(x: rect.minX, y: rect.minY, width: rect.width * CGFloat(percent) / 100, height: rect.height)
+        (percent > 50 ? accent : quotaColor(percent)).setFill()
+        NSBezierPath(roundedRect: fill, xRadius: fill.height / 2, yRadius: fill.height / 2).fill()
+    }
+
+    private func drawCompactQuota(label: String, window: QuotaWindow, rect: NSRect, accent: NSColor) {
+        let y = rect.minY + 139
         drawText(
             label,
-            in: NSRect(x: 72, y: y - 2, width: 48, height: 16),
-            font: .systemFont(ofSize: 10, weight: .semibold),
-            color: .secondaryLabelColor
+            in: NSRect(x: rect.minX + 10, y: y, width: 42, height: 12),
+            font: .systemFont(ofSize: 8, weight: .bold),
+            color: mutedColor
         )
-        drawBar(in: NSRect(x: 122, y: y + 1, width: 242, height: 6), percent: window.remainingPercent)
+        drawBar(
+            in: NSRect(x: rect.minX + 53, y: y + 2, width: rect.width - 93, height: 7),
+            percent: window.remainingPercent,
+            accent: accent
+        )
         drawText(
             remainingText(window),
-            in: NSRect(x: 372, y: y - 4, width: 45, height: 16),
-            font: .monospacedDigitSystemFont(ofSize: 11, weight: .bold),
-            color: .secondaryLabelColor,
+            in: NSRect(x: rect.maxX - 38, y: y - 1, width: 28, height: 13),
+            font: .monospacedDigitSystemFont(ofSize: 8, weight: .bold),
+            color: quotaColor(window.remainingPercent),
             alignment: .right
         )
     }
 
-    private func drawResetCount(label: String, count: Int?, y: CGFloat) {
+    private func drawResetCount(label: String, count: Int?, rect: NSRect, accent: NSColor) {
+        let y = rect.minY + 139
         drawText(
             label,
-            in: NSRect(x: 72, y: y - 3, width: 118, height: 16),
-            font: .systemFont(ofSize: 10, weight: .semibold),
-            color: .secondaryLabelColor
+            in: NSRect(x: rect.minX + 10, y: y, width: 46, height: 12),
+            font: .systemFont(ofSize: 8, weight: .bold),
+            color: mutedColor
         )
         let value = count.map(String.init) ?? "—"
         drawText(
             value,
-            in: NSRect(x: 190, y: y - 3, width: 24, height: 16),
-            font: .monospacedDigitSystemFont(ofSize: 11, weight: .bold),
-            color: .secondaryLabelColor
+            in: NSRect(x: rect.minX + 57, y: y - 1, width: 18, height: 13),
+            font: .monospacedDigitSystemFont(ofSize: 8, weight: .bold),
+            color: accent
         )
-        for index in 0..<min(count ?? 0, 8) {
-            NSColor.systemBlue.withAlphaComponent(0.72).setFill()
-            NSBezierPath(ovalIn: NSRect(x: 224 + CGFloat(index) * 14, y: y, width: 7, height: 7)).fill()
+        for index in 0..<min(count ?? 0, 6) {
+            accent.setFill()
+            NSBezierPath(
+                roundedRect: NSRect(x: rect.minX + 79 + CGFloat(index) * 14, y: y + 2, width: 10, height: 7),
+                xRadius: 3.5,
+                yRadius: 3.5
+            ).fill()
         }
     }
 
+    private func quotaColor(_ percent: Int?) -> NSColor {
+        guard let percent else { return mutedColor }
+        if percent <= 20 { return redColor }
+        if percent <= 50 { return amberColor }
+        return greenColor
+    }
+
+    private func statusColor(_ status: String) -> NSColor {
+        status == "ok" ? greenColor : status == "stale" ? amberColor : redColor
+    }
+
     private func drawAPIStatus(y: CGFloat) {
-        let color: NSColor = apiOnline ? .systemGreen : .systemRed
+        let color = apiOnline ? greenColor : redColor
         color.setFill()
         NSBezierPath(ovalIn: NSRect(x: 22, y: y + 4, width: 7, height: 7)).fill()
         let line = NSMutableAttributedString(
             string: "API  ",
             attributes: [
                 .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .foregroundColor: mutedColor,
             ]
         )
         line.append(NSAttributedString(
             string: "[\(snapshot?.apiAddress ?? "port 8788")]",
             attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
-                .foregroundColor: NSColor.tertiaryLabelColor,
+                .foregroundColor: mutedColor.withAlphaComponent(0.72),
                 .baselineOffset: 0.5,
             ]
         ))
@@ -595,9 +694,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let compactStatus = CompactStatusView(frame: .zero)
     private let codexStatus = NSMenuItem(title: "Codex : vérification…", action: nil, keyEquivalent: "")
     private let claudeStatus = NSMenuItem(title: "Claude : vérification…", action: nil, keyEquivalent: "")
-    private let dashboard = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 430, height: 294))
+    private let dashboard = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 470, height: 250))
     private let refreshItem = NSMenuItem(title: "Actualiser les quotas", action: nil, keyEquivalent: "r")
+    private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
     private let autoLaunchItem = NSMenuItem(title: "Démarrer l’API avec la session", action: nil, keyEquivalent: "")
+    private let connectionsItem = NSMenuItem(title: "Connexions", action: nil, keyEquivalent: "")
     private let bridgeLabel = "com.pducharme.quota-display"
     private let launchDomain = "gui/\(getuid())"
     private var codexConnected: Bool?
@@ -608,6 +709,23 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var loadingQuotas = false
     private var loginProcesses: [String: Process] = [:]
     private var autoPrompted = Set<String>()
+
+    private var appSupportURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Quota Display")
+    }
+
+    private var configuredBridgeSource: (url: URL, tokenURL: URL, remote: Bool) {
+        let sourceFile = appSupportURL.appendingPathComponent("source-host")
+        if
+            let value = try? String(contentsOf: sourceFile, encoding: .utf8),
+            let url = bridgeBaseURL(from: value),
+            !isLocalBridge(url)
+        {
+            return (url, appSupportURL.appendingPathComponent("source-token"), true)
+        }
+        return (bridgeBaseURL(from: nil)!, appSupportURL.appendingPathComponent("token"), false)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -644,12 +762,14 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         refreshItem.target = self
         refreshItem.action = #selector(refreshQuotas)
         menu.addItem(refreshItem)
+        sourceItem.target = self
+        sourceItem.action = #selector(chooseQuotaSource)
+        menu.addItem(sourceItem)
         autoLaunchItem.target = self
         autoLaunchItem.action = #selector(toggleAutoLaunch)
         autoLaunchItem.state = .mixed
         autoLaunchItem.toolTip = "Contrôle le démarrage du pont API Python à la prochaine ouverture de session."
         menu.addItem(autoLaunchItem)
-        let connectionsItem = NSMenuItem(title: "Connexions", action: nil, keyEquivalent: "")
         let connections = NSMenu()
         codexStatus.isEnabled = false
         claudeStatus.isEnabled = false
@@ -661,17 +781,118 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         connectionsItem.submenu = connections
         menu.addItem(connectionsItem)
         statusItem.menu = menu
+        updateSourceItems()
         renderStatusTitle()
     }
 
+    private func updateSourceItems() {
+        let source = configuredBridgeSource
+        if source.remote {
+            let address = source.url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            sourceItem.title = "Source des quotas : \(address)…"
+            connectionsItem.title = "Connexions · gérées par la source"
+            connectionsItem.isEnabled = false
+            codexStatus.title = "Codex : source distante"
+            claudeStatus.title = "Claude : source distante"
+        } else {
+            sourceItem.title = "Source des quotas : ce Mac…"
+            connectionsItem.title = "Connexions"
+            connectionsItem.isEnabled = true
+        }
+    }
+
+    @objc private func chooseQuotaSource() {
+        let source = configuredBridgeSource
+        let alert = NSAlert()
+        alert.messageText = "Source des quotas"
+        alert.informativeText = "Laisser l’adresse vide pour utiliser l’API de ce Mac. Le mode distant utilise la même adresse et le même jeton qu’un mini-écran."
+        alert.addButton(withTitle: "Enregistrer")
+        alert.addButton(withTitle: "Annuler")
+
+        let address = NSTextField(string: source.remote ? source.url.absoluteString : "")
+        address.placeholderString = "192.168.1.20:8788"
+        let token = NSSecureTextField(string: "")
+        token.placeholderString = source.remote ? "Laisser vide pour conserver le jeton" : "Jeton de la source distante"
+        let fields = NSStackView(views: [
+            NSTextField(labelWithString: "Adresse de l’API"),
+            address,
+            NSTextField(labelWithString: "Jeton"),
+            token,
+        ])
+        fields.orientation = .vertical
+        fields.alignment = .leading
+        fields.spacing = 5
+        fields.frame = NSRect(x: 0, y: 0, width: 360, height: 90)
+        address.widthAnchor.constraint(equalToConstant: 360).isActive = true
+        token.widthAnchor.constraint(equalToConstant: 360).isActive = true
+        alert.accessoryView = fields
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        saveQuotaSource(host: address.stringValue, token: token.stringValue)
+    }
+
+    private func saveQuotaSource(host: String, token enteredToken: String) {
+        let host = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingToken = (try? String(
+            contentsOf: appSupportURL.appendingPathComponent("source-token"),
+            encoding: .utf8
+        ).trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
+        guard let url = bridgeBaseURL(from: host) else {
+            showSourceError("L’adresse de l’API n’est pas valide.")
+            return
+        }
+        let remote = !host.isEmpty && !isLocalBridge(url)
+        let token = enteredToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveToken = token.isEmpty ? existingToken : token
+        guard !remote || effectiveToken.count >= 16 else {
+            showSourceError("Le jeton de la source distante doit contenir au moins 16 caractères.")
+            return
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
+            try writePrivate(remote ? host : "", to: appSupportURL.appendingPathComponent("source-host"))
+            if remote {
+                try writePrivate(effectiveToken, to: appSupportURL.appendingPathComponent("source-token"))
+            }
+        } catch {
+            showSourceError("La source n’a pas pu être enregistrée : \(error.localizedDescription)")
+            return
+        }
+
+        loadingQuotas = false
+        bridgeOnline = false
+        snapshot = nil
+        dashboard.snapshot = nil
+        dashboard.apiOnline = false
+        updateSourceItems()
+        checkAuthentication(autoPrompt: false)
+        loadQuotas()
+        renderStatusTitle()
+    }
+
+    private func writePrivate(_ value: String, to url: URL) throws {
+        try Data((value + "\n").utf8).write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func showSourceError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Source des quotas"
+        alert.informativeText = message
+        alert.runModal()
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
+        updateSourceItems()
         checkAuthentication(autoPrompt: false)
         loadAutoLaunchState()
         loadQuotas()
     }
 
     private func checkAuthentication(autoPrompt: Bool) {
-        guard !checking else { return }
+        guard !configuredBridgeSource.remote, !checking else { return }
         checking = true
         let claude = executable(named: "claude")
         let codex = executable(named: "codex")
@@ -687,6 +908,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func apply(claude: AuthState, codex: AuthState, autoPrompt: Bool) {
+        guard !configuredBridgeSource.remote else {
+            updateSourceItems()
+            return
+        }
         claudeConnected = claude.connected
         codexConnected = codex.connected
         claudeStatus.title = "Claude : \(claude.label)"
@@ -704,10 +929,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func renderStatusTitle() {
+        let remote = configuredBridgeSource.remote
         compactStatus.snapshot = snapshot
         compactStatus.bridgeOnline = bridgeOnline
-        compactStatus.codexConnected = codexConnected
-        compactStatus.claudeConnected = claudeConnected
+        compactStatus.codexConnected = remote ? snapshot.map { $0.codex.status != "error" } : codexConnected
+        compactStatus.claudeConnected = remote ? snapshot.map { $0.claude.status != "error" } : claudeConnected
         compactStatus.needsDisplay = true
         statusItem.button?.toolTip = snapshot?.refreshedAt.map {
             "5 h / semaine · dernière actualisation \(dateText($0, timeOnly: true))"
@@ -715,12 +941,12 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func bridgeRequest(path: String, method: String = "GET") -> URLRequest? {
-        let tokenURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Quota Display/token")
+        let source = configuredBridgeSource
         guard
-            let token = try? String(contentsOf: tokenURL, encoding: .utf8)
+            let token = try? String(contentsOf: source.tokenURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-            let url = URL(string: "http://127.0.0.1:8788\(path)")
+            token.count >= 16,
+            let url = URL(string: path, relativeTo: source.url)?.absoluteURL
         else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -729,6 +955,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func loadQuotas() {
+        let sourceURL = configuredBridgeSource.url
         guard !loadingQuotas, let request = bridgeRequest(path: "/v1/quotas") else {
             bridgeOnline = false
             dashboard.apiOnline = false
@@ -741,6 +968,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             let loaded = data.flatMap(quotaSnapshot(from:))
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard self.configuredBridgeSource.url == sourceURL else { return }
                 self.loadingQuotas = false
                 self.bridgeOnline = code == 200 && loaded != nil
                 self.dashboard.apiOnline = self.bridgeOnline
@@ -891,15 +1119,15 @@ private struct QuotaMenu {
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             let autoLaunchOn = autoLaunchEnabled(from: CommandResult(status: 0, output: "disabled services = {}"), label: "test")
             let autoLaunchOff = autoLaunchEnabled(from: CommandResult(status: 0, output: "\"test\" => disabled"), label: "test")
+            let hourlyReset = resetCountdown(QuotaWindow(usedPercent: 60, resetsAt: 19_000), now: 10_000)
+            let weeklyReset = resetCountdown(QuotaWindow(usedPercent: 40, resetsAt: 450_640), now: 10_000)
             let expectedHalf = expectedRemainingPercent(
                 QuotaWindow(usedPercent: 60, resetsAt: 19_000),
                 durationSeconds: 18_000,
                 now: 10_000
             )
-            let weeklyReset = weeklyResetCountdown(
-                weekly: QuotaWindow(usedPercent: 40, resetsAt: 450_640),
-                now: 10_000
-            )
+            let localBridge = bridgeBaseURL(from: nil)
+            let remoteBridge = bridgeBaseURL(from: "192.168.1.20:8788")
             guard
                 claudeGood, !claudeWrongMode, codexGood, !codexWrongMode,
                 quotas?.codex.weekly.remainingPercent == 93,
@@ -908,8 +1136,13 @@ private struct QuotaMenu {
                 quotas?.claude.plan == "Max 5X",
                 quotas?.claude.fableWeekly.remainingPercent == 72,
                 compactRemainingText(quotas!.codex.weekly, percent: true) == "93%",
+                hourlyReset == "2h 30m",
+                weeklyReset == "5j 2h",
                 expectedHalf == 50,
-                weeklyReset == "◷  1 sem · 5j, 2h",
+                localBridge?.absoluteString == "http://127.0.0.1:8788",
+                remoteBridge?.host == "192.168.1.20", remoteBridge?.port == 8788,
+                bridgeBaseURL(from: "ftp://192.168.1.20:8788") == nil,
+                bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
                 quotas?.apiAddress == "192.168.1.252:8788",
                 autoLaunchOn == true, autoLaunchOff == false
             else { exit(1) }
