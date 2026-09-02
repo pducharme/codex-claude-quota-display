@@ -12,7 +12,7 @@ DOMAIN="gui/$(id -u)"
 MENU_APP="$APP_DIR/Quota Display Menu.app"
 
 mkdir -p "$APP_DIR" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" \
-  "$MENU_APP/Contents/MacOS"
+  "$MENU_APP/Contents/MacOS" "$MENU_APP/Contents/Resources"
 install -m 700 "$SCRIPT_DIR/quota_bridge.py" "$APP_DIR/quota_bridge.py"
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
   -parse-as-library -swift-version 5 -O \
@@ -20,6 +20,8 @@ xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
   "$SCRIPT_DIR/quota_menu.swift" -o "$MENU_APP/Contents/MacOS/QuotaDisplayMenu"
 install -m 600 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" \
   "$MENU_APP/Contents/Info.plist"
+install -m 644 "$SCRIPT_DIR/Assets/CodexIcon.png" \
+  "$MENU_APP/Contents/Resources/CodexIcon.png"
 codesign --force --sign - "$MENU_APP" >/dev/null
 "$MENU_APP/Contents/MacOS/QuotaDisplayMenu" --self-test
 sed \

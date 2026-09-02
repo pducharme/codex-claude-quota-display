@@ -28,6 +28,7 @@ done
   "$WORK_DIR/QuotaDisplayMenu-x86_64" \
   -output "$MACOS/QuotaDisplayMenu"
 /usr/bin/install -m 644 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" "$APP/Contents/Info.plist"
+/usr/bin/install -m 644 "$SCRIPT_DIR/Assets/CodexIcon.png" "$RESOURCES/CodexIcon.png"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/bin/install -m 755 "$SCRIPT_DIR/quota_bridge.py" "$RESOURCES/quota_bridge.py"

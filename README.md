@@ -70,7 +70,8 @@ fournisseur. Aucun jeton fournisseur n’est copié dans le menu ni sur l’ESP3
 ### Utiliser le Mac mini comme source
 
 1. Installer le paquet de la Release sur le Mac mini, puis connecter Codex et
-   Claude sur ce Mac.
+   Claude Code sur ce Mac. Le menu **Connexions** ouvre maintenant la commande
+   de connexion dans Terminal et indique clairement si une commande manque.
 2. Sur le MBP, ouvrir **Source des quotas…** et saisir l’adresse `IP:8788` et
    le jeton affichés par le Mac mini.
 3. Décocher **Démarrer l’API avec la session** sur le MBP si son pont local ne
@@ -80,7 +81,7 @@ fournisseur. Aucun jeton fournisseur n’est copié dans le menu ni sur l’ESP3
 Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-bridge/build_pkg.sh 1.0.0
+bridge/build_pkg.sh 1.0.1
 ```
 
 ## 2. Compiler et flasher

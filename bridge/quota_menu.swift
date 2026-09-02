@@ -37,10 +37,15 @@ private struct QuotaSnapshot {
     let apiAddress: String
 }
 
+private func shellQuoted(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
 private func executable(named name: String) -> String? {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     let candidates = [
         name == "codex" ? "/Applications/Codex.app/Contents/Resources/codex" : "",
+        name == "codex" ? "\(home)/Applications/Codex.app/Contents/Resources/codex" : "",
         "\(home)/.local/bin/\(name)",
         "/opt/homebrew/bin/\(name)",
         "/usr/local/bin/\(name)",
@@ -169,11 +174,18 @@ private func resetCountdown(
 
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
     let size = NSSize(width: 12, height: 10)
-    let applicationIcon = codex
-        ? "/Applications/Codex.app/Contents/Resources/icon-codex-dark-color.png"
-        : "/Applications/Claude.app/Contents/Resources/electron.icns"
-    if let image = NSImage(contentsOfFile: applicationIcon) {
-        return image
+    var iconURLs: [URL] = []
+    if codex, let bundled = Bundle.main.url(forResource: "CodexIcon", withExtension: "png") {
+        iconURLs.append(bundled)
+    }
+    let bundleIdentifier = codex ? "com.openai.codex" : "com.anthropic.claudefordesktop"
+    if let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+        iconURLs.append(application.appendingPathComponent(
+            codex ? "Contents/Resources/icon-codex-dark-color.png" : "Contents/Resources/electron.icns"
+        ))
+    }
+    for url in iconURLs {
+        if let image = NSImage(contentsOf: url) { return image }
     }
     return NSImage(size: size, flipped: false) { _ in
         let color: NSColor = warning ? .systemRed : codex ? .labelColor : .systemOrange
@@ -708,7 +720,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var bridgeOnline = false
     private var checking = false
     private var loadingQuotas = false
-    private var loginProcesses: [String: Process] = [:]
     private var autoPrompted = Set<String>()
 
     private var appSupportURL: URL {
@@ -779,10 +790,14 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         codexStatus.isEnabled = false
         claudeStatus.isEnabled = false
         connections.addItem(codexStatus)
-        connections.addItem(NSMenuItem(title: "Reconnecter Codex…", action: #selector(loginCodex), keyEquivalent: ""))
+        let reconnectCodex = NSMenuItem(title: "Reconnecter Codex…", action: #selector(loginCodex), keyEquivalent: "")
+        reconnectCodex.target = self
+        connections.addItem(reconnectCodex)
         connections.addItem(.separator())
         connections.addItem(claudeStatus)
-        connections.addItem(NSMenuItem(title: "Reconnecter Claude Max…", action: #selector(loginClaude), keyEquivalent: ""))
+        let reconnectClaude = NSMenuItem(title: "Reconnecter Claude Max…", action: #selector(loginClaude), keyEquivalent: "")
+        reconnectClaude.target = self
+        connections.addItem(reconnectClaude)
         connectionsItem.submenu = connections
         menu.addItem(connectionsItem)
         statusItem.menu = menu
@@ -1058,42 +1073,40 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func launchLogin(provider: String) {
-        guard loginProcesses[provider] == nil else { return }
         let path = executable(named: provider)
         guard let path else {
             setStatus(provider: provider, text: "commande introuvable")
+            showLoginError(provider: provider, message: "La commande n’est pas installée sur ce Mac. Installez-la, puis réessayez.")
             return
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = provider == "claude"
+        let arguments = provider == "claude"
             ? ["auth", "login", "--claudeai"]
             : ["login"]
-        process.environment = ProcessInfo.processInfo.environment.merging([
-            "PATH": "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-        ]) { _, new in new }
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { [weak self] finished in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.loginProcesses.removeValue(forKey: provider)
-                if finished.terminationStatus == 0 {
-                    self.setStatus(provider: provider, text: "connexion réussie")
-                    self.triggerRefresh()
-                } else {
-                    self.setStatus(provider: provider, text: "connexion annulée")
-                }
-                self.checkAuthentication(autoPrompt: false)
-            }
-        }
         do {
-            try process.run()
-            loginProcesses[provider] = process
-            setStatus(provider: provider, text: "connexion web en cours…")
+            let command = ([path] + arguments).map(shellQuoted).joined(separator: " ")
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("quota-display-login-\(UUID().uuidString).command")
+            try "#!/bin/zsh\n/bin/rm -f -- \"$0\"\n\(command)\n".write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+            guard NSWorkspace.shared.open(url) else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+            setStatus(provider: provider, text: "connexion ouverte dans Terminal")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                self?.checkAuthentication(autoPrompt: false)
+            }
         } catch {
-            setStatus(provider: provider, text: "échec du lancement")
+            setStatus(provider: provider, text: "Terminal indisponible")
+            showLoginError(provider: provider, message: "Terminal n’a pas pu ouvrir la commande de connexion.")
         }
+    }
+
+    private func showLoginError(provider: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Connexion \(provider == "claude" ? "Claude Code" : "Codex")"
+        alert.informativeText = message
+        alert.runModal()
     }
 
     private func setStatus(provider: String, text: String) {
@@ -1157,6 +1170,8 @@ private struct QuotaMenu {
             )
             let localBridge = bridgeBaseURL(from: nil)
             let remoteBridge = bridgeBaseURL(from: "192.168.1.20:8788")
+            let bundledIcon = Bundle.main.bundleURL.pathExtension != "app"
+                || Bundle.main.url(forResource: "CodexIcon", withExtension: "png").flatMap(NSImage.init(contentsOf:)) != nil
             guard
                 claudeGood, !claudeWrongMode, codexGood, !codexWrongMode,
                 quotas?.codex.weekly.remainingPercent == 93,
@@ -1172,6 +1187,8 @@ private struct QuotaMenu {
                 remoteBridge?.host == "192.168.1.20", remoteBridge?.port == 8788,
                 bridgeBaseURL(from: "ftp://192.168.1.20:8788") == nil,
                 bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
+                shellQuoted("a'b") == "'a'\\''b'",
+                bundledIcon,
                 quotas?.apiAddress == "192.168.1.252:8788",
                 autoLaunchOn == true, autoLaunchOff == false
             else { exit(1) }

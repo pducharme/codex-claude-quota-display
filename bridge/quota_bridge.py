@@ -215,8 +215,12 @@ def parse_claude_usage(text, now=None):
 
 
 def read_codex(timeout=20):
-    bundled = Path("/Applications/Codex.app/Contents/Resources/codex")
-    codex = str(bundled) if bundled.is_file() else shutil.which("codex")
+    installed = (
+        Path.home() / "Applications/Codex.app/Contents/Resources/codex",
+        Path("/Applications/Codex.app/Contents/Resources/codex"),
+    )
+    bundled = next((path for path in installed if path.is_file()), None)
+    codex = str(bundled) if bundled else shutil.which("codex")
     if not codex:
         raise RuntimeError("codex executable not found")
 
