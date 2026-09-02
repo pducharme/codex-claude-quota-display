@@ -996,7 +996,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let compactStatus = CompactStatusView(frame: .zero)
     private let codexStatus = NSMenuItem(title: "Codex : vérification…", action: nil, keyEquivalent: "")
     private let claudeStatus = NSMenuItem(title: "Claude : vérification…", action: nil, keyEquivalent: "")
-    private let dashboard = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 470, height: 250))
+    private let dashboard = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 250))
     private let refreshItem = NSMenuItem(title: "Actualiser les quotas", action: nil, keyEquivalent: "r")
     private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
     private let copyAPIItem = NSMenuItem(title: "Copier la configuration API", action: nil, keyEquivalent: "")

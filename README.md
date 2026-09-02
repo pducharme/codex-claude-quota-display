@@ -88,7 +88,7 @@ ni à l’ESP32.
 Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-bridge/build_pkg.sh 1.0.2
+bridge/build_pkg.sh 1.0.3
 ```
 
 ## 2. Compiler et flasher
