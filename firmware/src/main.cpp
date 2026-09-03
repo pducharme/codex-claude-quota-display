@@ -34,7 +34,7 @@ constexpr uint32_t TOUCH_READ_COMMAND = 0xD0070000;
 constexpr uint32_t TOUCH_CLEAR_COMMAND = 0xD00002AB;
 constexpr int BACKLIGHT = 185;
 constexpr uint32_t LCD_RESTART_MS = 30UL * 60UL * 1000UL;
-constexpr uint32_t REFRESH_MS = 5UL * 60UL * 1000UL;
+constexpr uint32_t REFRESH_MS = 10UL * 1000UL;
 constexpr uint32_t RETRY_MS = 30UL * 1000UL;
 constexpr int CONTENT_TOP = 4;
 constexpr int PANEL_HEIGHT = 172;
@@ -82,6 +82,8 @@ uint32_t serverEpochAtFetch = 0;
 uint32_t nextFetchMillis = 0;
 uint32_t nextLcdRestartMillis = 0;
 bool online = false;
+bool displayCodex = true;
+bool displayClaude = true;
 bool bridgeRefreshActive = false;
 uint32_t bridgeRefreshGeneration = 0;
 bool swipeTracking = false;
@@ -377,12 +379,33 @@ void drawClaudeMascot(int x, int y, int frame) {
   view->fillRect(x + 8, feet, 3, 6 - bob, COLOR_CLAUDE);
 }
 
-void drawProviderCard(int x, const char *name, const Provider &provider,
+bool providerAvailable(const Provider &provider) {
+  return provider.status != "error" || provider.fiveHour.available ||
+         provider.weekly.available || provider.fableWeekly.available;
+}
+
+constexpr int providerCardWidth(bool codexVisible, bool claudeVisible) {
+  return codexVisible && claudeVisible ? 310 : 626;
+}
+static_assert(providerCardWidth(true, true) == 310);
+static_assert(providerCardWidth(true, false) == 626);
+
+void displayedProviders(bool &showCodex, bool &showClaude) {
+  showCodex = displayCodex && providerAvailable(codex);
+  showClaude = displayClaude && providerAvailable(claude);
+  if (!showCodex && !showClaude) {
+    showCodex = displayCodex;
+    showClaude = displayClaude;
+  }
+  if (!showCodex && !showClaude) showCodex = showClaude = true;
+}
+
+void drawProviderCard(int x, int width, const char *name,
+                      const Provider &provider,
                       uint16_t panelColor, uint16_t accent, bool codexLogo,
                       int frame) {
   constexpr int y = CONTENT_TOP;
-  constexpr int width = 310;
-  constexpr int cellWidth = 139;
+  int cellWidth = (width - 32) / 2;
 
   view->fillRoundRect(x, y, width, PANEL_HEIGHT, 11, panelColor);
   view->fillRoundRect(x, y, width, 4, 2, accent);
@@ -406,7 +429,7 @@ void drawProviderCard(int x, const char *name, const Provider &provider,
 
   drawQuotaCell(x + 12, y + 39, cellWidth, "5 HEURES",
                 provider.fiveHour, accent, 5UL * 3600UL, 5);
-  drawQuotaCell(x + 159, y + 39, cellWidth, "SEMAINE",
+  drawQuotaCell(x + 20 + cellWidth, y + 39, cellWidth, "SEMAINE",
                 provider.weekly, accent, 7UL * 24UL * 3600UL, 7);
   if (codexLogo) {
     drawCompactResets(x + 12, y + 151);
@@ -442,10 +465,18 @@ void drawPageDots(int active);
 
 void drawDashboard(int pull = 0, bool refreshing = false, int frame = 0) {
   view->fillScreen(COLOR_BG);
-  drawProviderCard(7, "CODEX", codex, COLOR_CODEX_PANEL, COLOR_CODEX,
-                   true, frame);
-  drawProviderCard(323, "CLAUDE", claude, COLOR_CLAUDE_PANEL, COLOR_CLAUDE,
-                   false, frame);
+  bool showCodex;
+  bool showClaude;
+  displayedProviders(showCodex, showClaude);
+  int width = providerCardWidth(showCodex, showClaude);
+  if (showCodex) {
+    drawProviderCard(7, width, "CODEX", codex, COLOR_CODEX_PANEL,
+                     COLOR_CODEX, true, frame);
+  }
+  if (showClaude) {
+    drawProviderCard(showCodex ? 323 : 7, width, "CLAUDE", claude,
+                     COLOR_CLAUDE_PANEL, COLOR_CLAUDE, false, frame);
+  }
   drawPageDots(0);
   drawGesture(pull, refreshing, frame);
   present();
@@ -896,6 +927,19 @@ bool fetchQuotas() {
     bridgeRefreshActive = refresh["active"] | false;
     bridgeRefreshGeneration = refresh["generation"] | 0;
   }
+  JsonObjectConst display = document["display"].as<JsonObjectConst>();
+  if (!display.isNull() && display["codex"].is<bool>() &&
+      display["claude"].is<bool>()) {
+    bool nextCodex = display["codex"].as<bool>();
+    bool nextClaude = display["claude"].as<bool>();
+    if (nextCodex || nextClaude) {
+      displayCodex = nextCodex;
+      displayClaude = nextClaude;
+      if (!displayCodex && currentPage == Page::CodexDetail) {
+        currentPage = Page::Dashboard;
+      }
+    }
+  }
   readProvider(providers, "codex", codex);
   readProvider(providers, "claude", claude);
   readBankedResets(providers["codex"].as<JsonObjectConst>());
@@ -1182,7 +1226,10 @@ void handleTouch() {
     animatePageTransition(nextPage, deltaX < 0);
   } else if (tap) {
     if (currentPage == Page::Dashboard && swipeStartY >= CONTENT_TOP) {
-      if (swipeStartX < 317) {
+      bool showCodex;
+      bool showClaude;
+      displayedProviders(showCodex, showClaude);
+      if (showCodex && (!showClaude || swipeStartX < 317)) {
         animatePageTransition(Page::CodexDetail, true);
       }
     } else if (currentPage == Page::CodexDetail) {

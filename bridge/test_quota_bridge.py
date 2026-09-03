@@ -211,6 +211,22 @@ Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
             50,
         )
 
+    def test_display_settings_are_validated_and_persisted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "display.json"
+            state = QuotaState("192.168.1.27:8788", path)
+            self.assertEqual(state.set_display({"codex": True, "claude": False}), {
+                "codex": True,
+                "claude": False,
+            })
+            self.assertEqual(QuotaState(display_path=path).payload()["display"], {
+                "codex": True,
+                "claude": False,
+            })
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(ValueError):
+                state.set_display({"codex": False, "claude": False})
+
 
 if __name__ == "__main__":
     unittest.main()

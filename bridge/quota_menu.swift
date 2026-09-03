@@ -350,6 +350,8 @@ private struct QuotaSnapshot {
     let claude: ProviderQuotas
     let refreshedAt: Int?
     let apiAddress: String
+    let displayCodex: Bool?
+    let displayClaude: Bool?
 }
 
 private func shellQuoted(_ value: String) -> String {
@@ -466,11 +468,14 @@ private func quotaSnapshot(from data: Data) -> QuotaSnapshot? {
     else { return nil }
     let refresh = root["refresh"] as? [String: Any]
     let api = root["api"] as? [String: Any]
+    let display = root["display"] as? [String: Any]
     return QuotaSnapshot(
         codex: codex,
         claude: claude,
         refreshedAt: refresh?["completed_at"] as? Int,
-        apiAddress: api?["address"] as? String ?? "port 8788"
+        apiAddress: api?["address"] as? String ?? "port 8788",
+        displayCodex: display?["codex"] as? Bool,
+        displayClaude: display?["claude"] as? Bool
     )
 }
 
@@ -482,6 +487,18 @@ private func compactRemainingText(_ window: QuotaWindow, percent: Bool) -> Strin
     guard let remaining = window.remainingPercent else { return percent ? "—%" : "—" }
     return "\(remaining)\(percent ? "%" : "")"
 }
+
+private enum StatusDisplayMode: String {
+    case compact
+    case codex
+    case claude
+}
+
+private let showCodexPreference = "display.showCodex"
+private let showClaudePreference = "display.showClaude"
+private let persistentWindowPreference = "display.persistentWindow"
+private let alwaysOnTopPreference = "display.alwaysOnTop"
+private let statusDisplayPreference = "display.statusMode"
 
 private func expectedRemainingPercent(
     _ window: QuotaWindow,
@@ -551,6 +568,9 @@ private final class CompactStatusView: NSView {
     var bridgeOnline = false
     var codexConnected: Bool?
     var claudeConnected: Bool?
+    var showCodex = true
+    var showClaude = true
+    var displayMode = StatusDisplayMode.compact
 
     override var isFlipped: Bool { true }
 
@@ -559,6 +579,16 @@ private final class CompactStatusView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         let empty = QuotaWindow(usedPercent: nil, resetsAt: nil)
+        if displayMode != .compact || showCodex != showClaude {
+            let useCodex = (displayMode == .codex && showCodex) || !showClaude
+            drawPercentage(
+                window: useCodex ? snapshot?.codex.weekly ?? empty : snapshot?.claude.weekly ?? empty,
+                providerOK: useCodex ? snapshot?.codex.status == "ok" : snapshot?.claude.status == "ok",
+                codex: useCodex,
+                connected: useCodex ? codexConnected : claudeConnected
+            )
+            return
+        }
         drawProviderIcon(codex: false, connected: claudeConnected, x: 0)
         drawProviderIcon(codex: true, connected: codexConnected, x: bounds.width - 20)
         drawDivider()
@@ -578,6 +608,16 @@ private final class CompactStatusView: NSView {
             width: bounds.width - 46,
             y: 11
         )
+    }
+
+    private func drawPercentage(window: QuotaWindow, providerOK: Bool, codex: Bool, connected: Bool?) {
+        drawProviderIcon(codex: codex, connected: connected, x: 5)
+        let value = NSMutableAttributedString()
+        appendQuota(window, providerOK: providerOK, percent: true, to: value)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        value.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: value.length))
+        value.draw(in: NSRect(x: 27, y: 5, width: bounds.width - 30, height: 14))
     }
 
     private func drawProviderIcon(codex: Bool, connected: Bool?, x: CGFloat) {
@@ -686,6 +726,23 @@ private func isLocalBridge(_ url: URL) -> Bool {
     url.host == "127.0.0.1" || url.host == "localhost" || url.host == "::1"
 }
 
+private func dashboardPanelRects(
+    in screen: NSRect,
+    showCodex requestedCodex: Bool,
+    showClaude requestedClaude: Bool
+) -> (codex: NSRect?, claude: NSRect?) {
+    let showCodex = requestedCodex || !requestedClaude
+    let showClaude = requestedClaude || !requestedCodex
+    let both = showCodex && showClaude
+    let gap: CGFloat = 8
+    let width = both ? (screen.width - 24) / 2 : screen.width - 16
+    let firstX = screen.minX + 8
+    return (
+        showCodex ? NSRect(x: firstX, y: screen.minY + 8, width: width, height: 158) : nil,
+        showClaude ? NSRect(x: both ? firstX + width + gap : firstX, y: screen.minY + 8, width: width, height: 158) : nil
+    )
+}
+
 @MainActor
 private final class QuotaDashboardView: NSView {
     private let screenColor = NSColor(srgbRed: 7 / 255, green: 10 / 255, blue: 18 / 255, alpha: 1)
@@ -711,6 +768,18 @@ private final class QuotaDashboardView: NSView {
             setAccessibilityValue(accessibilitySummary)
         }
     }
+    var showCodex = true {
+        didSet {
+            needsDisplay = true
+            setAccessibilityValue(accessibilitySummary)
+        }
+    }
+    var showClaude = true {
+        didSet {
+            needsDisplay = true
+            setAccessibilityValue(accessibilitySummary)
+        }
+    }
 
     override var isFlipped: Bool { true }
 
@@ -727,7 +796,15 @@ private final class QuotaDashboardView: NSView {
 
     private var accessibilitySummary: String {
         guard let snapshot else { return "Chargement des quotas" }
-        return "Codex, forfait \(snapshot.codex.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)). Claude, forfait \(snapshot.claude.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)). API \(snapshot.apiAddress), \(apiOnline ? "en ligne" : "hors ligne"). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true))."
+        var parts: [String] = []
+        if showCodex {
+            parts.append("Codex, forfait \(snapshot.codex.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)).")
+        }
+        if showClaude {
+            parts.append("Claude, forfait \(snapshot.claude.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)).")
+        }
+        parts.append("API \(snapshot.apiAddress), \(apiOnline ? "en ligne" : "hors ligne"). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true)).")
+        return parts.joined(separator: " ")
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -744,30 +821,33 @@ private final class QuotaDashboardView: NSView {
             fableWeekly: QuotaWindow(usedPercent: nil, resetsAt: nil),
             bankedResets: nil
         )
-        let gap: CGFloat = 8
-        let panelWidth = (screen.width - 24) / 2
-        drawProviderCard(
-            title: "CODEX",
-            provider: snapshot?.codex ?? empty,
-            rect: NSRect(x: screen.minX + 8, y: screen.minY + 8, width: panelWidth, height: 158),
-            panelColor: NSColor(srgbRed: 8 / 255, green: 29 / 255, blue: 48 / 255, alpha: 1),
-            accent: codexColor,
-            codex: true,
-            compactLabel: "RESETS:",
-            compactWindow: nil,
-            compactCount: snapshot?.codex.bankedResets
-        )
-        drawProviderCard(
-            title: "CLAUDE",
-            provider: snapshot?.claude ?? empty,
-            rect: NSRect(x: screen.minX + 8 + panelWidth + gap, y: screen.minY + 8, width: panelWidth, height: 158),
-            panelColor: NSColor(srgbRed: 43 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1),
-            accent: claudeColor,
-            codex: false,
-            compactLabel: "FABLE:",
-            compactWindow: snapshot?.claude.fableWeekly,
-            compactCount: nil
-        )
+        let panels = dashboardPanelRects(in: screen, showCodex: showCodex, showClaude: showClaude)
+        if let rect = panels.codex {
+            drawProviderCard(
+                title: "CODEX",
+                provider: snapshot?.codex ?? empty,
+                rect: rect,
+                panelColor: NSColor(srgbRed: 8 / 255, green: 29 / 255, blue: 48 / 255, alpha: 1),
+                accent: codexColor,
+                codex: true,
+                compactLabel: "RESETS:",
+                compactWindow: nil,
+                compactCount: snapshot?.codex.bankedResets
+            )
+        }
+        if let rect = panels.claude {
+            drawProviderCard(
+                title: "CLAUDE",
+                provider: snapshot?.claude ?? empty,
+                rect: rect,
+                panelColor: NSColor(srgbRed: 43 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1),
+                accent: claudeColor,
+                codex: false,
+                compactLabel: "FABLE:",
+                compactWindow: snapshot?.claude.fableWeekly,
+                compactCount: nil
+            )
+        }
         trackColor.setFill()
         NSRect(x: screen.minX + 12, y: 180, width: screen.width - 24, height: 1).fill()
         drawText(
@@ -1035,12 +1115,21 @@ private final class QuotaDashboardView: NSView {
 }
 
 @MainActor
-private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
+private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let compactStatus = CompactStatusView(frame: .zero)
     private let codexStatus = NSMenuItem(title: "Codex : vérification…", action: nil, keyEquivalent: "")
     private let claudeStatus = NSMenuItem(title: "Claude : vérification…", action: nil, keyEquivalent: "")
     private let dashboard = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 250))
+    private let persistentDashboard = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 250))
+    private let showCodexItem = NSMenuItem(title: "Afficher Codex", action: nil, keyEquivalent: "")
+    private let showClaudeItem = NSMenuItem(title: "Afficher Claude", action: nil, keyEquivalent: "")
+    private let persistentWindowItem = NSMenuItem(title: "Afficher une fenêtre permanente", action: nil, keyEquivalent: "")
+    private let alwaysOnTopItem = NSMenuItem(title: "Toujours au premier plan", action: nil, keyEquivalent: "")
+    private let statusDisplayItem = NSMenuItem(title: "Icône de la barre des menus", action: nil, keyEquivalent: "")
+    private let compactStatusItem = NSMenuItem(title: "Vue compacte", action: nil, keyEquivalent: "")
+    private let codexPercentageItem = NSMenuItem(title: "% Codex restant (semaine)", action: nil, keyEquivalent: "")
+    private let claudePercentageItem = NSMenuItem(title: "% Claude restant (semaine)", action: nil, keyEquivalent: "")
     private let refreshItem = NSMenuItem(title: "Actualiser les quotas", action: nil, keyEquivalent: "r")
     private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
     private let copyAPIItem = NSMenuItem(title: "Copier la configuration API", action: nil, keyEquivalent: "")
@@ -1067,6 +1156,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var refreshingClaudeDesktop = false
     private var claudeDesktopCredential: ClaudeDesktopCredential?
     private var autoPrompted = Set<String>()
+    private var persistentPanel: NSPanel?
+    private var displayRevision = 0
 
     private var appSupportURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -1102,6 +1193,13 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             NSApp.terminate(nil)
             return
         }
+        UserDefaults.standard.register(defaults: [
+            showCodexPreference: true,
+            showClaudePreference: true,
+            persistentWindowPreference: false,
+            alwaysOnTopPreference: false,
+            statusDisplayPreference: StatusDisplayMode.compact.rawValue,
+        ])
         NSApp.setActivationPolicy(.accessory)
         NSApp.mainMenu = applicationMenu()
         restartBridgeAfterUpdateIfNeeded()
@@ -1140,6 +1238,31 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         menu.addItem(dashboardItem)
         menu.addItem(.separator())
         let options = NSMenu(title: "Options")
+        showCodexItem.target = self
+        showCodexItem.action = #selector(toggleCodexVisibility)
+        options.addItem(showCodexItem)
+        showClaudeItem.target = self
+        showClaudeItem.action = #selector(toggleClaudeVisibility)
+        options.addItem(showClaudeItem)
+        persistentWindowItem.target = self
+        persistentWindowItem.action = #selector(togglePersistentWindow)
+        options.addItem(persistentWindowItem)
+        alwaysOnTopItem.target = self
+        alwaysOnTopItem.action = #selector(toggleAlwaysOnTop)
+        options.addItem(alwaysOnTopItem)
+        let statusDisplay = NSMenu()
+        compactStatusItem.target = self
+        compactStatusItem.action = #selector(selectCompactStatus)
+        statusDisplay.addItem(compactStatusItem)
+        codexPercentageItem.target = self
+        codexPercentageItem.action = #selector(selectCodexPercentage)
+        statusDisplay.addItem(codexPercentageItem)
+        claudePercentageItem.target = self
+        claudePercentageItem.action = #selector(selectClaudePercentage)
+        statusDisplay.addItem(claudePercentageItem)
+        statusDisplayItem.submenu = statusDisplay
+        options.addItem(statusDisplayItem)
+        options.addItem(.separator())
         refreshItem.target = self
         refreshItem.action = #selector(refreshQuotas)
         options.addItem(refreshItem)
@@ -1191,7 +1314,128 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         menu.addItem(optionsItem)
         statusItem.menu = menu
         updateSourceItems()
+        applyDisplayPreferences()
+    }
+
+    private func applyDisplayPreferences(showWindow: Bool = false) {
+        let defaults = UserDefaults.standard
+        let showCodex = defaults.bool(forKey: showCodexPreference)
+        let showClaude = defaults.bool(forKey: showClaudePreference)
+        var statusMode = StatusDisplayMode(rawValue: defaults.string(forKey: statusDisplayPreference) ?? "") ?? .compact
+        if statusMode == .codex && !showCodex { statusMode = .claude }
+        if statusMode == .claude && !showClaude { statusMode = .codex }
+        defaults.set(statusMode.rawValue, forKey: statusDisplayPreference)
+
+        showCodexItem.state = showCodex ? .on : .off
+        showClaudeItem.state = showClaude ? .on : .off
+        persistentWindowItem.state = defaults.bool(forKey: persistentWindowPreference) ? .on : .off
+        alwaysOnTopItem.state = defaults.bool(forKey: alwaysOnTopPreference) ? .on : .off
+        compactStatusItem.state = statusMode == .compact ? .on : .off
+        codexPercentageItem.state = statusMode == .codex ? .on : .off
+        claudePercentageItem.state = statusMode == .claude ? .on : .off
+        codexPercentageItem.isEnabled = showCodex
+        claudePercentageItem.isEnabled = showClaude
+
+        dashboard.showCodex = showCodex
+        dashboard.showClaude = showClaude
+        persistentDashboard.showCodex = showCodex
+        persistentDashboard.showClaude = showClaude
+        compactStatus.showCodex = showCodex
+        compactStatus.showClaude = showClaude
+        compactStatus.displayMode = statusMode
+        persistentPanel?.level = defaults.bool(forKey: alwaysOnTopPreference) ? .floating : .normal
+        if defaults.bool(forKey: persistentWindowPreference) {
+            showPersistentDashboard(activate: showWindow)
+        } else {
+            persistentPanel?.orderOut(nil)
+        }
         renderStatusTitle()
+    }
+
+    @objc private func toggleCodexVisibility() {
+        let defaults = UserDefaults.standard
+        let next = !defaults.bool(forKey: showCodexPreference)
+        guard next || defaults.bool(forKey: showClaudePreference) else {
+            NSSound.beep()
+            return
+        }
+        defaults.set(next, forKey: showCodexPreference)
+        if !next && defaults.string(forKey: statusDisplayPreference) == StatusDisplayMode.codex.rawValue {
+            defaults.set(StatusDisplayMode.claude.rawValue, forKey: statusDisplayPreference)
+        }
+        displayRevision += 1
+        applyDisplayPreferences()
+        syncDisplayPreferences()
+    }
+
+    @objc private func toggleClaudeVisibility() {
+        let defaults = UserDefaults.standard
+        let next = !defaults.bool(forKey: showClaudePreference)
+        guard next || defaults.bool(forKey: showCodexPreference) else {
+            NSSound.beep()
+            return
+        }
+        defaults.set(next, forKey: showClaudePreference)
+        if !next && defaults.string(forKey: statusDisplayPreference) == StatusDisplayMode.claude.rawValue {
+            defaults.set(StatusDisplayMode.codex.rawValue, forKey: statusDisplayPreference)
+        }
+        displayRevision += 1
+        applyDisplayPreferences()
+        syncDisplayPreferences()
+    }
+
+    @objc private func togglePersistentWindow() {
+        let defaults = UserDefaults.standard
+        defaults.set(!defaults.bool(forKey: persistentWindowPreference), forKey: persistentWindowPreference)
+        applyDisplayPreferences(showWindow: true)
+    }
+
+    @objc private func toggleAlwaysOnTop() {
+        let defaults = UserDefaults.standard
+        defaults.set(!defaults.bool(forKey: alwaysOnTopPreference), forKey: alwaysOnTopPreference)
+        applyDisplayPreferences()
+    }
+
+    @objc private func selectCompactStatus() { selectStatusMode(.compact) }
+    @objc private func selectCodexPercentage() { selectStatusMode(.codex) }
+    @objc private func selectClaudePercentage() { selectStatusMode(.claude) }
+
+    private func selectStatusMode(_ mode: StatusDisplayMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: statusDisplayPreference)
+        applyDisplayPreferences()
+    }
+
+    private func showPersistentDashboard(activate: Bool) {
+        if persistentPanel == nil {
+            let panel = NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 250),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            panel.title = "Quota Display"
+            panel.isReleasedWhenClosed = false
+            panel.hidesOnDeactivate = false
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            panel.contentView = persistentDashboard
+            panel.delegate = self
+            panel.setFrameAutosaveName("QuotaDisplayPersistentWindow")
+            panel.center()
+            persistentPanel = panel
+        }
+        persistentPanel?.level = UserDefaults.standard.bool(forKey: alwaysOnTopPreference) ? .floating : .normal
+        if activate {
+            NSApp.activate(ignoringOtherApps: true)
+            persistentPanel?.makeKeyAndOrderFront(nil)
+        } else {
+            persistentPanel?.orderFrontRegardless()
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === persistentPanel else { return }
+        UserDefaults.standard.set(false, forKey: persistentWindowPreference)
+        persistentWindowItem.state = .off
     }
 
     private func updateSourceItems() {
@@ -1304,6 +1548,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         snapshot = nil
         dashboard.snapshot = nil
         dashboard.apiOnline = false
+        persistentDashboard.snapshot = nil
+        persistentDashboard.apiOnline = false
         updateSourceItems()
         checkAuthentication(autoPrompt: false)
         loadQuotas()
@@ -1400,9 +1646,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         compactStatus.codexConnected = remote ? snapshot.map { $0.codex.status != "error" } : codexConnected
         compactStatus.claudeConnected = remote ? snapshot.map { $0.claude.status != "error" } : claudeConnected
         compactStatus.needsDisplay = true
-        statusItem.button?.toolTip = snapshot?.refreshedAt.map {
+        let tooltip = snapshot?.refreshedAt.map {
             "5 h / semaine · dernière actualisation \(dateText($0, timeOnly: true))"
         } ?? "5 h / semaine · en attente du pont"
+        statusItem.button?.toolTip = tooltip
+        statusItem.button?.setAccessibilityLabel(tooltip)
     }
 
     private func bridgeRequest(path: String, method: String = "GET") -> URLRequest? {
@@ -1419,11 +1667,33 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         return request
     }
 
+    private func syncDisplayPreferences() {
+        guard var request = bridgeRequest(path: "/v1/display", method: "POST") else {
+            NSSound.beep()
+            return
+        }
+        let defaults = UserDefaults.standard
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "codex": defaults.bool(forKey: showCodexPreference),
+            "claude": defaults.bool(forKey: showClaudePreference),
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+            let ok = (response as? HTTPURLResponse)?.statusCode == 200
+            DispatchQueue.main.async {
+                if !ok { NSSound.beep() }
+                self?.loadQuotas()
+            }
+        }.resume()
+    }
+
     private func loadQuotas() {
         let sourceURL = configuredBridgeSource.url
+        let requestedDisplayRevision = displayRevision
         guard !loadingQuotas, let request = bridgeRequest(path: "/v1/quotas") else {
             bridgeOnline = false
             dashboard.apiOnline = false
+            persistentDashboard.apiOnline = false
             renderStatusTitle()
             return
         }
@@ -1437,9 +1707,19 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 self.loadingQuotas = false
                 self.bridgeOnline = code == 200 && loaded != nil
                 self.dashboard.apiOnline = self.bridgeOnline
+                self.persistentDashboard.apiOnline = self.bridgeOnline
                 if let loaded {
+                    if self.displayRevision == requestedDisplayRevision,
+                       let showCodex = loaded.displayCodex,
+                       let showClaude = loaded.displayClaude,
+                       showCodex || showClaude {
+                        UserDefaults.standard.set(showCodex, forKey: showCodexPreference)
+                        UserDefaults.standard.set(showClaude, forKey: showClaudePreference)
+                        self.applyDisplayPreferences()
+                    }
                     self.snapshot = loaded
                     self.dashboard.snapshot = loaded
+                    self.persistentDashboard.snapshot = loaded
                 }
                 self.renderStatusTitle()
             }
@@ -1514,7 +1794,19 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(nil)
+        let repository = "Dépôt GitHub du projet"
+        let credits = NSMutableAttributedString(string: "Patrick Fortin-Ducharme\n\(repository)")
+        credits.addAttribute(
+            .link,
+            value: URL(string: "https://github.com/pducharme/codex-claude-quota-display")!,
+            range: (credits.string as NSString).range(of: repository)
+        )
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [.credits: credits]
+        if let iconURL = Bundle.main.url(forResource: "QuotaDisplay", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            options[.applicationIcon] = icon
+        }
+        NSApp.orderFrontStandardAboutPanel(options: options)
     }
 
     @objc private func quitApp() {
@@ -1786,7 +2078,7 @@ private struct QuotaMenu {
             )).connected
             let codexGood = codexState(from: CommandResult(status: 0, output: "Logged in using ChatGPT")).connected
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
-            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
+            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             let desktopSample = #"{"subscription_type":"max","organization":{"rate_limit_tier":"default_claude_max_5x"},"five_hour":{"utilization":12.8,"resets_at":"2026-09-02T22:00:00Z"},"seven_day":{"utilization":39,"resets_at":"2026-09-08T04:00:00Z"},"seven_day_fable":{"utilization":81,"resets_at":"2026-09-08T04:00:00Z"}}"#
             let desktopQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopSample.utf8))
@@ -1813,6 +2105,16 @@ private struct QuotaMenu {
             )
             let localBridge = bridgeBaseURL(from: nil)
             let remoteBridge = bridgeBaseURL(from: "192.168.1.20:8788")
+            let singleProvider = dashboardPanelRects(
+                in: NSRect(x: 0, y: 0, width: 624, height: 238),
+                showCodex: true,
+                showClaude: false
+            )
+            let bothProviders = dashboardPanelRects(
+                in: NSRect(x: 0, y: 0, width: 624, height: 238),
+                showCodex: true,
+                showClaude: true
+            )
             let bundledIcon = Bundle.main.bundleURL.pathExtension != "app"
                 || Bundle.main.url(forResource: "CodexIcon", withExtension: "png").flatMap(NSImage.init(contentsOf:)) != nil
             let bundledAppIcon = Bundle.main.bundleURL.pathExtension != "app"
@@ -1827,6 +2129,7 @@ private struct QuotaMenu {
                 quotas?.claude.fiveHour.remainingPercent == 100,
                 quotas?.claude.plan == "Max 5X",
                 quotas?.claude.fableWeekly.remainingPercent == 72,
+                quotas?.displayCodex == true, quotas?.displayClaude == false,
                 (desktopQuotas?["five_hour"] as? [String: Any])?["used_percent"] as? Int == 12,
                 (desktopQuotas?["weekly"] as? [String: Any])?["used_percent"] as? Int == 39,
                 (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,
@@ -1841,6 +2144,8 @@ private struct QuotaMenu {
                 remoteBridge?.host == "192.168.1.20", remoteBridge?.port == 8788,
                 bridgeBaseURL(from: "ftp://192.168.1.20:8788") == nil,
                 bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
+                singleProvider.codex?.width == 608, singleProvider.claude == nil,
+                bothProviders.codex?.width == 300, bothProviders.claude?.minX == 316,
                 shellQuoted("a'b") == "'a'\\''b'",
                 bundledIcon, bundledAppIcon,
                 sparkleConfigured,

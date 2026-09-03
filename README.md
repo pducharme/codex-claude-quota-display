@@ -14,6 +14,9 @@ dans un Companion macOS et, facultativement, sur un mini-écran
 - Jauges réelles accompagnées de segments indiquant où la consommation devrait
   théoriquement se situer dans la période.
 - Companion natif dans la barre de menus macOS.
+- Affichage au choix de Codex ou Claude, avec carte pleine largeur, fenêtre
+  permanente, mode toujours au premier plan et pourcentage restant dans la
+  barre des menus.
 - Mode source locale ou client d’une autre instance Quota Display sur le réseau.
 - Mini-écran tactile avec vue détaillée, météo sur cinq jours et actualisation
   par glissement.
@@ -71,8 +74,10 @@ Après l’installation :
 
 Par défaut, le menu montre seulement le tableau de bord et une ligne
 **Options**. Ce sous-menu regroupe le changement de source, la copie de la
-configuration API, le démarrage automatique, les mises à jour, les connexions,
-les informations de l’application et la commande pour quitter.
+configuration API, les fournisseurs affichés, la fenêtre permanente, le mode
+toujours au premier plan, l’icône de la barre des menus, le démarrage
+automatique, les mises à jour, les connexions, les informations de
+l’application et la commande pour quitter.
 
 ## Utiliser une source distante
 
@@ -88,7 +93,8 @@ Une seule installation peut servir plusieurs mini-écrans et Companions :
 
 En mode distant, les connexions aux fournisseurs sont gérées uniquement par le
 Mac source. L’action **Actualiser les quotas** du client demande une nouvelle
-lecture à cette source.
+lecture à cette source. Le choix des fournisseurs affichés est aussi enregistré
+sur la source : tous les Companions et mini-écrans adoptent le même affichage.
 
 ## Installer le mini-écran
 
@@ -149,6 +155,8 @@ pendant trois secondes au démarrage.
   Codex et Claude sur la source.
 - Un point vert indique une lecture valide, orange une dernière valeur conservée
   et rouge une source indisponible.
+- Lorsqu’un fournisseur est masqué ou indisponible, l’autre occupe
+  automatiquement toute la largeur, sans reflash.
 - `NON FOURNI` signifie que le fournisseur n’a pas retourné cette fenêtre de
   quota; l’application n’invente alors aucune valeur.
 
@@ -163,6 +171,7 @@ toutes les cinq minutes.
 | `GET` | `/v1/quotas` | Jeton Bearer | Quotas et état des fournisseurs |
 | `GET` | `/v1/weather?city=<ville>` | Jeton Bearer | Conditions et prévisions météo |
 | `POST` | `/v1/refresh` | Jeton Bearer | Nouvelle lecture des fournisseurs |
+| `POST` | `/v1/display` | Jeton Bearer | Fournisseurs visibles sur les Companions et mini-écrans |
 
 L’adresse et le jeton se copient depuis **Copier la configuration API** dans le
 Companion.

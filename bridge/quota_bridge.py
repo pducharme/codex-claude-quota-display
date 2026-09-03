@@ -525,9 +525,18 @@ class WeatherCache:
 
 
 class QuotaState:
-    def __init__(self, api_address="127.0.0.1:8788"):
+    def __init__(self, api_address="127.0.0.1:8788", display_path=None):
         self.lock = threading.Lock()
         self.api_address = api_address
+        self.display_path = Path(display_path).expanduser() if display_path else None
+        self.display = {"codex": True, "claude": True}
+        if self.display_path and self.display_path.exists():
+            try:
+                self.display = self._validated_display(
+                    json.loads(self.display_path.read_text())
+                )
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                pass
         self.refreshing = False
         self.refresh_generation = 0
         self.refresh_completed_at = None
@@ -543,6 +552,33 @@ class QuotaState:
                 **{key: value.copy() for key, value in EMPTY_WINDOWS.items()},
             },
         }
+
+    @staticmethod
+    def _validated_display(value):
+        if not isinstance(value, dict):
+            raise ValueError("invalid display settings")
+        codex = value.get("codex")
+        claude = value.get("claude")
+        if type(codex) is not bool or type(claude) is not bool or not (codex or claude):
+            raise ValueError("at least one provider must be displayed")
+        return {"codex": codex, "claude": claude}
+
+    def set_display(self, value):
+        display = self._validated_display(value)
+        with self.lock:
+            if self.display_path:
+                self.display_path.parent.mkdir(parents=True, exist_ok=True)
+                descriptor = os.open(
+                    self.display_path,
+                    os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                    0o600,
+                )
+                with os.fdopen(descriptor, "w") as handle:
+                    json.dump(display, handle)
+                    handle.write("\n")
+                os.chmod(self.display_path, 0o600)
+            self.display = display
+            return display.copy()
 
     def refresh_provider(self, name, reader):
         try:
@@ -607,6 +643,7 @@ class QuotaState:
     def payload(self):
         with self.lock:
             providers = json.loads(json.dumps(self.providers))
+            display = self.display.copy()
             refresh = {
                 "active": self.refreshing,
                 "generation": self.refresh_generation,
@@ -616,6 +653,7 @@ class QuotaState:
             "version": 1,
             "server_time": int(time.time()),
             "api": {"status": "online", "address": self.api_address},
+            "display": display,
             "refresh": refresh,
             "providers": providers,
         }
@@ -661,11 +699,24 @@ class QuotaHandler(BaseHTTPRequestHandler):
         self._json(200, {"version": 1, "weather": self.weather.get(city)})
 
     def do_POST(self):
-        if self.path != "/v1/refresh":
+        parsed = urlparse(self.path)
+        if parsed.path not in ("/v1/refresh", "/v1/display"):
             self._json(404, {"error": "not_found"})
             return
         if not self._authorized():
             self._json(401, {"error": "unauthorized"})
+            return
+        if parsed.path == "/v1/display":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 1024:
+                    raise ValueError
+                value = json.loads(self.rfile.read(length))
+                display = self.state.set_display(value)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                self._json(400, {"error": "invalid_display"})
+                return
+            self._json(200, {"version": 1, "display": display})
             return
         started = self.state.start_refresh()
         self._json(
@@ -732,7 +783,10 @@ def main():
         print(token_from(args.token_file))
         return
 
-    state = QuotaState(f"{lan_ip()}:{args.port}")
+    state = QuotaState(
+        f"{lan_ip()}:{args.port}",
+        Path(args.token_file).expanduser().with_name("display.json"),
+    )
     if args.once:
         state.refresh()
         print(json.dumps(state.payload(), indent=2))
