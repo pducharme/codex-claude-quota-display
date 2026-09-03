@@ -1139,21 +1139,22 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         dashboardItem.view = dashboard
         menu.addItem(dashboardItem)
         menu.addItem(.separator())
+        let options = NSMenu(title: "Options")
         refreshItem.target = self
         refreshItem.action = #selector(refreshQuotas)
-        menu.addItem(refreshItem)
+        options.addItem(refreshItem)
         sourceItem.target = self
         sourceItem.action = #selector(chooseQuotaSource)
-        menu.addItem(sourceItem)
+        options.addItem(sourceItem)
         copyAPIItem.target = self
         copyAPIItem.action = #selector(copyAPIConfiguration)
         copyAPIItem.toolTip = "Copie l’adresse et le jeton nécessaires aux mini-écrans et aux Companions distants."
-        menu.addItem(copyAPIItem)
+        options.addItem(copyAPIItem)
         autoLaunchItem.target = self
         autoLaunchItem.action = #selector(toggleAutoLaunch)
         autoLaunchItem.state = .mixed
         autoLaunchItem.toolTip = "Contrôle le démarrage du pont API Python à la prochaine ouverture de session."
-        menu.addItem(autoLaunchItem)
+        options.addItem(autoLaunchItem)
         let updates = NSMenu()
         checkUpdateItem.target = self
         checkUpdateItem.action = #selector(checkUpdates)
@@ -1163,7 +1164,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         automaticUpdateItem.state = updaterController.updater.automaticallyChecksForUpdates ? .on : .off
         updates.addItem(automaticUpdateItem)
         updatesItem.submenu = updates
-        menu.addItem(updatesItem)
+        options.addItem(updatesItem)
         let connections = NSMenu()
         codexStatus.isEnabled = false
         claudeStatus.isEnabled = false
@@ -1177,14 +1178,17 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         claudeActionItem.action = #selector(loginClaude)
         connections.addItem(claudeActionItem)
         connectionsItem.submenu = connections
-        menu.addItem(connectionsItem)
-        menu.addItem(.separator())
+        options.addItem(connectionsItem)
+        options.addItem(.separator())
         let aboutItem = NSMenuItem(title: "À propos de Quota Display", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
-        menu.addItem(aboutItem)
+        options.addItem(aboutItem)
         let quitItem = NSMenuItem(title: "Quitter Quota Display", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
-        menu.addItem(quitItem)
+        options.addItem(quitItem)
+        let optionsItem = NSMenuItem(title: "Options", action: nil, keyEquivalent: "")
+        optionsItem.submenu = options
+        menu.addItem(optionsItem)
         statusItem.menu = menu
         updateSourceItems()
         renderStatusTitle()
