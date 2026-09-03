@@ -754,6 +754,22 @@ private func isLocalBridge(_ url: URL) -> Bool {
     url.host == "127.0.0.1" || url.host == "localhost" || url.host == "::1"
 }
 
+// Adafruit GFX classic 5x7 glyphs used by the mini-screen firmware.
+private let miniScreenGlyphs: [Character: [UInt8]] = [
+    "%": [0x23, 0x13, 0x08, 0x64, 0x62],
+    "-": [0x08, 0x08, 0x08, 0x08, 0x08],
+    "0": [0x3E, 0x51, 0x49, 0x45, 0x3E],
+    "1": [0x00, 0x42, 0x7F, 0x40, 0x00],
+    "2": [0x72, 0x49, 0x49, 0x49, 0x46],
+    "3": [0x21, 0x41, 0x49, 0x4D, 0x33],
+    "4": [0x18, 0x14, 0x12, 0x7F, 0x10],
+    "5": [0x27, 0x45, 0x45, 0x45, 0x39],
+    "6": [0x3C, 0x4A, 0x49, 0x49, 0x31],
+    "7": [0x41, 0x21, 0x11, 0x09, 0x07],
+    "8": [0x36, 0x49, 0x49, 0x49, 0x36],
+    "9": [0x46, 0x49, 0x49, 0x29, 0x1E],
+]
+
 private func dashboardPanelRects(
     in screen: NSRect,
     showCodex requestedCodex: Bool,
@@ -999,10 +1015,10 @@ private final class QuotaDashboardView: NSView {
             font: .systemFont(ofSize: 7.5, weight: .bold),
             color: mutedColor
         )
-        drawText(
+        drawMiniScreenPercentage(
             remainingText(window),
             in: NSRect(x: rect.minX + 8, y: rect.minY + 19, width: rect.width - 16, height: 25),
-            font: .monospacedDigitSystemFont(ofSize: 18, weight: .bold),
+            scale: 3,
             color: quotaColor(window.remainingPercent)
         )
         drawText(
@@ -1077,10 +1093,9 @@ private final class QuotaDashboardView: NSView {
             percent: window.remainingPercent,
             accent: accent
         )
-        drawText(
+        drawMiniScreenPercentage(
             remainingText(window),
             in: NSRect(x: rect.maxX - 38, y: y - 1, width: 28, height: 13),
-            font: .monospacedDigitSystemFont(ofSize: 8, weight: .bold),
             color: quotaColor(window.remainingPercent),
             alignment: .right
         )
@@ -1116,6 +1131,34 @@ private final class QuotaDashboardView: NSView {
         if percent <= 20 { return redColor }
         if percent <= 50 { return amberColor }
         return greenColor
+    }
+
+    private func drawMiniScreenPercentage(
+        _ value: String,
+        in rect: NSRect,
+        scale: CGFloat = 1,
+        color: NSColor,
+        alignment: NSTextAlignment = .left
+    ) {
+        let characters = Array(value == "—%" ? "--" : value)
+        let width = CGFloat(max(0, characters.count * 6 - 1)) * scale
+        let x = alignment == .right ? rect.maxX - width
+            : alignment == .center ? rect.midX - width / 2
+            : rect.minX
+        color.setFill()
+        for (index, character) in characters.enumerated() {
+            guard let columns = miniScreenGlyphs[character] else { continue }
+            for (column, bits) in columns.enumerated() {
+                for row in 0..<7 where bits & (1 << row) != 0 {
+                    NSRect(
+                        x: x + CGFloat(index * 6 + column) * scale,
+                        y: rect.minY + CGFloat(row) * scale,
+                        width: scale,
+                        height: scale
+                    ).fill()
+                }
+            }
+        }
     }
 
     private func statusColor(_ status: String) -> NSColor {
