@@ -5,11 +5,13 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
 VERSION=${1:-1.0.9}
 ZIP_NAME="Quota-Display-$VERSION.zip"
+NOTES_NAME="Quota-Display-$VERSION.html"
 SPARKLE_ROOT=$("$SCRIPT_DIR/prepare_sparkle.sh")
 WORK_DIR=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/quota-display-appcast.XXXXXX")
 trap '/bin/rm -rf -- "$WORK_DIR"' EXIT HUP INT TERM
 
 /usr/bin/install -m 644 "$REPO_DIR/dist/$ZIP_NAME" "$WORK_DIR/$ZIP_NAME"
+/usr/bin/install -m 644 "$REPO_DIR/release-notes/$VERSION.html" "$WORK_DIR/$NOTES_NAME"
 if [ -f "$REPO_DIR/appcast.xml" ]; then
   /usr/bin/install -m 644 "$REPO_DIR/appcast.xml" "$WORK_DIR/appcast.xml"
 fi
@@ -18,6 +20,8 @@ fi
   --account quota-display \
   --download-url-prefix "https://github.com/pducharme/codex-claude-quota-display/releases/download/v$VERSION/" \
   --link "https://github.com/pducharme/codex-claude-quota-display/releases/latest" \
+  --embed-release-notes \
+  --informational-update-versions '<1.0.7' \
   --versions "$VERSION" \
   --maximum-deltas 0 \
   -o "$WORK_DIR/appcast.xml" \
