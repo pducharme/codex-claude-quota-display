@@ -1142,7 +1142,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let bridgeLabel = "com.pducharme.quota-display"
     private let menuLabel = "com.pducharme.quota-display-menu"
     private let launchDomain = "gui/\(getuid())"
-    private let updaterController = SPUStandardUpdaterController(
+    private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: nil,
         userDriverDelegate: nil
@@ -1176,6 +1176,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         FileManager.default.fileExists(atPath: claudeDesktopAuthorizationURL.path)
     }
 
+    private var bundledApplicationIcon: NSImage? {
+        Bundle.main.url(forResource: "QuotaDisplay", withExtension: "icns")
+            .flatMap(NSImage.init(contentsOf:))
+    }
+
     private var configuredBridgeSource: (url: URL, tokenURL: URL, remote: Bool) {
         let sourceFile = appSupportURL.appendingPathComponent("source-host")
         if
@@ -1201,6 +1206,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             statusDisplayPreference: StatusDisplayMode.compact.rawValue,
         ])
         NSApp.setActivationPolicy(.accessory)
+        if let icon = bundledApplicationIcon {
+            NSImage(named: NSImage.applicationIconName)?.setName(nil)
+            _ = icon.setName(NSImage.applicationIconName)
+            NSApp.applicationIconImage = icon
+        }
         NSApp.mainMenu = applicationMenu()
         restartBridgeAfterUpdateIfNeeded()
         configureMenu()
@@ -1802,8 +1812,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             range: (credits.string as NSString).range(of: repository)
         )
         var options: [NSApplication.AboutPanelOptionKey: Any] = [.credits: credits]
-        if let iconURL = Bundle.main.url(forResource: "QuotaDisplay", withExtension: "icns"),
-           let icon = NSImage(contentsOf: iconURL) {
+        if let icon = bundledApplicationIcon {
             options[.applicationIcon] = icon
         }
         NSApp.orderFrontStandardAboutPanel(options: options)

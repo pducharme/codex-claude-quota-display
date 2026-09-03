@@ -10,12 +10,14 @@
   <string>Quota Display</string>
   <key>CFBundleIconFile</key>
   <string>QuotaDisplay.icns</string>
+  <key>CFBundleIconName</key>
+  <string>QuotaDisplay</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.11</string>
+  <string>1.0.12</string>
   <key>CFBundleVersion</key>
-  <string>1.0.11</string>
+  <string>1.0.12</string>
   <key>LSUIElement</key>
   <true/>
   <key>LSMinimumSystemVersion</key>
