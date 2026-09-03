@@ -25,8 +25,6 @@ xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
 install -m 600 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" \
   "$MENU_APP/Contents/Info.plist"
 /usr/bin/ditto "$SPARKLE_ROOT/Sparkle.framework" "$MENU_APP/Contents/Frameworks/Sparkle.framework"
-install -m 644 "$SCRIPT_DIR/Assets/CodexIcon.png" \
-  "$MENU_APP/Contents/Resources/CodexIcon.png"
 install -m 644 "$SCRIPT_DIR/Assets/QuotaDisplay.icns" \
   "$MENU_APP/Contents/Resources/QuotaDisplay.icns"
 install -m 644 "$SCRIPT_DIR/../THIRD_PARTY_NOTICES.md" \

@@ -49,8 +49,8 @@ une nouvelle lecture Codex et Claude; l’écran attend la nouvelle génération
 avant de terminer son animation.
 
 L’entrée compacte de la barre de menus affiche directement les limites
-restantes **5 h / semaine** sur deux lignes, entre les icônes officielles des
-applications Claude et Codex. Son menu reprend le look du mini-écran dans
+restantes **5 h / semaine** sur deux lignes, entre les indicateurs des deux
+fournisseurs. Son menu reprend le look du mini-écran dans
 deux cartes côte à côte et conserve les commandes macOS dessous. La grande
 jauge indique le quota réellement restant; les cinq segments de la fenêtre
 5 h et les sept segments de la vraie semaine indiquent le niveau qui devrait
@@ -88,7 +88,7 @@ ni à l’ESP32.
 Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-bridge/build_pkg.sh 1.0.7
+bridge/build_pkg.sh 1.0.8
 ```
 
 À partir de la version 1.0.5, le Companion utilise le même mécanisme Sparkle 2

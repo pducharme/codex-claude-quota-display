@@ -508,30 +508,31 @@ private func resetCountdown(
 
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
     let size = NSSize(width: 12, height: 10)
-    var iconURLs: [URL] = []
-    if codex, let bundled = Bundle.main.url(forResource: "CodexIcon", withExtension: "png") {
-        iconURLs.append(bundled)
-    }
-    let bundleIdentifier = codex ? "com.openai.codex" : "com.anthropic.claudefordesktop"
-    if let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-        iconURLs.append(application.appendingPathComponent(
-            codex ? "Contents/Resources/icon-codex-dark-color.png" : "Contents/Resources/electron.icns"
-        ))
-    }
-    for url in iconURLs {
-        if let image = NSImage(contentsOf: url) { return image }
+    if !codex,
+       let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop"),
+       let image = NSImage(contentsOf: application.appendingPathComponent("Contents/Resources/electron.icns"))
+    {
+        return image
     }
     return NSImage(size: size, flipped: false) { _ in
-        let color: NSColor = warning ? .systemRed : codex ? .labelColor : .systemOrange
-        color.setFill()
+        let color: NSColor = warning ? .systemRed : codex ? .systemCyan : .systemOrange
         if codex {
-            let center = NSPoint(x: 6, y: 5)
-            let petals = [(0.0, 3.25), (2.8, 1.6), (2.8, -1.6), (0.0, -3.25), (-2.8, -1.6), (-2.8, 1.6)]
-            for (x, y) in petals {
-                NSBezierPath(ovalIn: NSRect(x: center.x + x - 1.6, y: center.y + y - 1.6, width: 3.2, height: 3.2)).fill()
-            }
-            NSBezierPath(ovalIn: NSRect(x: 4, y: 3, width: 4, height: 4)).fill()
+            color.setStroke()
+            let frame = NSBezierPath(roundedRect: NSRect(x: 0.75, y: 0.75, width: 10.5, height: 8.5), xRadius: 2, yRadius: 2)
+            frame.lineWidth = 1.2
+            frame.stroke()
+            let prompt = NSBezierPath()
+            prompt.move(to: NSPoint(x: 3, y: 7))
+            prompt.line(to: NSPoint(x: 5, y: 5))
+            prompt.line(to: NSPoint(x: 3, y: 3))
+            prompt.move(to: NSPoint(x: 6.5, y: 3))
+            prompt.line(to: NSPoint(x: 9, y: 3))
+            prompt.lineWidth = 1.2
+            prompt.lineCapStyle = .round
+            prompt.lineJoinStyle = .round
+            prompt.stroke()
         } else {
+            color.setFill()
             NSRect(x: 2, y: 3, width: 8, height: 6).fill()
             NSRect(x: 0, y: 5, width: 2, height: 3).fill()
             NSRect(x: 10, y: 5, width: 2, height: 3).fill()
@@ -1809,8 +1810,6 @@ private struct QuotaMenu {
             )
             let localBridge = bridgeBaseURL(from: nil)
             let remoteBridge = bridgeBaseURL(from: "192.168.1.20:8788")
-            let bundledIcon = Bundle.main.bundleURL.pathExtension != "app"
-                || Bundle.main.url(forResource: "CodexIcon", withExtension: "png").flatMap(NSImage.init(contentsOf:)) != nil
             let bundledAppIcon = Bundle.main.bundleURL.pathExtension != "app"
                 || Bundle.main.url(forResource: "QuotaDisplay", withExtension: "icns").flatMap(NSImage.init(contentsOf:)) != nil
             let sparkleConfigured = Bundle.main.bundleURL.pathExtension != "app"
@@ -1838,7 +1837,7 @@ private struct QuotaMenu {
                 bridgeBaseURL(from: "ftp://192.168.1.20:8788") == nil,
                 bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
                 shellQuoted("a'b") == "'a'\\''b'",
-                bundledIcon, bundledAppIcon,
+                bundledAppIcon,
                 sparkleConfigured,
                 quotas?.apiAddress == "192.168.1.252:8788",
                 autoLaunchOn == true, autoLaunchOff == false,
