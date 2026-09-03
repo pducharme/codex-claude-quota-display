@@ -280,7 +280,7 @@ private func epoch(fromISO8601 value: Any?) -> Int? {
 private func claudeDesktopWindow(_ value: Any?) -> [String: Any] {
     guard
         let value = value as? [String: Any],
-        let utilization = (value["utilization"] as? NSNumber)?.doubleValue
+        let utilization = ((value["utilization"] ?? value["percent"]) as? NSNumber)?.doubleValue
     else { return ["used_percent": NSNull(), "resets_at": NSNull()] }
     return [
         "used_percent": max(0, min(100, Int(utilization))),
@@ -312,12 +312,21 @@ private func claudeDesktopQuotaSnapshot(from data: Data, plan: String? = nil) ->
     guard let source = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return nil
     }
+    let fable = (source["limits"] as? [[String: Any]])?.first { limit in
+        guard
+            limit["kind"] as? String == "weekly_scoped",
+            let scope = limit["scope"] as? [String: Any],
+            let model = scope["model"] as? [String: Any],
+            let name = model["display_name"] as? String
+        else { return false }
+        return name.caseInsensitiveCompare("Fable") == .orderedSame
+    }
     var value: [String: Any] = [
         "updated_at": Int(Date().timeIntervalSince1970),
         "source": "claude-desktop",
         "five_hour": claudeDesktopWindow(source["five_hour"]),
         "weekly": claudeDesktopWindow(source["seven_day"]),
-        "fable_weekly": claudeDesktopWindow(source["seven_day_fable"]),
+        "fable_weekly": claudeDesktopWindow(fable ?? source["seven_day_fable"]),
     ]
     if let plan = claudePlanName(from: source) ?? plan { value["plan"] = plan }
     let windows = ["five_hour", "weekly", "fable_weekly"]
@@ -325,6 +334,25 @@ private func claudeDesktopQuotaSnapshot(from data: Data, plan: String? = nil) ->
         (value[$0] as? [String: Any])?["used_percent"] is Int
     }) else { return nil }
     return value
+}
+
+private func updateInstalledBridge(from source: URL?, to destination: URL) -> Bool {
+    guard
+        let source,
+        let bundled = try? Data(contentsOf: source),
+        let installed = try? Data(contentsOf: destination),
+        bundled != installed
+    else { return false }
+    do {
+        try bundled.write(to: destination, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: destination.path
+        )
+        return true
+    } catch {
+        return false
+    }
 }
 
 private struct QuotaWindow {
@@ -1858,8 +1886,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let defaults = UserDefaults.standard
         let previous = defaults.string(forKey: key)
         defaults.set(version, forKey: key)
-        guard previous != nil, previous != version else { return }
+        let versionChanged = previous != nil && previous != version
+        let bundledBridge = Bundle.main.url(forResource: "quota_bridge", withExtension: "py")
+        let installedBridge = appSupportURL.appendingPathComponent("quota_bridge.py")
         DispatchQueue.global(qos: .utility).async { [launchDomain, bridgeLabel] in
+            guard versionChanged || updateInstalledBridge(from: bundledBridge, to: installedBridge) else { return }
             _ = run("/bin/launchctl", ["kickstart", "-k", "\(launchDomain)/\(bridgeLabel)"])
         }
     }
@@ -2128,6 +2159,18 @@ private struct QuotaMenu {
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             let desktopSample = #"{"subscription_type":"max","organization":{"rate_limit_tier":"default_claude_max_5x"},"five_hour":{"utilization":12.8,"resets_at":"2026-09-02T22:00:00Z"},"seven_day":{"utilization":39,"resets_at":"2026-09-08T04:00:00Z"},"seven_day_fable":{"utilization":81,"resets_at":"2026-09-08T04:00:00Z"}}"#
             let desktopQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopSample.utf8))
+            let desktopLimitsSample = #"{"limits":[{"kind":"weekly_scoped","percent":65,"resets_at":"2026-09-08T16:00:00Z","scope":{"model":{"display_name":"Fable"}}}]}"#
+            let desktopLimitsQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopLimitsSample.utf8))
+            let bridgeTestRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let bridgeTestSource = bridgeTestRoot.appendingPathComponent("source.py")
+            let bridgeTestDestination = bridgeTestRoot.appendingPathComponent("destination.py")
+            let expectedBridge = Data("new bridge".utf8)
+            try? FileManager.default.createDirectory(at: bridgeTestRoot, withIntermediateDirectories: true)
+            try? expectedBridge.write(to: bridgeTestSource)
+            try? Data("old bridge".utf8).write(to: bridgeTestDestination)
+            let bridgeUpdated = updateInstalledBridge(from: bridgeTestSource, to: bridgeTestDestination)
+                && (try? Data(contentsOf: bridgeTestDestination)) == expectedBridge
+            try? FileManager.default.removeItem(at: bridgeTestRoot)
             let editMenu = applicationMenu().items.first?.submenu
             let organization = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
             let credential = bestClaudeDesktopCredential(
@@ -2184,7 +2227,9 @@ private struct QuotaMenu {
                 (desktopQuotas?["five_hour"] as? [String: Any])?["used_percent"] as? Int == 12,
                 (desktopQuotas?["weekly"] as? [String: Any])?["used_percent"] as? Int == 39,
                 (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,
+                (desktopLimitsQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 65,
                 desktopQuotas?["plan"] as? String == "Max 5X",
+                bridgeUpdated,
                 credential?.accessToken == "test-token",
                 editMenu?.items.first(where: { $0.keyEquivalent == "v" })?.action == #selector(NSText.paste(_:)),
                 compactRemainingText(quotas!.codex.weekly, percent: true) == "93%",
