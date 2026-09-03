@@ -88,7 +88,7 @@ ni à l’ESP32.
 Pour construire le paquet universel Intel + Apple Silicon :
 
 ```sh
-bridge/build_pkg.sh 1.0.8
+bridge/build_pkg.sh 1.0.9
 ```
 
 À partir de la version 1.0.5, le Companion utilise le même mécanisme Sparkle 2
