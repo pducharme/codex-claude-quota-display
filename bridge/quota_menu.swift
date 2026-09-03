@@ -699,7 +699,7 @@ private func dateText(_ timestamp: Int?, timeOnly: Bool = false) -> String {
     formatter.locale = Locale(identifier: "fr_CA")
     if timeOnly && Calendar.current.isDateInToday(date) {
         formatter.dateFormat = "HH:mm"
-        return "aujourd’hui à \(formatter.string(from: date))"
+        return formatter.string(from: date)
     }
     formatter.dateStyle = .short
     formatter.timeStyle = .short
@@ -755,6 +755,8 @@ private final class QuotaDashboardView: NSView {
     private let greenColor = NSColor(srgbRed: 52 / 255, green: 211 / 255, blue: 153 / 255, alpha: 1)
     private let amberColor = NSColor(srgbRed: 251 / 255, green: 191 / 255, blue: 36 / 255, alpha: 1)
     private let redColor = NSColor(srgbRed: 248 / 255, green: 113 / 255, blue: 113 / 255, alpha: 1)
+    private let refreshSpinner = NSProgressIndicator()
+    let refreshButton = NSButton()
 
     var apiOnline = false {
         didSet {
@@ -788,10 +790,33 @@ private final class QuotaDashboardView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Quotas Codex et Claude")
+        refreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        refreshButton.imagePosition = .imageOnly
+        refreshButton.imageScaling = .scaleProportionallyDown
+        refreshButton.isBordered = false
+        refreshButton.contentTintColor = mutedColor
+        refreshButton.toolTip = "Actualiser les quotas"
+        refreshButton.setAccessibilityLabel("Actualiser les quotas")
+        refreshButton.frame = NSRect(x: frameRect.width - 43, y: 183, width: 20, height: 20)
+        refreshButton.autoresizingMask = [.minXMargin]
+        addSubview(refreshButton)
+        refreshSpinner.style = .spinning
+        refreshSpinner.controlSize = .small
+        refreshSpinner.isIndeterminate = true
+        refreshSpinner.isDisplayedWhenStopped = false
+        refreshSpinner.frame = NSRect(x: frameRect.width - 40, y: 186, width: 14, height: 14)
+        refreshSpinner.autoresizingMask = [.minXMargin]
+        refreshSpinner.setAccessibilityLabel("Actualisation des quotas en cours")
+        addSubview(refreshSpinner)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func setRefreshing(_ active: Bool) {
+        refreshButton.isHidden = active
+        active ? refreshSpinner.startAnimation(nil) : refreshSpinner.stopAnimation(nil)
     }
 
     private var accessibilitySummary: String {
@@ -851,11 +876,11 @@ private final class QuotaDashboardView: NSView {
         trackColor.setFill()
         NSRect(x: screen.minX + 12, y: 180, width: screen.width - 24, height: 1).fill()
         drawText(
-            "Dernière actualisation · \(dateText(snapshot?.refreshedAt, timeOnly: true))",
-            in: NSRect(x: screen.minX + 12, y: 185, width: screen.width - 24, height: 16),
+            "Dernière actualisation : \(dateText(snapshot?.refreshedAt, timeOnly: true))",
+            in: NSRect(x: screen.minX + 12, y: 185, width: screen.width - 55, height: 16),
             font: .systemFont(ofSize: 10, weight: .semibold),
             color: mutedColor,
-            alignment: .center
+            alignment: .right
         )
         trackColor.setFill()
         NSRect(x: screen.minX + 12, y: 208, width: screen.width - 24, height: 1).fill()
@@ -1230,6 +1255,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func configureMenu() {
+        for view in [dashboard, persistentDashboard] {
+            view.refreshButton.target = self
+            view.refreshButton.action = #selector(refreshQuotas)
+        }
         if let button = statusItem.button {
             button.image = nil
             button.title = ""
@@ -1909,7 +1938,13 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         }
     }
 
+    private func setRefreshAnimation(_ active: Bool) {
+        dashboard.setRefreshing(active)
+        persistentDashboard.setRefreshing(active)
+    }
+
     @objc private func refreshQuotas() {
+        setRefreshAnimation(true)
         if !configuredBridgeSource.remote && claudeDesktopAuthorized {
             refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
                 self?.triggerRefresh()
@@ -2054,6 +2089,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private func triggerRefresh() {
         guard let request = bridgeRequest(path: "/v1/refresh", method: "POST") else {
             refreshItem.title = "Pont indisponible"
+            setRefreshAnimation(false)
             return
         }
         refreshItem.title = "Actualisation en cours…"
@@ -2063,6 +2099,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 self?.refreshItem.title = ok ? "Actualisation lancée ✓" : "Pont indisponible"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     self?.refreshItem.title = "Actualiser les quotas"
+                    self?.setRefreshAnimation(false)
                     self?.loadQuotas()
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
@@ -2124,6 +2161,11 @@ private struct QuotaMenu {
                 showCodex: true,
                 showClaude: true
             )
+            let dashboardView = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 250))
+            dashboardView.snapshot = quotas
+            dashboardView.setRefreshing(true)
+            let refreshAnimationStarted = dashboardView.refreshButton.isHidden
+            dashboardView.setRefreshing(false)
             let bundledIcon = Bundle.main.bundleURL.pathExtension != "app"
                 || Bundle.main.url(forResource: "CodexIcon", withExtension: "png").flatMap(NSImage.init(contentsOf:)) != nil
             let bundledAppIcon = Bundle.main.bundleURL.pathExtension != "app"
@@ -2155,6 +2197,10 @@ private struct QuotaMenu {
                 bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
                 singleProvider.codex?.width == 608, singleProvider.claude == nil,
                 bothProviders.codex?.width == 300, bothProviders.claude?.minX == 316,
+                dashboardView.refreshButton.image != nil,
+                refreshAnimationStarted,
+                !dashboardView.refreshButton.isHidden,
+                dateText(Int(Date().timeIntervalSince1970), timeOnly: true).count == 5,
                 shellQuoted("a'b") == "'a'\\''b'",
                 bundledIcon, bundledAppIcon,
                 sparkleConfigured,

@@ -352,13 +352,18 @@ def read_codex(timeout=20):
 
 
 def read_claude(timeout=40):
+    cached = None
     try:
-        return read_claude_desktop_cache()
+        cached = read_claude_desktop_cache()
+        if cached["fable_weekly"]["used_percent"] is not None:
+            return cached
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         pass
     installed = Path.home() / ".local" / "bin" / "claude"
     claude = command_path("claude", (installed,))
     if not claude:
+        if cached:
+            return cached
         raise RuntimeError("claude executable not found")
     env = os.environ.copy()
     env["LC_ALL"] = "C"
@@ -375,21 +380,38 @@ def read_claude(timeout=40):
         "--output-format",
         "text",
     ]
-    result = subprocess.run(
-        command,
-        cwd=Path.home(),
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=Path.home(),
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        if cached:
+            return cached
+        raise
     if result.returncode != 0:
+        if cached:
+            return cached
         output = ANSI_RE.sub("", result.stderr or result.stdout).strip().splitlines()
         detail = " | ".join(output[-8:])[:800] if output else "no diagnostic output"
         raise RuntimeError(f"Claude /usage failed ({result.returncode}): {detail}")
-    usage = parse_claude_usage(result.stdout)
-    usage["plan"] = read_claude_plan()
+    try:
+        usage = parse_claude_usage(result.stdout)
+    except ValueError:
+        if cached:
+            return cached
+        raise
+    usage["plan"] = cached.get("plan") if cached else read_claude_plan()
+    if cached:
+        for key in EMPTY_WINDOWS:
+            if cached[key]["used_percent"] is None:
+                cached[key] = usage[key]
+        return cached
     return usage
 
 

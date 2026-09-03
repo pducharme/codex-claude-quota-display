@@ -12,6 +12,7 @@ from quota_bridge import (
     command_path,
     parse_claude_usage,
     parse_codex_limits,
+    read_claude,
     read_claude_desktop_cache,
     read_claude_plan,
     read_weather,
@@ -125,6 +126,29 @@ Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
             self.assertEqual(windows["plan"], "Max 5X")
             with self.assertRaises(ValueError):
                 read_claude_desktop_cache(path, now=2_000)
+
+    @patch("quota_bridge.read_claude_desktop_cache")
+    @patch("quota_bridge.command_path", return_value="/usr/local/bin/claude")
+    @patch("quota_bridge.subprocess.run")
+    def test_claude_cli_fills_fable_missing_from_desktop_cache(
+        self, run, _command_path, desktop_cache
+    ):
+        desktop_cache.return_value = {
+            "five_hour": {"used_percent": 42, "resets_at": 2_000},
+            "weekly": {"used_percent": 51, "resets_at": 3_000},
+            "fable_weekly": {"used_percent": None, "resets_at": None},
+            "plan": "Max 5X",
+        }
+        run.return_value.returncode = 0
+        run.return_value.stdout = """\
+Current session: 43% used
+Current week (all models): 52% used
+Current week (Fable): 65% used · resets Sep 8 at 12pm (America/Toronto)
+"""
+        windows = read_claude()
+        self.assertEqual(windows["five_hour"]["used_percent"], 42)
+        self.assertEqual(windows["weekly"]["used_percent"], 51)
+        self.assertEqual(windows["fable_weekly"]["used_percent"], 65)
 
     @patch("quota_bridge.subprocess.run")
     def test_claude_plan_uses_keychain_tier(self, run):
