@@ -754,10 +754,18 @@ private func isLocalBridge(_ url: URL) -> Bool {
     url.host == "127.0.0.1" || url.host == "localhost" || url.host == "::1"
 }
 
-// Adafruit GFX classic 5x7 glyphs used by the mini-screen firmware.
+// Adafruit GFX classic glyphs used by the mini-screen firmware (row 8 includes descenders).
 private let miniScreenGlyphs: [Character: [UInt8]] = [
+    " ": [0x00, 0x00, 0x00, 0x00, 0x00],
     "%": [0x23, 0x13, 0x08, 0x64, 0x62],
     "-": [0x08, 0x08, 0x08, 0x08, 0x08],
+    "—": [0x08, 0x08, 0x08, 0x08, 0x08],
+    ".": [0x00, 0x00, 0x60, 0x60, 0x00],
+    ":": [0x00, 0x00, 0x14, 0x00, 0x00],
+    "?": [0x02, 0x01, 0x59, 0x09, 0x06],
+    "[": [0x00, 0x7F, 0x41, 0x41, 0x41],
+    "]": [0x00, 0x41, 0x41, 0x41, 0x7F],
+    "_": [0x40, 0x40, 0x40, 0x40, 0x40],
     "0": [0x3E, 0x51, 0x49, 0x45, 0x3E],
     "1": [0x00, 0x42, 0x7F, 0x40, 0x00],
     "2": [0x72, 0x49, 0x49, 0x49, 0x46],
@@ -769,13 +777,58 @@ private let miniScreenGlyphs: [Character: [UInt8]] = [
     "8": [0x36, 0x49, 0x49, 0x49, 0x36],
     "9": [0x46, 0x49, 0x49, 0x29, 0x1E],
     "A": [0x7C, 0x12, 0x11, 0x12, 0x7C],
+    "B": [0x7F, 0x49, 0x49, 0x49, 0x36],
     "C": [0x3E, 0x41, 0x41, 0x41, 0x22],
     "D": [0x7F, 0x41, 0x41, 0x41, 0x3E],
     "E": [0x7F, 0x49, 0x49, 0x49, 0x41],
+    "F": [0x7F, 0x09, 0x09, 0x09, 0x01],
+    "G": [0x3E, 0x41, 0x41, 0x51, 0x73],
+    "H": [0x7F, 0x08, 0x08, 0x08, 0x7F],
+    "I": [0x00, 0x41, 0x7F, 0x41, 0x00],
+    "J": [0x20, 0x40, 0x41, 0x3F, 0x01],
+    "K": [0x7F, 0x08, 0x14, 0x22, 0x41],
     "L": [0x7F, 0x40, 0x40, 0x40, 0x40],
+    "M": [0x7F, 0x02, 0x1C, 0x02, 0x7F],
+    "N": [0x7F, 0x04, 0x08, 0x10, 0x7F],
     "O": [0x3E, 0x41, 0x41, 0x41, 0x3E],
+    "P": [0x7F, 0x09, 0x09, 0x09, 0x06],
+    "Q": [0x3E, 0x41, 0x51, 0x21, 0x5E],
+    "R": [0x7F, 0x09, 0x19, 0x29, 0x46],
+    "S": [0x26, 0x49, 0x49, 0x49, 0x32],
+    "T": [0x03, 0x01, 0x7F, 0x01, 0x03],
     "U": [0x3F, 0x40, 0x40, 0x40, 0x3F],
+    "V": [0x1F, 0x20, 0x40, 0x20, 0x1F],
+    "W": [0x3F, 0x40, 0x38, 0x40, 0x3F],
     "X": [0x63, 0x14, 0x08, 0x14, 0x63],
+    "Y": [0x03, 0x04, 0x78, 0x04, 0x03],
+    "Z": [0x61, 0x59, 0x49, 0x4D, 0x43],
+    "a": [0x20, 0x54, 0x54, 0x78, 0x40],
+    "b": [0x7F, 0x28, 0x44, 0x44, 0x38],
+    "c": [0x38, 0x44, 0x44, 0x44, 0x28],
+    "d": [0x38, 0x44, 0x44, 0x28, 0x7F],
+    "e": [0x38, 0x54, 0x54, 0x54, 0x18],
+    "è": [0x39, 0x55, 0x54, 0x54, 0x58],
+    "f": [0x00, 0x08, 0x7E, 0x09, 0x02],
+    "g": [0x18, 0xA4, 0xA4, 0x9C, 0x78],
+    "h": [0x7F, 0x08, 0x04, 0x04, 0x78],
+    "i": [0x00, 0x44, 0x7D, 0x40, 0x00],
+    "j": [0x20, 0x40, 0x40, 0x3D, 0x00],
+    "k": [0x7F, 0x10, 0x28, 0x44, 0x00],
+    "l": [0x00, 0x41, 0x7F, 0x40, 0x00],
+    "m": [0x7C, 0x04, 0x78, 0x04, 0x78],
+    "n": [0x7C, 0x08, 0x04, 0x04, 0x78],
+    "o": [0x38, 0x44, 0x44, 0x44, 0x38],
+    "p": [0xFC, 0x18, 0x24, 0x24, 0x18],
+    "q": [0x18, 0x24, 0x24, 0x18, 0xFC],
+    "r": [0x7C, 0x08, 0x04, 0x04, 0x08],
+    "s": [0x48, 0x54, 0x54, 0x54, 0x24],
+    "t": [0x04, 0x04, 0x3F, 0x44, 0x24],
+    "u": [0x3C, 0x40, 0x40, 0x20, 0x7C],
+    "v": [0x1C, 0x20, 0x40, 0x20, 0x1C],
+    "w": [0x3C, 0x40, 0x30, 0x40, 0x3C],
+    "x": [0x44, 0x28, 0x10, 0x28, 0x44],
+    "y": [0x4C, 0x90, 0x90, 0x90, 0x7C],
+    "z": [0x44, 0x64, 0x54, 0x4C, 0x44],
 ]
 
 // Same geometry and two-frame motion as drawCodexLogo/drawClaudeMascot in the firmware.
@@ -975,10 +1028,10 @@ private final class QuotaDashboardView: NSView {
         }
         trackColor.setFill()
         NSRect(x: screen.minX + 12, y: 180, width: screen.width - 24, height: 1).fill()
-        drawText(
+        drawMiniScreenText(
             "Dernière actualisation : \(dateText(snapshot?.refreshedAt, timeOnly: true))",
-            in: NSRect(x: screen.minX + 12, y: 185, width: screen.width - 55, height: 16),
-            font: .systemFont(ofSize: 10, weight: .semibold),
+            in: NSRect(x: screen.minX + 12, y: 187, width: screen.width - 55, height: 12),
+            scale: 1.5,
             color: mutedColor,
             alignment: .right
         )
@@ -1208,9 +1261,9 @@ private final class QuotaDashboardView: NSView {
             : rect.minX
         color.setFill()
         for (index, character) in characters.enumerated() {
-            guard let columns = miniScreenGlyphs[character] else { continue }
+            let columns = miniScreenGlyphs[character] ?? miniScreenGlyphs["?"]!
             for (column, bits) in columns.enumerated() {
-                for row in 0..<7 where bits & (1 << row) != 0 {
+                for row in 0..<8 where bits & (1 << row) != 0 {
                     NSRect(
                         x: x + CGFloat(index * 6 + column) * scale,
                         y: rect.minY + CGFloat(row) * scale,
@@ -1230,29 +1283,20 @@ private final class QuotaDashboardView: NSView {
         let color = apiOnline ? greenColor : redColor
         color.setFill()
         NSBezierPath(ovalIn: NSRect(x: 22, y: y + 4, width: 7, height: 7)).fill()
-        let line = NSMutableAttributedString(
-            string: "API  ",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: mutedColor,
-            ]
-        )
-        line.append(NSAttributedString(
-            string: "[\(snapshot?.apiAddress ?? "port 8788")]",
-            attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
-                .foregroundColor: mutedColor.withAlphaComponent(0.72),
-                .baselineOffset: 0.5,
-            ]
-        ))
-        line.append(NSAttributedString(
-            string: "  -  \(apiOnline ? "En ligne" : "Hors ligne")",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: color,
-            ]
-        ))
-        line.draw(in: NSRect(x: 36, y: y, width: bounds.width - 58, height: 16))
+        let status = "  -  \(apiOnline ? "En ligne" : "Hors ligne")"
+        let address = "[\(snapshot?.apiAddress ?? "port 8788")]"
+        let maxAddressLength = max(3, Int((bounds.width - 118 - CGFloat(status.count * 12)) / 9))
+        let endpoint = address.count > maxAddressLength ? String(address.prefix(maxAddressLength - 3)) + "..." : address
+        let parts: [(String, CGFloat, NSColor)] = [
+            ("API  ", 2, mutedColor),
+            (endpoint, 1.5, mutedColor.withAlphaComponent(0.72)),
+            (status, 2, color),
+        ]
+        var x: CGFloat = 36
+        for (text, scale, tint) in parts {
+            drawMiniScreenText(text, in: NSRect(x: x, y: y + (scale < 2 ? 2 : 0), width: bounds.width - x - 22, height: 16), scale: scale, color: tint)
+            x += CGFloat(text.count * 6) * scale
+        }
     }
 
     private func drawText(
@@ -2319,6 +2363,9 @@ private struct QuotaMenu {
             )
             let dashboardView = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 250))
             let providerGlyphsPresent = "CODEXCLAUDE".allSatisfy { miniScreenGlyphs[$0]?.count == 5 }
+            let footerGlyphsPresent = "Dernière actualisation : 08:15 API [Mac.local:8788] En ligne Hors ligne —".allSatisfy {
+                miniScreenGlyphs[$0]?.count == 5
+            }
             let providerIconsAnimate = [true, false].allSatisfy { codex in
                 let frames = (0...2).map {
                     miniScreenProviderIcon(codex: codex, frame: $0, color: .white, background: .black).tiffRepresentation
@@ -2363,7 +2410,7 @@ private struct QuotaMenu {
                 singleProvider.codex?.width == 608, singleProvider.claude == nil,
                 bothProviders.codex?.width == 300, bothProviders.claude?.minX == 316,
                 dashboardView.refreshButton.image != nil,
-                providerGlyphsPresent, providerIconsAnimate,
+                providerGlyphsPresent, footerGlyphsPresent, providerIconsAnimate,
                 refreshAnimationStarted,
                 !dashboardView.refreshButton.isHidden,
                 dateText(Int(Date().timeIntervalSince1970), timeOnly: true).count == 5,
