@@ -3,6 +3,26 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.0.16</title>
+            <pubDate>Fri, 04 Sep 2026 08:15:52 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.0.16</sparkle:version>
+            <sparkle:shortVersionString>1.0.16</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.0.16</h2>
+<ul>
+  <li>Les noms CODEX et CLAUDE reprennent la police pixel du mini-écran.</li>
+  <li>Les mêmes icônes animées accompagnent les noms, dans le menu et la fenêtre permanente. L’option macOS Réduire les animations est respectée.</li>
+  <li>Le niveau d’abonnement apparaît immédiatement à droite du nom.</li>
+  <li>Les indications de reset sous les jauges sont agrandies pour faciliter la lecture.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.16/Quota-Display-1.0.16.zip" length="2109380" type="application/octet-stream" sparkle:edSignature="34bMTtTtR/hBgff9ZUct9qV369abdODpS0Y7NnCDsu4+afjBLb3BUo0w5Ma7m7fPcMMN4q+VsmauoeMmQLYGBg=="/>
+        </item>
+        <item>
             <title>1.0.15</title>
             <pubDate>Thu, 03 Sep 2026 10:03:23 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -36,25 +56,6 @@
 </ul>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.14/Quota-Display-1.0.14.zip" length="2091624" type="application/octet-stream" sparkle:edSignature="ryCJ8SG/ke4nNIEs1yzYhXMT4xzNWj9mMQ+voGRU3JyEc877LUkQHIAqCV8BsPyjuh+frnUhskHSjOMglt5BBg=="/>
-        </item>
-        <item>
-            <title>1.0.13</title>
-            <pubDate>Thu, 03 Sep 2026 09:20:02 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.13</sparkle:version>
-            <sparkle:shortVersionString>1.0.13</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.13</h2>
-<ul>
-  <li>Ajoute l’actualisation directement dans le tableau de bord, avec une animation native pendant le chargement.</li>
-  <li>Affiche l’heure exacte de la dernière actualisation.</li>
-  <li>Rétablit la limite Fable lorsque le cache de Claude Desktop ne la fournit pas.</li>
-</ul>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.13/Quota-Display-1.0.13.zip" length="2083940" type="application/octet-stream" sparkle:edSignature="DyLZMjHHC0h9iWA5/tUN3z2aSyF2uQgJmH545TUqIgLDUJdK2hMqRaKKgqmq4ydG/3SaK9R6Kol/zuWKdGeMDg=="/>
         </item>
     </channel>
 </rss>

@@ -768,7 +768,52 @@ private let miniScreenGlyphs: [Character: [UInt8]] = [
     "7": [0x41, 0x21, 0x11, 0x09, 0x07],
     "8": [0x36, 0x49, 0x49, 0x49, 0x36],
     "9": [0x46, 0x49, 0x49, 0x29, 0x1E],
+    "A": [0x7C, 0x12, 0x11, 0x12, 0x7C],
+    "C": [0x3E, 0x41, 0x41, 0x41, 0x22],
+    "D": [0x7F, 0x41, 0x41, 0x41, 0x3E],
+    "E": [0x7F, 0x49, 0x49, 0x49, 0x41],
+    "L": [0x7F, 0x40, 0x40, 0x40, 0x40],
+    "O": [0x3E, 0x41, 0x41, 0x41, 0x3E],
+    "U": [0x3F, 0x40, 0x40, 0x40, 0x3F],
+    "X": [0x63, 0x14, 0x08, 0x14, 0x63],
 ]
+
+// Same geometry and two-frame motion as drawCodexLogo/drawClaudeMascot in the firmware.
+private func miniScreenProviderIcon(codex: Bool, frame: Int, color: NSColor, background: NSColor) -> NSImage {
+    NSImage(size: NSSize(width: 32, height: 26), flipped: true) { _ in
+        let x: CGFloat = 16, y: CGFloat = 13
+        let bob = CGFloat(frame & 1)
+        color.setFill()
+        if codex {
+            let radius = 4 + bob
+            let petals: [(CGFloat, CGFloat)] = [(0, -6), (5, -3), (5, 3), (0, 6), (-5, 3), (-5, -3)]
+            for (dx, dy) in petals {
+                NSBezierPath(ovalIn: NSRect(x: x + dx - radius, y: y + dy - radius, width: radius * 2, height: radius * 2)).fill()
+            }
+            NSBezierPath(ovalIn: NSRect(x: x - radius - 1, y: y - radius - 1, width: (radius + 1) * 2, height: (radius + 1) * 2)).fill()
+            background.setStroke()
+            let chevron = NSBezierPath()
+            chevron.move(to: NSPoint(x: x - 5, y: y - 4))
+            chevron.line(to: NSPoint(x: x - 2, y: y))
+            chevron.line(to: NSPoint(x: x - 5, y: y + 4))
+            chevron.stroke()
+            background.setFill()
+            NSRect(x: x + 1, y: y + 4, width: 6, height: 1).fill()
+        } else {
+            let top = y - 8 - bob
+            NSRect(x: x - 10, y: top, width: 20, height: 13).fill()
+            NSRect(x: x - 15, y: top + 5, width: 5, height: 5).fill()
+            NSRect(x: x + 10, y: top + 5, width: 5, height: 5).fill()
+            for (dx, height): (CGFloat, CGFloat) in [(-9, 6 - bob), (-4, 5 + bob), (3, 5 + bob), (8, 6 - bob)] {
+                NSRect(x: x + dx, y: top + 13, width: 3, height: height).fill()
+            }
+            background.setFill()
+            NSRect(x: x - 6, y: top + 3, width: 3, height: 3).fill()
+            NSRect(x: x + 4, y: top + 3, width: 3, height: 3).fill()
+        }
+        return true
+    }
+}
 
 private func dashboardPanelRects(
     in screen: NSRect,
@@ -800,6 +845,7 @@ private final class QuotaDashboardView: NSView {
     private let amberColor = NSColor(srgbRed: 251 / 255, green: 191 / 255, blue: 36 / 255, alpha: 1)
     private let redColor = NSColor(srgbRed: 248 / 255, green: 113 / 255, blue: 113 / 255, alpha: 1)
     private let refreshSpinner = NSProgressIndicator()
+    private var iconFrame = 0
     let refreshButton = NSButton()
 
     var apiOnline = false {
@@ -861,6 +907,16 @@ private final class QuotaDashboardView: NSView {
     func setRefreshing(_ active: Bool) {
         refreshButton.isHidden = active
         active ? refreshSpinner.startAnimation(nil) : refreshSpinner.stopAnimation(nil)
+    }
+
+    func animateProviderIcons() {
+        guard window?.isVisible == true, !isHiddenOrHasHiddenAncestor,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        iconFrame ^= 1
+        let panels = dashboardPanelRects(in: bounds.insetBy(dx: 8, dy: 6), showCodex: showCodex, showClaude: showClaude)
+        for rect in [panels.codex, panels.claude].compactMap({ $0 }) {
+            setNeedsDisplay(NSRect(x: rect.minX + 6, y: rect.minY + 8, width: 32, height: 26))
+        }
     }
 
     private var accessibilitySummary: String {
@@ -951,22 +1007,27 @@ private final class QuotaDashboardView: NSView {
             yRadius: 2
         ).fill()
 
-        statusProviderIcon(codex: codex, warning: provider.status != "ok").draw(
-            in: NSRect(x: rect.minX + 12, y: rect.minY + 12, width: 18, height: 18)
+        miniScreenProviderIcon(codex: codex, frame: iconFrame, color: accent, background: screenColor).draw(
+            in: NSRect(x: rect.minX + 6, y: rect.minY + 8, width: 32, height: 26),
+            from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil
         )
-        drawText(
+        drawMiniScreenText(
             title,
-            in: NSRect(x: rect.minX + 38, y: rect.minY + 10, width: 66, height: 20),
-            font: .systemFont(ofSize: 14, weight: .bold),
+            in: NSRect(x: rect.minX + 44, y: rect.minY + 12, width: CGFloat(title.count * 12), height: 14),
+            scale: 2,
             color: textColor
         )
-        let planRect = NSRect(x: rect.maxX - 91, y: rect.minY + 11, width: 65, height: 18)
+        let plan = provider.plan?.uppercased() ?? "—"
+        let planFont = NSFont.systemFont(ofSize: 9, weight: .bold)
+        let planX = rect.minX + 52 + CGFloat(title.count * 12)
+        let planWidth = ceil((plan as NSString).size(withAttributes: [.font: planFont]).width) + 12
+        let planRect = NSRect(x: planX, y: rect.minY + 11, width: min(planWidth, rect.maxX - 26 - planX), height: 18)
         cellColor.setFill()
         NSBezierPath(roundedRect: planRect, xRadius: 9, yRadius: 9).fill()
         drawText(
-            provider.plan?.uppercased() ?? "—",
+            plan,
             in: planRect.insetBy(dx: 5, dy: 3),
-            font: .systemFont(ofSize: 8, weight: .bold),
+            font: planFont,
             color: accent,
             alignment: .center
         )
@@ -1015,7 +1076,7 @@ private final class QuotaDashboardView: NSView {
             font: .systemFont(ofSize: 7.5, weight: .bold),
             color: mutedColor
         )
-        drawMiniScreenPercentage(
+        drawMiniScreenText(
             remainingText(window),
             in: NSRect(x: rect.minX + 8, y: rect.minY + 19, width: rect.width - 16, height: 25),
             scale: 3,
@@ -1041,8 +1102,8 @@ private final class QuotaDashboardView: NSView {
         )
         drawText(
             "RESET \(resetCountdown(window))",
-            in: NSRect(x: rect.minX + 8, y: rect.minY + 74, width: rect.width - 16, height: 10),
-            font: .monospacedDigitSystemFont(ofSize: 6.5, weight: .medium),
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 73, width: rect.width - 16, height: 14),
+            font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .medium),
             color: mutedColor
         )
     }
@@ -1093,7 +1154,7 @@ private final class QuotaDashboardView: NSView {
             percent: window.remainingPercent,
             accent: accent
         )
-        drawMiniScreenPercentage(
+        drawMiniScreenText(
             remainingText(window),
             in: NSRect(x: rect.maxX - 38, y: y - 1, width: 28, height: 13),
             color: quotaColor(window.remainingPercent),
@@ -1133,7 +1194,7 @@ private final class QuotaDashboardView: NSView {
         return greenColor
     }
 
-    private func drawMiniScreenPercentage(
+    private func drawMiniScreenText(
         _ value: String,
         in rect: NSRect,
         scale: CGFloat = 1,
@@ -1314,6 +1375,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         refreshClaudeDesktopIfAuthorized()
         loadAutoLaunchState()
         loadQuotas()
+        let iconTimer = Timer(timeInterval: 0.9, target: self, selector: #selector(animateProviderIcons), userInfo: nil, repeats: true)
+        iconTimer.tolerance = 0.05
+        RunLoop.main.add(iconTimer, forMode: .common)
+        RunLoop.main.add(iconTimer, forMode: .eventTracking)
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.loadQuotas() }
         }
@@ -1323,6 +1388,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 self?.refreshClaudeDesktopIfAuthorized()
             }
         }
+    }
+
+    @objc private func animateProviderIcons() {
+        dashboard.animateProviderIcons()
+        persistentDashboard.animateProviderIcons()
     }
 
     private func configureMenu() {
@@ -2248,6 +2318,13 @@ private struct QuotaMenu {
                 showClaude: true
             )
             let dashboardView = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 250))
+            let providerGlyphsPresent = "CODEXCLAUDE".allSatisfy { miniScreenGlyphs[$0]?.count == 5 }
+            let providerIconsAnimate = [true, false].allSatisfy { codex in
+                let frames = (0...2).map {
+                    miniScreenProviderIcon(codex: codex, frame: $0, color: .white, background: .black).tiffRepresentation
+                }
+                return frames[0] != nil && frames[1] != nil && frames[0] != frames[1] && frames[0] == frames[2]
+            }
             dashboardView.snapshot = quotas
             dashboardView.setRefreshing(true)
             let refreshAnimationStarted = dashboardView.refreshButton.isHidden
@@ -2286,6 +2363,7 @@ private struct QuotaMenu {
                 singleProvider.codex?.width == 608, singleProvider.claude == nil,
                 bothProviders.codex?.width == 300, bothProviders.claude?.minX == 316,
                 dashboardView.refreshButton.image != nil,
+                providerGlyphsPresent, providerIconsAnimate,
                 refreshAnimationStarted,
                 !dashboardView.refreshButton.isHidden,
                 dateText(Int(Date().timeIntervalSince1970), timeOnly: true).count == 5,
@@ -2296,6 +2374,14 @@ private struct QuotaMenu {
                 autoLaunchOn == true, autoLaunchOff == false,
                 parsedLaunchPID == 4321
             else { exit(1) }
+            if let index = CommandLine.arguments.firstIndex(of: "--snapshot"),
+               CommandLine.arguments.indices.contains(index + 1),
+               let bitmap = dashboardView.bitmapImageRepForCachingDisplay(in: dashboardView.bounds) {
+                dashboardView.cacheDisplay(in: dashboardView.bounds, to: bitmap)
+                guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
+                do { try png.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1])) }
+                catch { fputs("Dashboard snapshot failed: \(error)\n", stderr); exit(1) }
+            }
             print("quota menu self-test: ok")
             return
         }
