@@ -3,6 +3,25 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.0.19</title>
+            <pubDate>Sat, 05 Sep 2026 00:20:00 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.0.19</sparkle:version>
+            <sparkle:shortVersionString>1.0.19</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.0.19</h2>
+<ul>
+  <li>Corrige le message « source à mettre à jour » qui pouvait persister après la mise à jour du Companion sur une ancienne installation.</li>
+  <li>Le Companion met désormais à jour le pont réellement utilisé par son service de démarrage, y compris lorsqu’il est installé dans un ancien dossier.</li>
+</ul>
+<p>En mode distant, installez cette mise à jour sur le Mac source. Les réglages et les jetons sont conservés. Aucun nouveau flash du mini-écran n’est nécessaire si son firmware prend déjà en charge la veille.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.19/Quota-Display-1.0.19.zip" length="2165028" type="application/octet-stream" sparkle:edSignature="da1YEKNIwMLG57ntHqjtbV1csSXuT7HqHsoFI1/Twjtmf8QJ28CHovq4KANgdYc7KL6RrxEfSETrO0rvihyCDA=="/>
+        </item>
+        <item>
             <title>1.0.18</title>
             <pubDate>Sat, 05 Sep 2026 00:04:37 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -40,26 +59,6 @@
 </ul>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.17/Quota-Display-1.0.17.zip" length="2113117" type="application/octet-stream" sparkle:edSignature="4nhId9DwmX1K402rdaWrwLi1yrRpduhVl7uh/zlmeBAxIKr7UQe2Ek2qn0AMD3Ko5IrLhZwJ5w2tJqUZjty+Bg=="/>
-        </item>
-        <item>
-            <title>1.0.16</title>
-            <pubDate>Fri, 04 Sep 2026 08:15:52 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.16</sparkle:version>
-            <sparkle:shortVersionString>1.0.16</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.16</h2>
-<ul>
-  <li>Les noms CODEX et CLAUDE reprennent la police pixel du mini-écran.</li>
-  <li>Les mêmes icônes animées accompagnent les noms, dans le menu et la fenêtre permanente. L’option macOS Réduire les animations est respectée.</li>
-  <li>Le niveau d’abonnement apparaît immédiatement à droite du nom.</li>
-  <li>Les indications de reset sous les jauges sont agrandies pour faciliter la lecture.</li>
-</ul>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.16/Quota-Display-1.0.16.zip" length="2109380" type="application/octet-stream" sparkle:edSignature="34bMTtTtR/hBgff9ZUct9qV369abdODpS0Y7NnCDsu4+afjBLb3BUo0w5Ma7m7fPcMMN4q+VsmauoeMmQLYGBg=="/>
         </item>
     </channel>
 </rss>

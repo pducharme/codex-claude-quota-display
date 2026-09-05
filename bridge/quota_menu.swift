@@ -336,6 +336,16 @@ private func claudeDesktopQuotaSnapshot(from data: Data, plan: String? = nil) ->
     return value
 }
 
+private func installedBridgeURL(in launchAgent: Data?) -> URL? {
+    guard
+        let launchAgent,
+        let plist = try? PropertyListSerialization.propertyList(from: launchAgent, format: nil) as? [String: Any],
+        let arguments = plist["ProgramArguments"] as? [String],
+        let path = arguments.first(where: { $0.hasPrefix("/") && $0.hasSuffix("/quota_bridge.py") })
+    else { return nil }
+    return URL(fileURLWithPath: path)
+}
+
 private func updateInstalledBridge(from source: URL?, to destination: URL) -> Bool {
     guard
         let source,
@@ -2293,8 +2303,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         defaults.set(version, forKey: key)
         let versionChanged = previous != nil && previous != version
         let bundledBridge = Bundle.main.url(forResource: "quota_bridge", withExtension: "py")
-        let installedBridge = appSupportURL.appendingPathComponent("quota_bridge.py")
+        let launchAgent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(bridgeLabel).plist")
         DispatchQueue.global(qos: .utility).async { [launchDomain, bridgeLabel] in
+            guard let installedBridge = installedBridgeURL(in: try? Data(contentsOf: launchAgent)) else { return }
             let bridgeUpdated = updateInstalledBridge(from: bundledBridge, to: installedBridge)
             guard versionChanged || bridgeUpdated else { return }
             _ = run("/bin/launchctl", ["kickstart", "-k", "\(launchDomain)/\(bridgeLabel)"])
@@ -2587,6 +2599,18 @@ private struct QuotaMenu {
             try? Data("old bridge".utf8).write(to: bridgeTestDestination)
             let bridgeUpdated = updateInstalledBridge(from: bridgeTestSource, to: bridgeTestDestination)
                 && (try? Data(contentsOf: bridgeTestDestination)) == expectedBridge
+            let bridgePaths = [
+                "/Users/test/.local/share/quota-display/quota_bridge.py",
+                "/Users/test/Library/Application Support/Quota Display/quota_bridge.py",
+                "/Applications/Quota Display.app/Contents/Resources/quota_bridge.py",
+            ]
+            let installedBridgePathsFound = bridgePaths.allSatisfy { path in
+                let agent = try? PropertyListSerialization.data(
+                    fromPropertyList: ["ProgramArguments": ["/usr/bin/python3", path, "--token-file", "/tmp/token"]],
+                    format: .xml, options: 0
+                )
+                return installedBridgeURL(in: agent)?.path == path
+            }
             try? FileManager.default.removeItem(at: bridgeTestRoot)
             let editMenu = applicationMenu().items.first?.submenu
             let organization = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -2671,7 +2695,9 @@ private struct QuotaMenu {
                 (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,
                 (desktopLimitsQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 65,
                 desktopQuotas?["plan"] as? String == "Max 5X",
-                bridgeUpdated,
+                bridgeUpdated, installedBridgePathsFound,
+                installedBridgeURL(in: nil) == nil,
+                installedBridgeURL(in: Data("invalid plist".utf8)) == nil,
                 credential?.accessToken == "test-token",
                 editMenu?.items.first(where: { $0.keyEquivalent == "v" })?.action == #selector(NSText.paste(_:)),
                 compactRemainingText(quotas!.codex.weekly, percent: true) == "93%",
