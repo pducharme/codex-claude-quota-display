@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 import json
 import tempfile
+import threading
 import unittest
 from datetime import datetime
 from pathlib import Path
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from quota_bridge import (
     QuotaState,
+    QuotaHandler,
     command_path,
     parse_claude_usage,
     parse_codex_limits,
@@ -242,14 +246,73 @@ Current week (Fable): 65% used · resets Sep 8 at 12pm (America/Toronto)
             self.assertEqual(state.set_display({"codex": True, "claude": False}), {
                 "codex": True,
                 "claude": False,
+                "sleep": None,
             })
             self.assertEqual(QuotaState(display_path=path).payload()["display"], {
                 "codex": True,
                 "claude": False,
+                "sleep": None,
             })
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             with self.assertRaises(ValueError):
                 state.set_display({"codex": False, "claude": False})
+
+    def test_sleep_schedule_api_persistence_validation_and_legacy_clients(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "display.json"
+            path.write_text('{"codex":true,"claude":false}')
+            state = QuotaState(display_path=path)
+            self.assertIsNone(state.payload()["display"]["sleep"])
+
+            class Handler(QuotaHandler):
+                token = "test-token"
+                def log_message(self, *_args):
+                    pass
+
+            Handler.state = state
+            server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(thread.join)
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+
+            def request(method, route, value=None, authorized=True):
+                connection = HTTPConnection(*server.server_address, timeout=2)
+                headers = {"Authorization": "Bearer test-token"} if authorized else {}
+                connection.request(method, route, json.dumps(value) if value is not None else None, headers)
+                response = connection.getresponse()
+                result = response.status, json.loads(response.read())
+                connection.close()
+                return result
+
+            schedule = {"enabled": True, "start_minute": 1380, "end_minute": 420,
+                        "timezone": "America/Toronto", "tz": "untrusted-rule"}
+            self.assertEqual(request("POST", "/v1/display", {"sleep": schedule}, False)[0], 401)
+            self.assertIsNone(state.payload()["display"]["sleep"])
+            status, body = request("POST", "/v1/display", {"sleep": schedule})
+            self.assertEqual(status, 200)
+            saved = body["display"]["sleep"]
+            self.assertEqual(saved["tz"], "EST5EDT,M3.2.0,M11.1.0")
+            self.assertFalse(body["display"]["claude"])
+            self.assertEqual(QuotaState(display_path=path).payload()["display"]["sleep"], saved)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            # Old Companion requests must never erase an existing sleep schedule.
+            self.assertEqual(request("POST", "/v1/display", {"codex": False, "claude": True})[0], 200)
+            self.assertEqual(request("GET", "/v1/quotas")[1]["display"]["sleep"], saved)
+            for invalid in ({"enabled": "yes"}, {"start_minute": True},
+                            {"start_minute": -1}, {"end_minute": 1440},
+                            {"end_minute": 1380}, {"timezone": "../../etc/passwd"},
+                            {"timezone": "Missing/Zone"}):
+                self.assertEqual(request("POST", "/v1/display", {"sleep": {**schedule, **invalid}})[0], 400)
+                self.assertEqual(state.payload()["display"]["sleep"], saved)
+            before = path.read_bytes()
+            with patch("quota_bridge.os.replace", side_effect=OSError("disk error")):
+                self.assertEqual(request("POST", "/v1/display", {"sleep": None})[0], 400)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(state.payload()["display"]["sleep"], saved)
+            self.assertEqual(request("POST", "/v1/display", {"sleep": {**saved, "enabled": False}})[0], 200)
+            self.assertFalse(QuotaState(display_path=path).payload()["display"]["sleep"]["enabled"])
 
 
 if __name__ == "__main__":

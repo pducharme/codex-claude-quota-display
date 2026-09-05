@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.0.17}
+VERSION=${1:-1.0.18}
 ZIP_NAME="Quota-Display-$VERSION.zip"
 NOTES_NAME="Quota-Display-$VERSION.html"
 SPARKLE_ROOT=$("$SCRIPT_DIR/prepare_sparkle.sh")

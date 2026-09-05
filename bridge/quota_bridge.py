@@ -11,6 +11,7 @@ import selectors
 import shutil
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
@@ -18,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
-from zoneinfo import ZoneInfo
+from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 
 EMPTY_WINDOWS = {
     "five_hour": {"used_percent": None, "resets_at": None},
@@ -546,12 +547,38 @@ class WeatherCache:
         return weather.copy()
 
 
+def validated_sleep(value):
+    if not isinstance(value, dict) or type(value.get("enabled")) is not bool:
+        raise ValueError("invalid sleep schedule")
+    start, end = value.get("start_minute"), value.get("end_minute")
+    if any(type(v) is not int or not 0 <= v < 1440 for v in (start, end)) or start == end:
+        raise ValueError("invalid sleep hours")
+    timezone = value.get("timezone")
+    if not isinstance(timezone, str):
+        raise ValueError("invalid timezone")
+    try:
+        ZoneInfo(timezone)  # Also rejects absolute paths and traversal.
+    except (ValueError, ZoneInfoNotFoundError) as error:
+        raise ValueError("invalid timezone") from error
+    # TZif's POSIX footer lets the screen handle daylight saving time offline.
+    for root in TZPATH:
+        path = Path(root) / timezone
+        if path.is_file():
+            data = path.read_bytes()
+            if data[:5] in (b"TZif2", b"TZif3", b"TZif4"):
+                tz = data.rsplit(b"\n", 2)[-2].decode("ascii")
+                if 0 < len(tz) <= 128:
+                    return {"enabled": value["enabled"], "start_minute": start,
+                            "end_minute": end, "timezone": timezone, "tz": tz}
+    raise ValueError("timezone has no supported clock rule")
+
+
 class QuotaState:
     def __init__(self, api_address="127.0.0.1:8788", display_path=None):
         self.lock = threading.Lock()
         self.api_address = api_address
         self.display_path = Path(display_path).expanduser() if display_path else None
-        self.display = {"codex": True, "claude": True}
+        self.display = {"codex": True, "claude": True, "sleep": None}
         if self.display_path and self.display_path.exists():
             try:
                 self.display = self._validated_display(
@@ -583,24 +610,29 @@ class QuotaState:
         claude = value.get("claude")
         if type(codex) is not bool or type(claude) is not bool or not (codex or claude):
             raise ValueError("at least one provider must be displayed")
-        return {"codex": codex, "claude": claude}
+        sleep = value.get("sleep")
+        return {"codex": codex, "claude": claude,
+                "sleep": validated_sleep(sleep) if sleep is not None else None}
 
     def set_display(self, value):
-        display = self._validated_display(value)
+        if not isinstance(value, dict) or not value or value.keys() - {"codex", "claude", "sleep"}:
+            raise ValueError("invalid display settings")
         with self.lock:
+            display = self._validated_display({**self.display, **value})
             if self.display_path:
                 self.display_path.parent.mkdir(parents=True, exist_ok=True)
-                descriptor = os.open(
-                    self.display_path,
-                    os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-                    0o600,
-                )
-                with os.fdopen(descriptor, "w") as handle:
-                    json.dump(display, handle)
-                    handle.write("\n")
-                os.chmod(self.display_path, 0o600)
+                with tempfile.NamedTemporaryFile(mode="w", dir=self.display_path.parent,
+                                                 delete=False) as handle:
+                    temporary = Path(handle.name)
+                try:
+                    with temporary.open("w") as handle:
+                        json.dump(display, handle)
+                        handle.write("\n")
+                    os.replace(temporary, self.display_path)
+                finally:
+                    temporary.unlink(missing_ok=True)
             self.display = display
-            return display.copy()
+            return json.loads(json.dumps(display))
 
     def refresh_provider(self, name, reader):
         try:
@@ -665,7 +697,7 @@ class QuotaState:
     def payload(self):
         with self.lock:
             providers = json.loads(json.dumps(self.providers))
-            display = self.display.copy()
+            display = json.loads(json.dumps(self.display))
             refresh = {
                 "active": self.refreshing,
                 "generation": self.refresh_generation,

@@ -7,6 +7,8 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <sys/time.h>
+#include "DisplaySleep.h"
 #include "Arduino_GFX_Library.h"
 #include "Arduino_AXS15231.h"
 
@@ -67,6 +69,11 @@ Arduino_Canvas *view = new Arduino_Canvas(VIEW_WIDTH, VIEW_HEIGHT, nullptr);
 uint16_t *rotated = nullptr;
 uint16_t *transitionFrom = nullptr;
 bool suppressPresent = false;
+bool displaySleeping = false;
+DisplaySleep sleepSchedule;
+String sleepTimezone = "UTC0";
+String savedSleep;
+void updateDisplaySleep();
 
 Preferences preferences;
 WebServer web(80);
@@ -162,7 +169,7 @@ const uint16_t COLOR_AMBER = rgb(251, 191, 36);
 const uint16_t COLOR_RED = rgb(248, 113, 113);
 
 void present() {
-  if (suppressPresent) return;
+  if (suppressPresent || displaySleeping) return;
   uint16_t *source = view->getFramebuffer();
   if (!source || !rotated) return;
 
@@ -182,7 +189,7 @@ void present() {
 
 void presentSlide(const uint16_t *outgoing, const uint16_t *incoming,
                   int offset, bool forward) {
-  if (!outgoing || !incoming || !rotated) return;
+  if (displaySleeping || !outgoing || !incoming || !rotated) return;
   for (int y = 0; y < VIEW_HEIGHT; ++y) {
     for (int x = 0; x < VIEW_WIDTH; ++x) {
       int sourceX;
@@ -652,6 +659,8 @@ void drawWeatherPage(int pull = 0, bool refreshing = false, int frame = 0) {
 }
 
 void drawCurrentPage(int pull = 0, bool refreshing = false, int frame = 0) {
+  updateDisplaySleep();
+  if (displaySleeping) return;
   if (currentPage == Page::CodexDetail) {
     drawCodexDetail(pull, refreshing, frame);
   } else if (currentPage == Page::Weather) {
@@ -798,6 +807,40 @@ button{margin-top:1.4rem;padding:.85rem 1.2rem;border:0;border-radius:.5rem;back
   }
 }
 
+void readSleepSchedule(JsonVariantConst value, bool persist) {
+  DisplaySleep next;
+  String timezone = "UTC0";
+  if (!value.isNull()) {
+    if (!value["enabled"].is<bool>() || !value["start_minute"].is<int>() ||
+        !value["end_minute"].is<int>() || !value["tz"].is<const char *>()) return;
+    next.enabled = value["enabled"].as<bool>();
+    next.startMinute = value["start_minute"].as<int>();
+    next.endMinute = value["end_minute"].as<int>();
+    timezone = value["tz"].as<String>();
+    if (!next.valid() || timezone.isEmpty() || timezone.length() > 128) return;
+  }
+  String serialized;
+  serializeJson(value, serialized);
+  if (serialized == savedSleep) return;
+  sleepSchedule = next;
+  sleepTimezone = timezone;
+  setenv("TZ", sleepTimezone.c_str(), 1);
+  tzset();
+  if (persist) {
+    preferences.begin("quota", false);
+    size_t written = preferences.putString("sleep", serialized);
+    preferences.end();
+    if (!written) {
+      Serial.println("Sleep schedule persistence failed; will retry");
+      return;
+    }
+  }
+  savedSleep = serialized;
+  Serial.printf("Sleep schedule: enabled=%s start=%d end=%d tz=%s\n",
+                sleepSchedule.enabled ? "yes" : "no", sleepSchedule.startMinute,
+                sleepSchedule.endMinute, sleepTimezone.c_str());
+}
+
 bool loadConfiguration() {
   preferences.begin("quota", true);
   wifiSsid = preferences.getString("ssid");
@@ -806,7 +849,12 @@ bool loadConfiguration() {
   bridgeToken = preferences.getString("token");
   weatherCity =
       preferences.isKey("city") ? preferences.getString("city") : "Sherbrooke";
+  String saved = preferences.getString("sleep");
   preferences.end();
+  JsonDocument schedule;
+  if (deserializeJson(schedule, saved) == DeserializationError::Ok) {
+    readSleepSchedule(schedule.as<JsonVariantConst>(), false);
+  }
   return wifiSsid.length() && validHost(bridgeHost) &&
          bridgeToken.length() >= 16;
 }
@@ -928,6 +976,13 @@ bool fetchQuotas() {
     bridgeRefreshGeneration = refresh["generation"] | 0;
   }
   JsonObjectConst display = document["display"].as<JsonObjectConst>();
+  static String lastDisplaySettings;
+  String displaySettings;
+  serializeJson(document["display"], displaySettings);
+  if (displaySettings != lastDisplaySettings) {
+    Serial.printf("Display settings from %s: %s\n", bridgeHost.c_str(), displaySettings.c_str());
+    lastDisplaySettings = displaySettings;
+  }
   if (!display.isNull() && display["codex"].is<bool>() &&
       display["claude"].is<bool>()) {
     bool nextCodex = display["codex"].as<bool>();
@@ -944,11 +999,23 @@ bool fetchQuotas() {
   readProvider(providers, "claude", claude);
   readBankedResets(providers["codex"].as<JsonObjectConst>());
   serverEpochAtFetch = document["server_time"].as<uint32_t>();
+  if (serverEpochAtFetch >= 1700000000) {
+    struct timeval now {static_cast<time_t>(serverEpochAtFetch), 0};
+    settimeofday(&now, nullptr);
+  }
+  if (!display["sleep"].isUnbound()) {
+    readSleepSchedule(display["sleep"], true);
+  }
+  updateDisplaySleep();
   lastFetchMillis = millis();
   online = true;
-  Serial.printf("Quota data refreshed: uptime=%lus reset=%d\n",
+  struct tm local {};
+  time_t now = time(nullptr);
+  localtime_r(&now, &local);
+  Serial.printf("Quota data refreshed: uptime=%lus reset=%d clock=%02d:%02d sleep=%s\n",
                 static_cast<unsigned long>(millis() / 1000UL),
-                static_cast<int>(esp_reset_reason()));
+                static_cast<int>(esp_reset_reason()), local.tm_hour, local.tm_min,
+                displaySleeping ? "yes" : "no");
   return true;
 }
 
@@ -1283,12 +1350,31 @@ void setupDisplay() {
 }
 
 void restartDisplay() {
+  if (displaySleeping) return;
   Serial.println("LCD restart started");
   ledcWrite(1, 0);
   panel->restart();
   drawCurrentPage();
   ledcWrite(1, BACKLIGHT);
   Serial.println("LCD restart completed");
+}
+
+void updateDisplaySleep() {
+  bool sleeping = sleepSchedule.asleepAt(time(nullptr));
+  if (sleeping == displaySleeping) return;
+  displaySleeping = sleeping;
+  swipeTracking = false;
+  swipePull = 0;
+  if (sleeping) {
+    ledcWrite(1, 0);
+    panel->displayOff();
+    Serial.println("LCD scheduled sleep");
+  } else {
+    // Reuse the panel recovery path to repaint before restoring the backlight.
+    restartDisplay();
+    nextLcdRestartMillis = millis() + LCD_RESTART_MS;
+    Serial.println("LCD scheduled wake");
+  }
 }
 
 }  // namespace
@@ -1300,6 +1386,7 @@ void setup() {
   clearConfigurationIfRequested();
 
   if (!loadConfiguration()) startSetupPortal();
+  configTzTime(sleepTimezone.c_str(), "pool.ntp.org", "time.nist.gov");
   if (!connectWifi()) startSetupPortal();
 
   drawMessage("SYNCHRONISATION", "Lecture des quotas...");
@@ -1310,14 +1397,15 @@ void setup() {
 }
 
 void loop() {
+  updateDisplaySleep();
   if (WiFi.status() != WL_CONNECTED) {
     online = false;
     WiFi.reconnect();
   }
 
-  handleTouch();
+  if (!displaySleeping) handleTouch();
 
-  if (!swipeTracking &&
+  if (!displaySleeping && !swipeTracking &&
       static_cast<int32_t>(millis() - nextLcdRestartMillis) >= 0) {
     restartDisplay();
     nextLcdRestartMillis = millis() + LCD_RESTART_MS;
@@ -1332,7 +1420,7 @@ void loop() {
 
   static uint32_t lastAnimation = 0;
   static int animationFrame = 0;
-  if (!swipeTracking && millis() - lastAnimation >= 900) {
+  if (!displaySleeping && !swipeTracking && millis() - lastAnimation >= 900) {
     lastAnimation = millis();
     drawCurrentPage(0, false, ++animationFrame);
   }

@@ -373,6 +373,198 @@ private struct ProviderQuotas {
     let bankedResets: Int?
 }
 
+private struct DisplaySleep: Codable, Equatable {
+    var enabled = false
+    var startMinute = 23 * 60
+    var endMinute = 7 * 60
+    var timezone = TimeZone.current.identifier
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, timezone
+        case startMinute = "start_minute", endMinute = "end_minute"
+    }
+
+    var valid: Bool {
+        (0..<1440).contains(startMinute) && (0..<1440).contains(endMinute)
+            && startMinute != endMinute && TimeZone(identifier: timezone) != nil
+    }
+
+    static func read(_ value: Any?) -> DisplaySleep? {
+        guard let value = value as? [String: Any],
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let schedule = try? JSONDecoder().decode(Self.self, from: data),
+              schedule.valid else { return nil }
+        return schedule
+    }
+}
+
+private final class DisplaySleepFields: NSStackView {
+    let enabled = NSButton(checkboxWithTitle: "Activer la veille quotidienne", target: nil, action: nil)
+    let start = NSDatePicker()
+    let end = NSDatePicker()
+    private let timezone: String
+
+    init(schedule: DisplaySleep) {
+        timezone = schedule.timezone
+        super.init(frame: NSRect(x: 0, y: 0, width: 350, height: 145))
+        orientation = .vertical
+        alignment = .leading
+        spacing = 12
+        enabled.state = schedule.enabled ? .on : .off
+        enabled.target = self
+        enabled.action = #selector(updateEnabled)
+        addArrangedSubview(enabled)
+        let calendar = Calendar.current
+        for (picker, minute, label) in [(start, schedule.startMinute, "Éteindre à"),
+                                        (end, schedule.endMinute, "Rallumer à")] {
+            picker.datePickerStyle = .textFieldAndStepper
+            picker.datePickerElements = .hourMinute
+            picker.calendar = calendar
+            picker.timeZone = calendar.timeZone
+            picker.locale = Locale(identifier: "fr_CA")
+            picker.dateValue = calendar.date(from: DateComponents(
+                year: 2001, month: 1, day: 15, hour: minute / 60, minute: minute % 60
+            ))!
+            picker.setAccessibilityLabel(label)
+        }
+        let hours = NSGridView(views: [
+            [NSTextField(labelWithString: "Éteindre à"), start],
+            [NSTextField(labelWithString: "Rallumer à"), end],
+        ])
+        hours.rowSpacing = 8
+        hours.heightAnchor.constraint(equalToConstant: 56).isActive = true
+        addArrangedSubview(hours)
+        let zone = NSTextField(labelWithString: "Fuseau horaire : \(timezone)")
+        zone.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        zone.textColor = .secondaryLabelColor
+        addArrangedSubview(zone)
+        updateEnabled()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func updateEnabled() {
+        start.isEnabled = enabled.state == .on
+        end.isEnabled = enabled.state == .on
+    }
+
+    var schedule: DisplaySleep {
+        let calendar = Calendar.current
+        let minutes = [start, end].map {
+            calendar.component(.hour, from: $0.dateValue) * 60
+                + calendar.component(.minute, from: $0.dateValue)
+        }
+        return DisplaySleep(enabled: enabled.state == .on, startMinute: minutes[0],
+                            endMinute: minutes[1], timezone: timezone)
+    }
+}
+
+private func displaySleepIcon(screen: NSImage, brightness: CGFloat) -> NSImage {
+    NSImage(size: NSSize(width: 640, height: 196), flipped: true) { _ in
+        NSColor(white: 0.35, alpha: 1).setFill()
+        NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: 640, height: 196), xRadius: 18, yRadius: 18).fill()
+        NSColor(white: 0.08, alpha: 1).setFill()
+        NSBezierPath(roundedRect: NSRect(x: 2, y: 2, width: 636, height: 192), xRadius: 16, yRadius: 16).fill()
+        let lcd = NSRect(x: 10, y: 11, width: 620, height: 174)
+        NSColor.black.setFill()
+        lcd.fill()
+        screen.draw(in: lcd, from: .zero, operation: .sourceOver, fraction: brightness,
+                    respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
+        return true
+    }
+}
+
+@MainActor
+private final class DisplaySleepPanel: NSWindow, NSWindowDelegate {
+    let fields: DisplaySleepFields
+    private let preview = NSImageView()
+    private let explanation = NSTextField(wrappingLabelWithString:
+        "Tous les mini-écrans liés à cette source suivent cet horaire, même lorsque le Mac dort. Leur firmware doit prendre en charge la veille.")
+    private var animation: Timer?
+
+    init(schedule: DisplaySleep, snapshot: QuotaSnapshot?) {
+        fields = DisplaySleepFields(schedule: schedule)
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 460, height: 460),
+                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        title = "Veille des mini-écrans"
+        isReleasedWhenClosed = false
+        delegate = self
+        preview.imageScaling = .scaleProportionallyUpOrDown
+        preview.setAccessibilityLabel("Aperçu du mini-écran qui s’éteint et se rallume")
+        let heading = NSTextField(labelWithString: title)
+        heading.font = .systemFont(ofSize: 17, weight: .semibold)
+        explanation.font = .systemFont(ofSize: 13)
+        explanation.textColor = .secondaryLabelColor
+        let cancel = NSButton(title: "Annuler", target: self, action: #selector(cancelSchedule))
+        cancel.keyEquivalent = "\u{1b}"
+        let save = NSButton(title: "Enregistrer", target: self, action: #selector(saveSchedule))
+        save.keyEquivalent = "\r"
+        let buttons = NSStackView(views: [NSView(), cancel, save])
+        let stack = NSStackView(views: [preview, heading, explanation, fields, buttons])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView!.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView!.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: contentView!.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: contentView!.topAnchor, constant: 20),
+            stack.bottomAnchor.constraint(equalTo: contentView!.bottomAnchor, constant: -20),
+            preview.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            preview.heightAnchor.constraint(equalTo: preview.widthAnchor, multiplier: 196 / 640),
+            explanation.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            fields.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            fields.heightAnchor.constraint(equalToConstant: 112),
+            buttons.widthAnchor.constraint(equalTo: stack.widthAnchor),
+        ])
+        let miniature = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 180))
+        miniature.snapshot = snapshot
+        if let bitmap = miniature.bitmapImageRepForCachingDisplay(in: miniature.bounds) {
+            miniature.cacheDisplay(in: miniature.bounds, to: bitmap)
+            let screen = NSImage(size: miniature.bounds.size)
+            screen.addRepresentation(bitmap)
+            preview.image = displaySleepIcon(screen: screen, brightness: 1)
+            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                let started = ProcessInfo.processInfo.systemUptime
+                let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+                    let phase = (ProcessInfo.processInfo.systemUptime - started).truncatingRemainder(dividingBy: 6)
+                    let brightness = phase < 3 ? min(1, 3 - phase) : max(0, phase - 5)
+                    self?.preview.image = displaySleepIcon(screen: screen, brightness: CGFloat(brightness))
+                }
+                RunLoop.main.add(timer, forMode: .modalPanel)
+                animation = timer
+            }
+        }
+    }
+
+    func run() -> DisplaySleep? {
+        center()
+        makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let result = NSApp.runModal(for: self)
+        animation?.invalidate()
+        orderOut(nil)
+        return result == .OK ? fields.schedule : nil
+    }
+
+    @objc private func saveSchedule() {
+        makeFirstResponder(nil)
+        guard fields.schedule.valid else {
+            explanation.stringValue = "Choisissez deux heures différentes pour éteindre et rallumer les écrans."
+            return
+        }
+        NSApp.stopModal(withCode: .OK)
+    }
+
+    @objc private func cancelSchedule() { NSApp.stopModal(withCode: .cancel) }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        cancelSchedule()
+        return true
+    }
+}
+
 private struct QuotaSnapshot {
     let codex: ProviderQuotas
     let claude: ProviderQuotas
@@ -380,6 +572,8 @@ private struct QuotaSnapshot {
     let apiAddress: String
     let displayCodex: Bool?
     let displayClaude: Bool?
+    let sleepSupported: Bool
+    let sleep: DisplaySleep?
 }
 
 private func shellQuoted(_ value: String) -> String {
@@ -503,7 +697,9 @@ private func quotaSnapshot(from data: Data) -> QuotaSnapshot? {
         refreshedAt: refresh?["completed_at"] as? Int,
         apiAddress: api?["address"] as? String ?? "port 8788",
         displayCodex: display?["codex"] as? Bool,
-        displayClaude: display?["claude"] as? Bool
+        displayClaude: display?["claude"] as? Bool,
+        sleepSupported: display?.keys.contains("sleep") == true,
+        sleep: DisplaySleep.read(display?["sleep"])
     )
 }
 
@@ -1333,6 +1529,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let claudePercentageItem = NSMenuItem(title: "% Claude restant (semaine)", action: nil, keyEquivalent: "")
     private let refreshItem = NSMenuItem(title: "Actualiser les quotas", action: nil, keyEquivalent: "r")
     private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
+    private let sleepItem = NSMenuItem(title: "Veille des mini-écrans…", action: nil, keyEquivalent: "")
     private let copyAPIItem = NSMenuItem(title: "Copier la configuration API", action: nil, keyEquivalent: "")
     private let autoLaunchItem = NSMenuItem(title: "Démarrer l’API avec la session", action: nil, keyEquivalent: "")
     private let updatesItem = NSMenuItem(title: "Mises à jour", action: nil, keyEquivalent: "")
@@ -1497,6 +1694,9 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         copyAPIItem.action = #selector(copyAPIConfiguration)
         copyAPIItem.toolTip = "Copie l’adresse et le jeton nécessaires aux mini-écrans et aux Companions distants."
         options.addItem(copyAPIItem)
+        sleepItem.target = self
+        sleepItem.action = #selector(chooseDisplaySleep)
+        options.addItem(sleepItem)
         autoLaunchItem.target = self
         autoLaunchItem.action = #selector(toggleAutoLaunch)
         autoLaunchItem.state = .mixed
@@ -1704,6 +1904,54 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             self?.copyAPIItem.title = "Copier la configuration API"
         }
+    }
+
+    @objc private func chooseDisplaySleep() {
+        guard bridgeOnline, let snapshot else {
+            showSleepMessage("La source des quotas doit être en ligne pour modifier l’horaire.")
+            return
+        }
+        guard snapshot.sleepSupported else {
+            showSleepMessage("Mettez à jour le Companion source pour configurer la veille.")
+            return
+        }
+        let sourceURL = configuredBridgeSource.url
+        let panel = DisplaySleepPanel(schedule: snapshot.sleep ?? DisplaySleep(), snapshot: snapshot)
+        guard let schedule = panel.run() else { return }
+        guard configuredBridgeSource.url == sourceURL,
+              var request = bridgeRequest(path: "/v1/display", method: "POST"),
+              let value = try? JSONEncoder().encode(schedule),
+              let object = try? JSONSerialization.jsonObject(with: value) else {
+            showSleepMessage("La configuration API n’est pas disponible.")
+            return
+        }
+        request.timeoutInterval = 15
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["sleep": object])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        sleepItem.isEnabled = false
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let display = root?["display"] as? [String: Any]
+            let saved = (response as? HTTPURLResponse)?.statusCode == 200
+                && DisplaySleep.read(display?["sleep"]) == schedule
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.sleepItem.isEnabled = true
+                guard self.configuredBridgeSource.url == sourceURL else { return }
+                self.loadQuotas()
+                self.showSleepMessage(saved
+                    ? "Horaire enregistré. Les mini-écrans l’appliqueront à leur prochaine synchronisation."
+                    : "L’horaire n’a pas pu être enregistré. Vérifiez la connexion et la version du Companion source.")
+            }
+        }.resume()
+    }
+
+    private func showSleepMessage(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Veille des mini-écrans"
+        alert.informativeText = message
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     @objc private func chooseQuotaSource() {
@@ -2047,7 +2295,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let bundledBridge = Bundle.main.url(forResource: "quota_bridge", withExtension: "py")
         let installedBridge = appSupportURL.appendingPathComponent("quota_bridge.py")
         DispatchQueue.global(qos: .utility).async { [launchDomain, bridgeLabel] in
-            guard versionChanged || updateInstalledBridge(from: bundledBridge, to: installedBridge) else { return }
+            let bridgeUpdated = updateInstalledBridge(from: bundledBridge, to: installedBridge)
+            guard versionChanged || bridgeUpdated else { return }
             _ = run("/bin/launchctl", ["kickstart", "-k", "\(launchDomain)/\(bridgeLabel)"])
         }
     }
@@ -2314,6 +2563,17 @@ private struct QuotaMenu {
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
             let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
+            let sleep = DisplaySleep(enabled: true, startMinute: 1380, endMinute: 420, timezone: "America/Toronto")
+            let sleepFields = DisplaySleepFields(schedule: sleep)
+            let sleepRoundTrip = (try? JSONEncoder().encode(sleep))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) }
+                .flatMap(DisplaySleep.read)
+            var sleepingSample = (try? JSONSerialization.jsonObject(with: Data(sample.utf8))) as? [String: Any] ?? [:]
+            sleepingSample["display"] = ["codex": true, "claude": false,
+                                        "sleep": ["enabled": true, "start_minute": 1380,
+                                                  "end_minute": 420, "timezone": "America/Toronto",
+                                                  "tz": "EST5EDT,M3.2.0,M11.1.0"]]
+            let sleepingQuotas = (try? JSONSerialization.data(withJSONObject: sleepingSample)).flatMap(quotaSnapshot)
             let desktopSample = #"{"subscription_type":"max","organization":{"rate_limit_tier":"default_claude_max_5x"},"five_hour":{"utilization":12.8,"resets_at":"2026-09-02T22:00:00Z"},"seven_day":{"utilization":39,"resets_at":"2026-09-08T04:00:00Z"},"seven_day_fable":{"utilization":81,"resets_at":"2026-09-08T04:00:00Z"}}"#
             let desktopQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopSample.utf8))
             let desktopLimitsSample = #"{"limits":[{"kind":"weekly_scoped","percent":65,"resets_at":"2026-09-08T16:00:00Z","scope":{"model":{"display_name":"Fable"}}}]}"#
@@ -2373,6 +2633,13 @@ private struct QuotaMenu {
                 return frames[0] != nil && frames[1] != nil && frames[0] != frames[1] && frames[0] == frames[2]
             }
             dashboardView.snapshot = quotas
+            let iconScreen = NSImage(size: NSSize(width: 64, height: 18), flipped: true) { rect in
+                NSColor.cyan.setFill()
+                rect.fill()
+                return true
+            }
+            let awakeIcon = displaySleepIcon(screen: iconScreen, brightness: 1).tiffRepresentation
+            let asleepIcon = displaySleepIcon(screen: iconScreen, brightness: 0).tiffRepresentation
             dashboardView.setRefreshing(true)
             let refreshAnimationStarted = dashboardView.refreshButton.isHidden
             dashboardView.setRefreshing(false)
@@ -2391,6 +2658,14 @@ private struct QuotaMenu {
                 quotas?.claude.plan == "Max 5X",
                 quotas?.claude.fableWeekly.remainingPercent == 72,
                 quotas?.displayCodex == true, quotas?.displayClaude == false,
+                quotas?.sleepSupported == false,
+                sleepingQuotas?.sleepSupported == true, sleepingQuotas?.sleep == sleep,
+                sleepRoundTrip == sleep, sleepFields.schedule == sleep,
+                awakeIcon != nil, asleepIcon != nil, awakeIcon != asleepIcon,
+                !DisplaySleep(startMinute: 420, endMinute: 420).valid,
+                !DisplaySleep(startMinute: -1).valid,
+                !DisplaySleep(endMinute: 1440).valid,
+                !DisplaySleep(timezone: "Missing/Zone").valid,
                 (desktopQuotas?["five_hour"] as? [String: Any])?["used_percent"] as? Int == 12,
                 (desktopQuotas?["weekly"] as? [String: Any])?["used_percent"] as? Int == 39,
                 (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,

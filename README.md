@@ -20,6 +20,7 @@ dans un Companion macOS et, facultativement, sur un mini-écran
 - Mode source locale ou client d’une autre instance Quota Display sur le réseau.
 - Mini-écran tactile avec vue détaillée, météo sur cinq jours et actualisation
   par glissement.
+- Veille quotidienne des mini-écrans, avec horaire réglable dans le Companion.
 - Actualisation automatique toutes les cinq minutes.
 - Relance préventive du LCD toutes les 30 minutes pour récupérer un écran noir
   sans débrancher l’ESP32.
@@ -160,6 +161,26 @@ pendant trois secondes au démarrage.
 - `NON FOURNI` signifie que le fournisseur n’a pas retourné cette fenêtre de
   quota; l’application n’invente alors aucune valeur.
 
+## Veille des mini-écrans
+
+Dans **Options → Veille des mini-écrans…**, activez la veille puis choisissez
+l’heure d’extinction et de réveil (23:00–07:00 proposé). Elle est désactivée
+par défaut et s’applique à tous les mini-écrans liés à la source sélectionnée.
+Les heures suivent le fuseau indiqué dans la fenêtre, y compris les changements
+d’heure. Les deux heures doivent être différentes.
+
+Le Companion source et le firmware des écrans doivent être mis à jour une
+première fois. Ensuite, les changements d’horaire arrivent par la synchronisation
+habituelle, sans reflash. Chaque écran conserve l’horaire en mémoire et l’exécute
+même si le Mac dort ou si la source est temporairement indisponible.
+
+Pendant la veille, le rétroéclairage est éteint, le LCD est au repos et les
+animations, gestes et relances préventives du LCD sont suspendus. La connexion
+reste active pour recevoir les modifications. Le réveil est automatique; pour
+réveiller les écrans plus tôt, désactivez la veille dans le Companion.
+Après une coupure d’alimentation, l’écran attend une heure valide fournie par
+la source ou par NTP avant d’appliquer l’horaire.
+
 ## API locale
 
 Le pont écoute par défaut sur le port `8788` et actualise les fournisseurs
@@ -171,7 +192,7 @@ toutes les cinq minutes.
 | `GET` | `/v1/quotas` | Jeton Bearer | Quotas et état des fournisseurs |
 | `GET` | `/v1/weather?city=<ville>` | Jeton Bearer | Conditions et prévisions météo |
 | `POST` | `/v1/refresh` | Jeton Bearer | Nouvelle lecture des fournisseurs |
-| `POST` | `/v1/display` | Jeton Bearer | Fournisseurs visibles sur les Companions et mini-écrans |
+| `POST` | `/v1/display` | Jeton Bearer | Fournisseurs visibles et horaire de veille des mini-écrans |
 
 L’adresse et le jeton se copient depuis **Copier la configuration API** dans le
 Companion.
@@ -194,6 +215,8 @@ Vérifications principales :
 
 ```sh
 python3 bridge/test_quota_bridge.py
+c++ -std=c++11 -Wall -Wextra -pedantic firmware/test_sleep.cpp -o /tmp/quota-sleep-test
+/tmp/quota-sleep-test
 python3 bridge/quota_bridge.py --once
 ```
 
