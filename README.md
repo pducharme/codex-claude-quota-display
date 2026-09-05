@@ -6,6 +6,11 @@ dans un Companion macOS et, facultativement, sur un mini-écran
 
 [Télécharger la dernière version](https://github.com/pducharme/codex-claude-quota-display/releases/latest)
 
+![Mini-écran Quota Display affichant les quotas Codex et Claude, passant au noir pendant la veille puis se rallumant](docs/assets/mini-screen-sleep.gif)
+
+Les quotas en un coup d’œil, puis le noir pour la nuit :
+[réglez l’horaire de veille dans le Companion](#veille-des-mini-écrans).
+
 ## Fonctionnalités
 
 - Quotas restants sur 5 heures et sur la semaine.
