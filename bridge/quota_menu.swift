@@ -408,6 +408,37 @@ private struct DisplaySleep: Codable, Equatable {
     }
 }
 
+private func displaySleepResponseError(
+    data: Data?, response: URLResponse?, error: Error?, expected: DisplaySleep? = nil
+) -> String? {
+    if let error {
+        return (error as? URLError)?.code == .timedOut
+            ? "La source met trop de temps à répondre. Vérifiez la connexion, puis réessayez."
+            : "La connexion à la source a été interrompue. Vérifiez qu’elle est joignable, puis réessayez."
+    }
+    guard let status = (response as? HTTPURLResponse)?.statusCode else {
+        return "La source n’a pas renvoyé de réponse HTTP valide."
+    }
+    switch status {
+    case 200: break
+    case 401, 403: return "La source a refusé l’accès. Vérifiez le jeton dans « Source des quotas… »."
+    case 400, 422: return "La source a refusé l’horaire. Vérifiez les heures et le fuseau horaire."
+    default: return "La source a renvoyé une erreur HTTP \(status). Réessayez dans quelques instants."
+    }
+    guard let data,
+          let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let display = root["display"] as? [String: Any] else {
+        return "La réponse de la source est incomplète. Réessayez dans quelques instants."
+    }
+    guard display.keys.contains("sleep") else {
+        return "Mettez à jour le Companion source pour configurer la veille."
+    }
+    if let expected, DisplaySleep.read(display["sleep"]) != expected {
+        return "La source n’a pas confirmé l’horaire demandé. Rouvrez les réglages pour vérifier l’horaire enregistré."
+    }
+    return nil
+}
+
 private final class DisplaySleepFields: NSStackView {
     let enabled = NSButton(checkboxWithTitle: "Activer la veille quotidienne", target: nil, action: nil)
     let start = NSDatePicker()
@@ -582,7 +613,6 @@ private struct QuotaSnapshot {
     let apiAddress: String
     let displayCodex: Bool?
     let displayClaude: Bool?
-    let sleepSupported: Bool
     let sleep: DisplaySleep?
 }
 
@@ -708,7 +738,6 @@ private func quotaSnapshot(from data: Data) -> QuotaSnapshot? {
         apiAddress: api?["address"] as? String ?? "port 8788",
         displayCodex: display?["codex"] as? Bool,
         displayClaude: display?["claude"] as? Bool,
-        sleepSupported: display?.keys.contains("sleep") == true,
         sleep: DisplaySleep.read(display?["sleep"])
     )
 }
@@ -1917,15 +1946,37 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     @objc private func chooseDisplaySleep() {
-        guard bridgeOnline, let snapshot else {
-            showSleepMessage("La source des quotas doit être en ligne pour modifier l’horaire.")
-            return
-        }
-        guard snapshot.sleepSupported else {
-            showSleepMessage("Mettez à jour le Companion source pour configurer la veille.")
+        guard var request = bridgeRequest(path: "/v1/quotas") else {
+            showSleepMessage("La configuration API n’est pas disponible.")
             return
         }
         let sourceURL = configuredBridgeSource.url
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 15
+        sleepItem.isEnabled = false
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            let failure = displaySleepResponseError(data: data, response: response, error: error)
+            if failure != nil {
+                NSLog("Sleep settings read failed: HTTP %ld, network error %ld",
+                      (response as? HTTPURLResponse)?.statusCode ?? 0, (error as NSError?)?.code ?? 0)
+            }
+            let snapshot = data.flatMap(quotaSnapshot)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.sleepItem.isEnabled = true
+                guard self.configuredBridgeSource.url == sourceURL else { return }
+                if let failure {
+                    self.showSleepMessage(failure)
+                } else if let snapshot {
+                    self.editDisplaySleep(snapshot: snapshot, sourceURL: sourceURL)
+                } else {
+                    self.showSleepMessage("La réponse de la source est incomplète. Réessayez dans quelques instants.")
+                }
+            }
+        }.resume()
+    }
+
+    private func editDisplaySleep(snapshot: QuotaSnapshot, sourceURL: URL) {
         let panel = DisplaySleepPanel(schedule: snapshot.sleep ?? DisplaySleep(), snapshot: snapshot)
         guard let schedule = panel.run() else { return }
         guard configuredBridgeSource.url == sourceURL,
@@ -1939,19 +1990,19 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["sleep": object])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         sleepItem.isEnabled = false
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
-            let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            let display = root?["display"] as? [String: Any]
-            let saved = (response as? HTTPURLResponse)?.statusCode == 200
-                && DisplaySleep.read(display?["sleep"]) == schedule
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            let failure = displaySleepResponseError(data: data, response: response, error: error, expected: schedule)
+            if failure != nil {
+                NSLog("Sleep settings save failed: HTTP %ld, network error %ld",
+                      (response as? HTTPURLResponse)?.statusCode ?? 0, (error as NSError?)?.code ?? 0)
+            }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.sleepItem.isEnabled = true
                 guard self.configuredBridgeSource.url == sourceURL else { return }
                 self.loadQuotas()
-                self.showSleepMessage(saved
-                    ? "Horaire enregistré. Les mini-écrans l’appliqueront à leur prochaine synchronisation."
-                    : "L’horaire n’a pas pu être enregistré. Vérifiez la connexion et la version du Companion source.")
+                self.showSleepMessage(failure
+                    ?? "Horaire enregistré. Les mini-écrans l’appliqueront à leur prochaine synchronisation.")
             }
         }.resume()
     }
@@ -2170,9 +2221,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func loadQuotas() {
+        guard !loadingQuotas else { return }
         let sourceURL = configuredBridgeSource.url
         let requestedDisplayRevision = displayRevision
-        guard !loadingQuotas, let request = bridgeRequest(path: "/v1/quotas") else {
+        guard let request = bridgeRequest(path: "/v1/quotas") else {
             bridgeOnline = false
             dashboard.apiOnline = false
             persistentDashboard.apiOnline = false
@@ -2585,7 +2637,25 @@ private struct QuotaMenu {
                                         "sleep": ["enabled": true, "start_minute": 1380,
                                                   "end_minute": 420, "timezone": "America/Toronto",
                                                   "tz": "EST5EDT,M3.2.0,M11.1.0"]]
-            let sleepingQuotas = (try? JSONSerialization.data(withJSONObject: sleepingSample)).flatMap(quotaSnapshot)
+            let sleepingData = try? JSONSerialization.data(withJSONObject: sleepingSample)
+            let sleepingQuotas = sleepingData.flatMap(quotaSnapshot)
+            func sleepFailure(_ data: Data?, status: Int = 200, error: Error? = nil,
+                              expected: DisplaySleep? = nil) -> String? {
+                displaySleepResponseError(data: data, response: HTTPURLResponse(
+                    url: URL(string: "http://127.0.0.1:8788/v1/display")!,
+                    statusCode: status, httpVersion: nil, headerFields: nil
+                ), error: error, expected: expected)
+            }
+            let sleepResponsesValid = sleepFailure(sleepingData, expected: sleep) == nil
+                && sleepFailure(Data(#"{"display":{"sleep":null}}"#.utf8)) == nil
+                && sleepFailure(Data(sample.utf8))?.contains("Mettez à jour") == true
+                && sleepFailure(sleepingData, error: URLError(.timedOut))?.contains("trop de temps") == true
+                && sleepFailure(nil, error: URLError(.notConnectedToInternet))?.contains("connexion") == true
+                && [401, 403].allSatisfy { sleepFailure(nil, status: $0)?.contains("jeton") == true }
+                && [400, 422].allSatisfy { sleepFailure(nil, status: $0)?.contains("refusé l’horaire") == true }
+                && [404, 500, 503].allSatisfy { sleepFailure(nil, status: $0)?.contains("HTTP \($0)") == true }
+                && sleepFailure(Data("invalid JSON".utf8))?.contains("incomplète") == true
+                && sleepFailure(sleepingData, expected: DisplaySleep())?.contains("pas confirmé") == true
             let desktopSample = #"{"subscription_type":"max","organization":{"rate_limit_tier":"default_claude_max_5x"},"five_hour":{"utilization":12.8,"resets_at":"2026-09-02T22:00:00Z"},"seven_day":{"utilization":39,"resets_at":"2026-09-08T04:00:00Z"},"seven_day_fable":{"utilization":81,"resets_at":"2026-09-08T04:00:00Z"}}"#
             let desktopQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopSample.utf8))
             let desktopLimitsSample = #"{"limits":[{"kind":"weekly_scoped","percent":65,"resets_at":"2026-09-08T16:00:00Z","scope":{"model":{"display_name":"Fable"}}}]}"#
@@ -2682,8 +2752,7 @@ private struct QuotaMenu {
                 quotas?.claude.plan == "Max 5X",
                 quotas?.claude.fableWeekly.remainingPercent == 72,
                 quotas?.displayCodex == true, quotas?.displayClaude == false,
-                quotas?.sleepSupported == false,
-                sleepingQuotas?.sleepSupported == true, sleepingQuotas?.sleep == sleep,
+                sleepingQuotas?.sleep == sleep, sleepResponsesValid,
                 sleepRoundTrip == sleep, sleepFields.schedule == sleep,
                 awakeIcon != nil, asleepIcon != nil, awakeIcon != asleepIcon,
                 !DisplaySleep(startMinute: 420, endMinute: 420).valid,
