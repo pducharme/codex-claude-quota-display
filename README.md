@@ -74,16 +74,17 @@ Après l’installation :
 
 1. Ouvrez **Quota Display** dans la barre de menus.
 2. Vérifiez que Codex.app est connecté avec un compte ChatGPT.
-3. Dans **Connexions**, choisissez **Autoriser Claude Desktop…** si vous
+3. Dans **Paramètres → API et connexions → Connexions**, choisissez **Autoriser Claude Desktop…** si vous
    utilisez Claude. macOS peut demander l’accès à `Claude Safe Storage`.
 4. Choisissez **Actualiser les quotas**.
 
 Par défaut, le menu montre seulement le tableau de bord et une ligne
-**Options**. Ce sous-menu regroupe le changement de source, la copie de la
-configuration API, les fournisseurs affichés, la fenêtre permanente, le mode
-toujours au premier plan, l’icône de la barre des menus, le démarrage
-automatique, les mises à jour, les connexions, les informations de
-l’application et la commande pour quitter.
+**Paramètres**. Les réglages sont regroupés dans **Affichage** (fournisseurs,
+fenêtre permanente, premier plan et icône de la barre des menus), **API et
+connexions** (source, copie de la configuration, démarrage automatique et
+comptes), **Mini-écrans** (veille) et **Mises à jour**. L’actualisation des
+quotas, les informations de l’application et la commande pour quitter restent
+directement accessibles dans **Paramètres**.
 
 ## Utiliser une source distante
 
@@ -168,7 +169,7 @@ pendant trois secondes au démarrage.
 
 ## Veille des mini-écrans
 
-Dans **Options → Veille des mini-écrans…**, activez la veille puis choisissez
+Dans **Paramètres → Mini-écrans → Veille des mini-écrans…**, activez la veille puis choisissez
 l’heure d’extinction et de réveil (23:00–07:00 proposé). Elle est désactivée
 par défaut et s’applique à tous les mini-écrans liés à la source sélectionnée.
 Les heures suivent le fuseau indiqué dans la fenêtre, y compris les changements

@@ -3,6 +3,26 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.0.21</title>
+            <pubDate>Thu, 10 Sep 2026 17:49:07 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.0.21</sparkle:version>
+            <sparkle:shortVersionString>1.0.21</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.0.21</h2>
+<ul>
+  <li>Le menu Paramètres remplace Options et passe de 14 à 7 entrées pour une ouverture plus compacte.</li>
+  <li>Les réglages sont regroupés dans Affichage, API et connexions, Mini-écrans et Mises à jour.</li>
+  <li>Les options de fenêtre et d’icône se trouvent dans Affichage. L’actualisation des quotas reste directement accessible dans Paramètres.</li>
+</ul>
+<p>Les réglages existants et la source API sont conservés. Aucun nouveau flash du mini-écran n’est nécessaire.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.21/Quota-Display-1.0.21.zip" length="2174375" type="application/octet-stream" sparkle:edSignature="tMjjalwTdAy6kqCAzMkBi1pReT0yC+TlztHKwWr7uShZJwCeV8Ivuk5WzeZHkO+TH7wZsQqHj1/lvhFyzlOTDQ=="/>
+        </item>
+        <item>
             <title>1.0.20</title>
             <pubDate>Mon, 07 Sep 2026 20:49:18 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -40,27 +60,6 @@
 <p>En mode distant, installez cette mise à jour sur le Mac source. Les réglages et les jetons sont conservés. Aucun nouveau flash du mini-écran n’est nécessaire si son firmware prend déjà en charge la veille.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.19/Quota-Display-1.0.19.zip" length="2165028" type="application/octet-stream" sparkle:edSignature="da1YEKNIwMLG57ntHqjtbV1csSXuT7HqHsoFI1/Twjtmf8QJ28CHovq4KANgdYc7KL6RrxEfSETrO0rvihyCDA=="/>
-        </item>
-        <item>
-            <title>1.0.18</title>
-            <pubDate>Sat, 05 Sep 2026 00:04:37 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.18</sparkle:version>
-            <sparkle:shortVersionString>1.0.18</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.18</h2>
-<ul>
-  <li>Nouvelle option <strong>Veille des mini-écrans…</strong> : choisissez les heures d’extinction et de réveil, avec un grand aperçu animé qui passe au noir.</li>
-  <li>Chaque écran mémorise l’horaire et coupe son rétroéclairage et son LCD pendant la veille. Le réveil est automatique, même lorsque le Mac dort, avec prise en charge des changements d’heure.</li>
-  <li>La veille est désactivée par défaut. Les modifications s’appliquent à tous les mini-écrans liés à la source sélectionnée.</li>
-  <li>Le pont API installé séparément est maintenant bien remplacé lors d’une mise à jour du Companion.</li>
-</ul>
-<p><strong>À installer sur le Mac source :</strong> en mode distant, mettez aussi à jour le Companion qui fournit les quotas. Le nouveau firmware doit être flashé une première fois sur chaque mini-écran; les changements d’horaire suivants se font sans reflash.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.18/Quota-Display-1.0.18.zip" length="2160655" type="application/octet-stream" sparkle:edSignature="5csmSN9vsxyNTM5hG0TNu8+mkafT8NegRxiPix9RC9f/q9XRcNZTQpGPitqatLPCPO6U4WmVHqvWalisxu2CDQ=="/>
         </item>
     </channel>
 </rss>

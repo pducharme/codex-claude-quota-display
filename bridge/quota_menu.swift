@@ -1697,19 +1697,26 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         dashboardItem.view = dashboard
         menu.addItem(dashboardItem)
         menu.addItem(.separator())
-        let options = NSMenu(title: "Options")
+        let options = NSMenu(title: "Paramètres")
+        refreshItem.target = self
+        refreshItem.action = #selector(refreshQuotas)
+        options.addItem(refreshItem)
+        options.addItem(.separator())
+        let display = NSMenu(title: "Affichage")
         showCodexItem.target = self
         showCodexItem.action = #selector(toggleCodexVisibility)
-        options.addItem(showCodexItem)
+        display.addItem(showCodexItem)
         showClaudeItem.target = self
         showClaudeItem.action = #selector(toggleClaudeVisibility)
-        options.addItem(showClaudeItem)
+        display.addItem(showClaudeItem)
+        display.addItem(.separator())
         persistentWindowItem.target = self
         persistentWindowItem.action = #selector(togglePersistentWindow)
-        options.addItem(persistentWindowItem)
+        display.addItem(persistentWindowItem)
         alwaysOnTopItem.target = self
         alwaysOnTopItem.action = #selector(toggleAlwaysOnTop)
-        options.addItem(alwaysOnTopItem)
+        display.addItem(alwaysOnTopItem)
+        display.addItem(.separator())
         let statusDisplay = NSMenu()
         compactStatusItem.target = self
         compactStatusItem.action = #selector(selectCompactStatus)
@@ -1721,26 +1728,21 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         claudePercentageItem.action = #selector(selectClaudePercentage)
         statusDisplay.addItem(claudePercentageItem)
         statusDisplayItem.submenu = statusDisplay
-        options.addItem(statusDisplayItem)
-        options.addItem(.separator())
-        refreshItem.target = self
-        refreshItem.action = #selector(refreshQuotas)
-        options.addItem(refreshItem)
+        display.addItem(statusDisplayItem)
+        options.addItem(withTitle: "Affichage", action: nil, keyEquivalent: "").submenu = display
+        let api = NSMenu(title: "API et connexions")
         sourceItem.target = self
         sourceItem.action = #selector(chooseQuotaSource)
-        options.addItem(sourceItem)
+        api.addItem(sourceItem)
         copyAPIItem.target = self
         copyAPIItem.action = #selector(copyAPIConfiguration)
         copyAPIItem.toolTip = "Copie l’adresse et le jeton nécessaires aux mini-écrans et aux Companions distants."
-        options.addItem(copyAPIItem)
-        sleepItem.target = self
-        sleepItem.action = #selector(chooseDisplaySleep)
-        options.addItem(sleepItem)
+        api.addItem(copyAPIItem)
         autoLaunchItem.target = self
         autoLaunchItem.action = #selector(toggleAutoLaunch)
         autoLaunchItem.state = .mixed
         autoLaunchItem.toolTip = "Contrôle le démarrage du pont API Python à la prochaine ouverture de session."
-        options.addItem(autoLaunchItem)
+        api.addItem(autoLaunchItem)
         let updates = NSMenu()
         checkUpdateItem.target = self
         checkUpdateItem.action = #selector(checkUpdates)
@@ -1750,7 +1752,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         automaticUpdateItem.state = updaterController.updater.automaticallyChecksForUpdates ? .on : .off
         updates.addItem(automaticUpdateItem)
         updatesItem.submenu = updates
-        options.addItem(updatesItem)
         let connections = NSMenu()
         codexStatus.isEnabled = false
         claudeStatus.isEnabled = false
@@ -1764,7 +1765,15 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         claudeActionItem.action = #selector(loginClaude)
         connections.addItem(claudeActionItem)
         connectionsItem.submenu = connections
-        options.addItem(connectionsItem)
+        api.addItem(.separator())
+        api.addItem(connectionsItem)
+        options.addItem(withTitle: "API et connexions", action: nil, keyEquivalent: "").submenu = api
+        let screens = NSMenu(title: "Mini-écrans")
+        sleepItem.target = self
+        sleepItem.action = #selector(chooseDisplaySleep)
+        screens.addItem(sleepItem)
+        options.addItem(withTitle: "Mini-écrans", action: nil, keyEquivalent: "").submenu = screens
+        options.addItem(updatesItem)
         options.addItem(.separator())
         let aboutItem = NSMenuItem(title: "À propos de Quota Display", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
@@ -1772,7 +1781,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let quitItem = NSMenuItem(title: "Quitter Quota Display", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         options.addItem(quitItem)
-        let optionsItem = NSMenuItem(title: "Options", action: nil, keyEquivalent: "")
+        let optionsItem = NSMenuItem(title: "Paramètres", action: nil, keyEquivalent: "")
         optionsItem.submenu = options
         menu.addItem(optionsItem)
         statusItem.menu = menu
