@@ -80,11 +80,15 @@ Après l’installation :
 
 Par défaut, le menu montre seulement le tableau de bord et une ligne
 **Paramètres**. Les réglages sont regroupés dans **Affichage** (fournisseurs,
-fenêtre permanente, premier plan et icône de la barre des menus), **API et
+fenêtre permanente et premier plan), **API et
 connexions** (source, copie de la configuration, démarrage automatique et
 comptes), **Mini-écrans** (veille) et **Mises à jour**. L’actualisation des
 quotas, les informations de l’application et la commande pour quitter restent
 directement accessibles dans **Paramètres**.
+
+Les cases **Afficher Codex** et **Afficher Claude** contrôlent aussi la barre
+des menus : les deux cochées affichent la vue compacte des deux fournisseurs;
+une seule cochée affiche son icône et son quota hebdomadaire restant.
 
 ## Utiliser une source distante
 

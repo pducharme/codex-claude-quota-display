@@ -751,17 +751,10 @@ private func compactRemainingText(_ window: QuotaWindow, percent: Bool) -> Strin
     return "\(remaining)\(percent ? "%" : "")"
 }
 
-private enum StatusDisplayMode: String {
-    case compact
-    case codex
-    case claude
-}
-
 private let showCodexPreference = "display.showCodex"
 private let showClaudePreference = "display.showClaude"
 private let persistentWindowPreference = "display.persistentWindow"
 private let alwaysOnTopPreference = "display.alwaysOnTop"
-private let statusDisplayPreference = "display.statusMode"
 
 private func expectedRemainingPercent(
     _ window: QuotaWindow,
@@ -833,7 +826,6 @@ private final class CompactStatusView: NSView {
     var claudeConnected: Bool?
     var showCodex = true
     var showClaude = true
-    var displayMode = StatusDisplayMode.compact
 
     override var isFlipped: Bool { true }
 
@@ -842,8 +834,8 @@ private final class CompactStatusView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         let empty = QuotaWindow(usedPercent: nil, resetsAt: nil)
-        if displayMode != .compact || showCodex != showClaude {
-            let useCodex = (displayMode == .codex && showCodex) || !showClaude
+        if showCodex != showClaude {
+            let useCodex = showCodex
             drawPercentage(
                 window: useCodex ? snapshot?.codex.weekly ?? empty : snapshot?.claude.weekly ?? empty,
                 providerOK: useCodex ? snapshot?.codex.status == "ok" : snapshot?.claude.status == "ok",
@@ -1562,10 +1554,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let showClaudeItem = NSMenuItem(title: "Afficher Claude", action: nil, keyEquivalent: "")
     private let persistentWindowItem = NSMenuItem(title: "Afficher une fenêtre permanente", action: nil, keyEquivalent: "")
     private let alwaysOnTopItem = NSMenuItem(title: "Toujours au premier plan", action: nil, keyEquivalent: "")
-    private let statusDisplayItem = NSMenuItem(title: "Icône de la barre des menus", action: nil, keyEquivalent: "")
-    private let compactStatusItem = NSMenuItem(title: "Vue compacte", action: nil, keyEquivalent: "")
-    private let codexPercentageItem = NSMenuItem(title: "% Codex restant (semaine)", action: nil, keyEquivalent: "")
-    private let claudePercentageItem = NSMenuItem(title: "% Claude restant (semaine)", action: nil, keyEquivalent: "")
     private let refreshItem = NSMenuItem(title: "Actualiser les quotas", action: nil, keyEquivalent: "r")
     private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
     private let sleepItem = NSMenuItem(title: "Veille des mini-écrans…", action: nil, keyEquivalent: "")
@@ -1640,7 +1628,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             showClaudePreference: true,
             persistentWindowPreference: false,
             alwaysOnTopPreference: false,
-            statusDisplayPreference: StatusDisplayMode.compact.rawValue,
         ])
         NSApp.setActivationPolicy(.accessory)
         if let icon = bundledApplicationIcon {
@@ -1716,19 +1703,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         alwaysOnTopItem.target = self
         alwaysOnTopItem.action = #selector(toggleAlwaysOnTop)
         display.addItem(alwaysOnTopItem)
-        display.addItem(.separator())
-        let statusDisplay = NSMenu()
-        compactStatusItem.target = self
-        compactStatusItem.action = #selector(selectCompactStatus)
-        statusDisplay.addItem(compactStatusItem)
-        codexPercentageItem.target = self
-        codexPercentageItem.action = #selector(selectCodexPercentage)
-        statusDisplay.addItem(codexPercentageItem)
-        claudePercentageItem.target = self
-        claudePercentageItem.action = #selector(selectClaudePercentage)
-        statusDisplay.addItem(claudePercentageItem)
-        statusDisplayItem.submenu = statusDisplay
-        display.addItem(statusDisplayItem)
         options.addItem(withTitle: "Affichage", action: nil, keyEquivalent: "").submenu = display
         let api = NSMenu(title: "API et connexions")
         sourceItem.target = self
@@ -1793,20 +1767,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let defaults = UserDefaults.standard
         let showCodex = defaults.bool(forKey: showCodexPreference)
         let showClaude = defaults.bool(forKey: showClaudePreference)
-        var statusMode = StatusDisplayMode(rawValue: defaults.string(forKey: statusDisplayPreference) ?? "") ?? .compact
-        if statusMode == .codex && !showCodex { statusMode = .claude }
-        if statusMode == .claude && !showClaude { statusMode = .codex }
-        defaults.set(statusMode.rawValue, forKey: statusDisplayPreference)
 
         showCodexItem.state = showCodex ? .on : .off
         showClaudeItem.state = showClaude ? .on : .off
         persistentWindowItem.state = defaults.bool(forKey: persistentWindowPreference) ? .on : .off
         alwaysOnTopItem.state = defaults.bool(forKey: alwaysOnTopPreference) ? .on : .off
-        compactStatusItem.state = statusMode == .compact ? .on : .off
-        codexPercentageItem.state = statusMode == .codex ? .on : .off
-        claudePercentageItem.state = statusMode == .claude ? .on : .off
-        codexPercentageItem.isEnabled = showCodex
-        claudePercentageItem.isEnabled = showClaude
 
         dashboard.showCodex = showCodex
         dashboard.showClaude = showClaude
@@ -1814,7 +1779,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         persistentDashboard.showClaude = showClaude
         compactStatus.showCodex = showCodex
         compactStatus.showClaude = showClaude
-        compactStatus.displayMode = statusMode
         persistentPanel?.level = defaults.bool(forKey: alwaysOnTopPreference) ? .floating : .normal
         if defaults.bool(forKey: persistentWindowPreference) {
             showPersistentDashboard(activate: showWindow)
@@ -1832,9 +1796,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             return
         }
         defaults.set(next, forKey: showCodexPreference)
-        if !next && defaults.string(forKey: statusDisplayPreference) == StatusDisplayMode.codex.rawValue {
-            defaults.set(StatusDisplayMode.claude.rawValue, forKey: statusDisplayPreference)
-        }
         displayRevision += 1
         applyDisplayPreferences()
         syncDisplayPreferences()
@@ -1848,9 +1809,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             return
         }
         defaults.set(next, forKey: showClaudePreference)
-        if !next && defaults.string(forKey: statusDisplayPreference) == StatusDisplayMode.claude.rawValue {
-            defaults.set(StatusDisplayMode.codex.rawValue, forKey: statusDisplayPreference)
-        }
         displayRevision += 1
         applyDisplayPreferences()
         syncDisplayPreferences()
@@ -1865,15 +1823,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     @objc private func toggleAlwaysOnTop() {
         let defaults = UserDefaults.standard
         defaults.set(!defaults.bool(forKey: alwaysOnTopPreference), forKey: alwaysOnTopPreference)
-        applyDisplayPreferences()
-    }
-
-    @objc private func selectCompactStatus() { selectStatusMode(.compact) }
-    @objc private func selectCodexPercentage() { selectStatusMode(.codex) }
-    @objc private func selectClaudePercentage() { selectStatusMode(.claude) }
-
-    private func selectStatusMode(_ mode: StatusDisplayMode) {
-        UserDefaults.standard.set(mode.rawValue, forKey: statusDisplayPreference)
         applyDisplayPreferences()
     }
 
@@ -2725,6 +2674,15 @@ private struct QuotaMenu {
                 showClaude: true
             )
             let dashboardView = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 250))
+            let statusView = CompactStatusView(frame: NSRect(x: 0, y: 0, width: 90, height: 22))
+            statusView.snapshot = quotas
+            let statusSnapshots = [(true, true), (true, false), (false, true), (true, true)].compactMap { codex, claude -> Data? in
+                statusView.showCodex = codex
+                statusView.showClaude = claude
+                guard let bitmap = statusView.bitmapImageRepForCachingDisplay(in: statusView.bounds) else { return nil }
+                statusView.cacheDisplay(in: statusView.bounds, to: bitmap)
+                return bitmap.tiffRepresentation
+            }
             let providerGlyphsPresent = "CODEXCLAUDE".allSatisfy { miniScreenGlyphs[$0]?.count == 5 }
             let footerGlyphsPresent = "Dernière actualisation : 08:15 API [Mac.local:8788] En ligne Hors ligne —".allSatisfy {
                 miniScreenGlyphs[$0]?.count == 5
@@ -2788,6 +2746,8 @@ private struct QuotaMenu {
                 bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
                 singleProvider.codex?.width == 608, singleProvider.claude == nil,
                 bothProviders.codex?.width == 300, bothProviders.claude?.minX == 316,
+                statusSnapshots.count == 4, Set(statusSnapshots.prefix(3)).count == 3,
+                statusSnapshots.first == statusSnapshots.last,
                 dashboardView.refreshButton.image != nil,
                 providerGlyphsPresent, footerGlyphsPresent, providerIconsAnimate,
                 refreshAnimationStarted,
