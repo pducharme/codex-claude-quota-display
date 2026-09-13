@@ -1841,11 +1841,6 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         refreshItem.target = self
         refreshItem.action = #selector(refreshQuotas)
         options.addItem(refreshItem)
-        diagnosticsItem.target = self
-        diagnosticsItem.action = #selector(toggleDiagnostics)
-        diagnosticsItem.state = FileManager.default.fileExists(atPath: QuotaDiagnostics.disabledURL.path) ? .off : .on
-        diagnosticsItem.toolTip = "Envoie les erreurs, la version et l’ancienneté des quotas à GlitchTip. Aucun jeton, compte ou contenu de conversation."
-        options.addItem(diagnosticsItem)
         options.addItem(.separator())
         let display = NSMenu(title: "Affichage")
         showCodexItem.target = self
@@ -1883,6 +1878,12 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         automaticUpdateItem.action = #selector(toggleAutomaticUpdateChecks)
         automaticUpdateItem.state = updaterController.updater.automaticallyChecksForUpdates ? .on : .off
         updates.addItem(automaticUpdateItem)
+        updates.addItem(.separator())
+        diagnosticsItem.target = self
+        diagnosticsItem.action = #selector(toggleDiagnostics)
+        diagnosticsItem.state = FileManager.default.fileExists(atPath: QuotaDiagnostics.disabledURL.path) ? .off : .on
+        diagnosticsItem.toolTip = "Envoie les erreurs, la version et l’ancienneté des quotas à GlitchTip. Aucun jeton, compte ou contenu de conversation."
+        updates.addItem(diagnosticsItem)
         updatesItem.submenu = updates
         let connections = NSMenu()
         codexStatus.isEnabled = false

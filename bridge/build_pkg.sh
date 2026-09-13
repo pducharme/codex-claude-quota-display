@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.0.24}
+VERSION=${1:-1.0.25}
 if ! printf '%s\n' "$VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "Version invalide: $VERSION" >&2
   exit 2
@@ -17,6 +17,8 @@ OUTPUT_DIR="$REPO_DIR/dist"
 PACKAGE_NAME="Quota-Display-$VERSION.pkg"
 ZIP_NAME="Quota-Display-$VERSION.zip"
 SPARKLE_ROOT=$("$SCRIPT_DIR/prepare_sparkle.sh")
+# Keep the same certificate and bundle identifier so Keychain recognizes updates.
+SIGNING_IDENTITY=$(/usr/bin/shasum -a 1 "$SCRIPT_DIR/QuotaDisplay-Signing.cer" | /usr/bin/awk '{print $1}')
 
 /bin/mkdir -p "$MACOS" "$RESOURCES" "$APP/Contents/Frameworks" "$OUTPUT_DIR"
 for arch in arm64 x86_64; do
@@ -48,8 +50,9 @@ done
   "$SCRIPT_DIR/com.pducharme.quota-display-menu.plist.template" \
   "$RESOURCES/com.pducharme.quota-display-menu.plist.template"
 
-/usr/bin/codesign --force --deep --sign - "$APP" >/dev/null
-/usr/bin/codesign --verify --deep --strict "$APP"
+/usr/bin/codesign --force --deep --timestamp --sign "$SIGNING_IDENTITY" "$APP" >/dev/null
+/usr/bin/codesign --verify --deep --strict \
+  -R="anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf = H\"$SIGNING_IDENTITY\" and identifier com.pducharme.QuotaDisplayMenu" "$APP"
 "$MACOS/QuotaDisplayMenu" --self-test
 /bin/rm -f "$OUTPUT_DIR/$ZIP_NAME"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUTPUT_DIR/$ZIP_NAME"

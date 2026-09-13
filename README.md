@@ -66,7 +66,7 @@ puis ouvrez-le. Le paquet universel prend en charge Apple Silicon et Intel. Il
 installe le Companion et son pont API, puis configure leur démarrage à
 l’ouverture de session.
 
-Le paquet n’est pas encore signé avec un certificat Developer ID ni notarié.
+Le paquet n’est pas encore notarié par Apple.
 Si macOS le bloque, utilisez **clic droit → Ouvrir** ou autorisez-le dans
 **Réglages Système → Confidentialité et sécurité**.
 
@@ -76,6 +76,9 @@ Après l’installation :
 2. Vérifiez que Codex.app est connecté avec un compte ChatGPT.
 3. Dans **Paramètres → API et connexions → Connexions**, choisissez **Autoriser Claude Desktop…** si vous
    utilisez Claude. macOS peut demander l’accès à `Claude Safe Storage`.
+   Choisissez **Toujours autoriser** pour conserver cet accès. Depuis la 1.0.25,
+   le Companion garde la même identité de signature entre les versions. Une
+   nouvelle autorisation est nécessaire au passage depuis une ancienne signature.
 4. Choisissez **Actualiser les quotas**.
 
 Par défaut, le menu montre seulement le tableau de bord et une ligne
@@ -265,7 +268,14 @@ bridge/generate_appcast.sh 1.2.3
 ```
 
 Le script de construction compile le Companion pour `arm64` et `x86_64`,
-valide sa signature et exécute son autotest natif.
+valide sa signature et exécute son autotest natif. La clé privée correspondant
+à `bridge/QuotaDisplay-Signing.cer` doit être présente dans le trousseau du
+responsable des releases. Le certificat public est versionné; la clé privée
+reste dans le trousseau et ne doit pas être remplacée à chaque version.
+
+La signature Apple Developer ID stabilise les autorisations du trousseau. Le test
+`python3 bridge/test_signing.py` vérifie qu’une deuxième version conserve
+l’accès à un élément synthétique et qu’un binaire non autorisé reste refusé.
 
 ## Avis
 
