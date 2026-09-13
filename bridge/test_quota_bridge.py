@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 import json
+import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
 from datetime import datetime
 from pathlib import Path
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
+from urllib.error import HTTPError
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from quota_bridge import (
     QuotaState,
+    Diagnostics,
     QuotaHandler,
     command_path,
     parse_claude_usage,
     parse_codex_limits,
     read_claude,
+    read_codex,
     read_claude_desktop_cache,
     read_claude_plan,
     read_weather,
@@ -24,6 +30,76 @@ from quota_bridge import (
 
 
 class QuotaParsingTest(unittest.TestCase):
+    def test_codex_partial_lines_time_out_and_buffered_messages_are_consumed(self):
+        popen = subprocess.Popen
+        # A real pipe verifies both a partial line and several JSON lines in one OS read.
+        for output, succeeds in [('{"id":2', False),
+                                  ('{"id":1}\n{"id":2,"result":{}}\n', True)]:
+            processes = []
+            def spawn(*_args, **kwargs):
+                process = popen([sys.executable, "-c",
+                    f"import os,time; os.write(1, {output.encode()!r}); time.sleep(3)"], **kwargs)
+                processes.append(process)
+                return process
+            with patch("quota_bridge.command_path", return_value="fake-codex"), \
+                 patch("quota_bridge.subprocess.Popen", side_effect=spawn):
+                started = time.monotonic()
+                if succeeds:
+                    self.assertIn("weekly", read_codex(timeout=0.2))
+                else:
+                    with self.assertRaises(TimeoutError):
+                        read_codex(timeout=0.2)
+                self.assertLess(time.monotonic() - started, 2)
+                self.assertIsNotNone(processes[0].poll())
+                self.assertTrue(processes[0].stdin.closed and processes[0].stdout.closed)
+
+    def test_diagnostics_scrub_secrets_throttle_and_respect_opt_out(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reporter = Diagnostics(enabled=True)
+            reporter.disabled_path = Path(directory) / "disabled"
+            with patch("quota_bridge.threading.Thread") as thread:
+                error = RuntimeError("Bearer secret-token user@example.test /Users/private")
+                reporter.capture("provider_refresh", error, "claude", time.time() - 1000)
+                event = thread.call_args.kwargs["args"][0]
+                encoded = json.dumps(event)
+                for secret in ["secret-token", "user@example", "/Users/private", "Bearer"]:
+                    self.assertNotIn(secret, encoded)
+                self.assertEqual(event["extra"]["last_success_age_seconds"], 1000)
+                reporter.capture("provider_refresh", error, "claude")
+                self.assertEqual(thread.call_count, 1)
+                reporter.disabled_path.touch()
+                reporter.capture("refresh_loop", error)
+                self.assertEqual(thread.call_count, 1)
+                reporter.disabled_path.unlink()
+            with patch("quota_bridge.urlopen", side_effect=HTTPError("", 429, "", {"Retry-After": "1800"}, None)):
+                self.assertIsNone(reporter.send(event))
+            with patch("quota_bridge.threading.Thread") as thread:
+                reporter.capture("refresh_loop", error)
+                thread.assert_not_called()
+            reporter.enabled = False
+            with patch("quota_bridge.urlopen") as send:
+                reporter.send(event)
+                send.assert_not_called()
+
+    @patch("quota_bridge.read_claude", return_value={})
+    @patch("quota_bridge.read_codex", side_effect=[TimeoutError("test"), {}])
+    @patch("quota_bridge.diagnostics.capture")
+    def test_failed_refresh_reports_and_next_cycle_recovers(self, capture, codex, claude):
+        state = QuotaState()
+        state.refresh()
+        self.assertFalse(state.refreshing)
+        self.assertEqual(state.payload()["providers"]["codex"]["status"], "error")
+        self.assertEqual(capture.call_args.args[0], "provider_refresh")
+        state.refresh()
+        self.assertEqual(state.payload()["providers"]["codex"]["status"], "ok")
+        self.assertEqual(state.refresh_generation, 2)
+        with patch("quota_bridge.threading.Thread.start", side_effect=RuntimeError("thread failed")):
+            state.refresh()
+            self.assertFalse(state.refreshing)
+            with self.assertRaises(RuntimeError):
+                state.start_refresh()
+            self.assertFalse(state.refreshing)
+
     @patch("quota_bridge.shutil.which", return_value=None)
     @patch("quota_bridge.subprocess.run")
     def test_command_path_uses_interactive_shell(self, run, _which):

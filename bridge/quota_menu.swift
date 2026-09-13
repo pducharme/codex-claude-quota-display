@@ -7,6 +7,129 @@ import Security
 import SQLite3
 import Sparkle
 
+private final class QuotaDiagnostics {
+    static let shared = QuotaDiagnostics()
+    static let disabledURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Quota Display/diagnostics-disabled")
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 5
+        configuration.timeoutIntervalForResource = 10
+        return URLSession(configuration: configuration)
+    }()
+    private let lock = NSLock()
+    private var lastSent: [String: Date] = [:]
+    private var retryAt = Date.distantPast
+    private let started = Date()
+    private let sessionID = UUID().uuidString
+
+    static func failure(_ error: Error?, status: Int? = nil) -> String {
+        if let error = error as? ClaudeDesktopError {
+            switch error {
+            case .unavailable: return "credential_unavailable"
+            case .keychain(let code): return "keychain_\(code)"
+            case .invalidData: return "credential_invalid"
+            case .noAccount: return "credential_missing_or_expired"
+            case .http(let code): return "http_\(code)"
+            }
+        }
+        if let error = error as NSError? {
+            // Never include localizedDescription/userInfo: they can contain tokens, URLs and paths.
+            let domain = [NSURLErrorDomain, NSCocoaErrorDomain, NSPOSIXErrorDomain].contains(error.domain)
+                ? error.domain : "other"
+            return "\(domain)_\(error.code)"
+        }
+        return status.map { "http_\($0)" } ?? "invalid_response"
+    }
+
+    func event(_ operation: String, failure: String, remote: Bool, age: Int? = nil) -> [String: Any] {
+        var extra: [String: Any] = ["session": sessionID, "uptime_seconds": max(0, Int(Date().timeIntervalSince(started)))]
+        if let age { extra["last_success_age_seconds"] = max(0, age) }
+        return [
+            "event_id": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(),
+            "timestamp": Date().timeIntervalSince1970, "platform": "other", "level": "error",
+            "environment": "production", "logger": "quota-display.companion",
+            "release": "quota-display@\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development")",
+            "message": "\(operation): \(failure)", "fingerprint": ["companion", operation, failure],
+            "tags": ["component": "companion", "operation": operation, "source_mode": remote ? "remote" : "local"],
+            "contexts": ["os": ["name": "macOS", "version": ProcessInfo.processInfo.operatingSystemVersionString]],
+            "extra": extra,
+        ]
+    }
+
+    func capture(_ operation: String, failure: String, remote: Bool, age: Int? = nil) {
+        guard !FileManager.default.fileExists(atPath: Self.disabledURL.path),
+              !CommandLine.arguments.contains("--self-test") else { return }
+        let now = Date()
+        let key = "\(operation):\(failure):\(remote)"
+        lock.lock()
+        let allowed = now >= retryAt && now.timeIntervalSince(lastSent[key] ?? .distantPast) >= 900
+        if allowed { lastSent[key] = now }
+        lock.unlock()
+        guard allowed else { return }
+        var request = URLRequest(url: URL(string: "https://glitchtip.bestnetwork.cloud/api/5/store/")!, timeoutInterval: 5)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Public ingestion key; no management credential is shipped.
+        request.setValue("Sentry sentry_version=7, sentry_key=6825de160b8646f48e7ec8a1bfd3b943", forHTTPHeaderField: "X-Sentry-Auth")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: event(operation, failure: failure, remote: remote, age: age))
+        session.dataTask(with: request) { [weak self] _, response, error in
+            let http = response as? HTTPURLResponse
+            guard error != nil || http?.statusCode != 200, let self else { return }
+            let delay = http?.statusCode == 429
+                ? max(900, Double(http?.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 900) : 60
+            self.lock.lock()
+            self.retryAt = Date().addingTimeInterval(delay)
+            self.lock.unlock()
+            // ponytail: drop failed diagnostics; collection never delays quota refreshes.
+        }.resume()
+    }
+}
+
+private func quotaFreshnessFailures(_ data: Data) -> [(operation: String, age: Int)] {
+    guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let now = root["server_time"] as? Int, now >= 0 else { return [] }
+    func age(_ value: Any?) -> Int? {
+        guard let timestamp = value as? Int, timestamp >= 0, timestamp <= now else { return nil }
+        return now - timestamp
+    }
+    let refresh = root["refresh"] as? [String: Any] ?? [:]
+    let interval = min(3600, max(60, refresh["interval_seconds"] as? Int ?? 300))
+    var failures: [(operation: String, age: Int)] = []
+    if refresh["active"] as? Bool == true, let elapsed = age(refresh["started_at"]), elapsed > 120 {
+        failures.append(("refresh_stalled", elapsed))
+    }
+    if let elapsed = age(refresh["completed_at"]), elapsed > max(900, interval * 3) {
+        failures.append(("refresh_overdue", elapsed))
+    }
+    let providers = root["providers"] as? [String: [String: Any]] ?? [:]
+    let display = root["display"] as? [String: Any] ?? [:]
+    for provider in ["codex", "claude"] where display[provider] as? Bool != false {
+        guard let value = providers[provider] else { continue }
+        let status = value["status"] as? String
+        let elapsed = age(value["updated_at"]) ?? 0
+        if status == "stale" || status == "error" || elapsed > max(900, interval * 3) {
+            failures.append(("\(provider)_quotas_stale", elapsed))
+        }
+    }
+    return failures
+}
+
+private func quotaTimer(interval: TimeInterval, action: @escaping (Timer) -> Void) -> Timer {
+    let timer = Timer(timeInterval: interval, repeats: true, block: action)
+    RunLoop.main.add(timer, forMode: .common)
+    RunLoop.main.add(timer, forMode: .eventTracking)
+    return timer
+}
+
+private let quotaSession: URLSession = {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = 20
+    configuration.timeoutIntervalForResource = 45
+    configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+    return URLSession(configuration: configuration)
+}()
+
 private struct CommandResult {
     let status: Int32
     let output: String
@@ -1562,6 +1685,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let updatesItem = NSMenuItem(title: "Mises à jour", action: nil, keyEquivalent: "")
     private let checkUpdateItem = NSMenuItem(title: "Vérifier les mises à jour…", action: nil, keyEquivalent: "")
     private let automaticUpdateItem = NSMenuItem(title: "Vérifier automatiquement", action: nil, keyEquivalent: "")
+    private let diagnosticsItem = NSMenuItem(title: "Partager les erreurs techniques", action: nil, keyEquivalent: "")
     private let connectionsItem = NSMenuItem(title: "Connexions", action: nil, keyEquivalent: "")
     private let claudeActionItem = NSMenuItem(title: "Autoriser Claude Desktop…", action: nil, keyEquivalent: "")
     private let bridgeLabel = "com.pducharme.quota-display"
@@ -1646,15 +1770,35 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         iconTimer.tolerance = 0.05
         RunLoop.main.add(iconTimer, forMode: .common)
         RunLoop.main.add(iconTimer, forMode: .eventTracking)
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        _ = quotaTimer(interval: 60) { [weak self] _ in
             Task { @MainActor in self?.loadQuotas() }
         }
-        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        _ = quotaTimer(interval: 300) { [weak self] _ in
             Task { @MainActor in
                 self?.checkAuthentication(autoPrompt: true)
                 self?.refreshClaudeDesktopIfAuthorized()
             }
         }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(resumeQuotaRefresh), name: NSWorkspace.didWakeNotification, object: nil
+        )
+    }
+
+    @objc private func resumeQuotaRefresh() {
+        loadQuotas()
+        refreshQuotas()
+    }
+
+    @objc private func toggleDiagnostics() {
+        do {
+            if FileManager.default.fileExists(atPath: QuotaDiagnostics.disabledURL.path) {
+                try FileManager.default.removeItem(at: QuotaDiagnostics.disabledURL)
+            } else {
+                try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
+                try writePrivate("disabled", to: QuotaDiagnostics.disabledURL)
+            }
+            diagnosticsItem.state = FileManager.default.fileExists(atPath: QuotaDiagnostics.disabledURL.path) ? .off : .on
+        } catch { showSourceError("Le réglage de diagnostic n’a pas pu être enregistré.") }
     }
 
     @objc private func animateProviderIcons() {
@@ -1688,6 +1832,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         refreshItem.target = self
         refreshItem.action = #selector(refreshQuotas)
         options.addItem(refreshItem)
+        diagnosticsItem.target = self
+        diagnosticsItem.action = #selector(toggleDiagnostics)
+        diagnosticsItem.state = FileManager.default.fileExists(atPath: QuotaDiagnostics.disabledURL.path) ? .off : .on
+        diagnosticsItem.toolTip = "Envoie les erreurs, la version et l’ancienneté des quotas à GlitchTip. Aucun jeton, compte ou contenu de conversation."
+        options.addItem(diagnosticsItem)
         options.addItem(.separator())
         let display = NSMenu(title: "Affichage")
         showCodexItem.target = self
@@ -1912,7 +2061,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 15
         sleepItem.isEnabled = false
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        quotaSession.dataTask(with: request) { [weak self] data, response, error in
             let failure = displaySleepResponseError(data: data, response: response, error: error)
             if failure != nil {
                 NSLog("Sleep settings read failed: HTTP %ld, network error %ld",
@@ -1948,7 +2097,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["sleep": object])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         sleepItem.isEnabled = false
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        quotaSession.dataTask(with: request) { [weak self] data, response, error in
             let failure = displaySleepResponseError(data: data, response: response, error: error, expected: schedule)
             if failure != nil {
                 NSLog("Sleep settings save failed: HTTP %ld, network error %ld",
@@ -2152,7 +2301,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             token.count >= 16,
             let url = URL(string: path, relativeTo: source.url)?.absoluteURL
         else { return nil }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
@@ -2169,7 +2318,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             "claude": defaults.bool(forKey: showClaudePreference),
         ])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+        quotaSession.dataTask(with: request) { [weak self] _, response, _ in
             let ok = (response as? HTTPURLResponse)?.statusCode == 200
             DispatchQueue.main.async {
                 if !ok { NSSound.beep() }
@@ -2183,6 +2332,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let sourceURL = configuredBridgeSource.url
         let requestedDisplayRevision = displayRevision
         guard let request = bridgeRequest(path: "/v1/quotas") else {
+            QuotaDiagnostics.shared.capture("bridge_read", failure: "configuration_unavailable", remote: configuredBridgeSource.remote)
             bridgeOnline = false
             dashboard.apiOnline = false
             persistentDashboard.apiOnline = false
@@ -2190,9 +2340,9 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             return
         }
         loadingQuotas = true
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+        quotaSession.dataTask(with: request) { [weak self] data, response, error in
             let code = (response as? HTTPURLResponse)?.statusCode
-            let loaded = data.flatMap(quotaSnapshot(from:))
+            let loaded = code == 200 && error == nil ? data.flatMap(quotaSnapshot(from:)) : nil
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard self.configuredBridgeSource.url == sourceURL else { return }
@@ -2200,6 +2350,16 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 self.bridgeOnline = code == 200 && loaded != nil
                 self.dashboard.apiOnline = self.bridgeOnline
                 self.persistentDashboard.apiOnline = self.bridgeOnline
+                if !self.bridgeOnline {
+                    QuotaDiagnostics.shared.capture("bridge_read",
+                        failure: QuotaDiagnostics.failure(error, status: code == 200 ? nil : code),
+                        remote: self.configuredBridgeSource.remote)
+                } else if let data {
+                    for failure in quotaFreshnessFailures(data) {
+                        QuotaDiagnostics.shared.capture(failure.operation, failure: "stale",
+                            remote: self.configuredBridgeSource.remote, age: failure.age)
+                    }
+                }
                 if let loaded {
                     if self.displayRevision == requestedDisplayRevision,
                        let showCodex = loaded.displayCodex,
@@ -2459,6 +2619,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                     self.fetchClaudeDesktopUsage(credential, completion: completion)
                 case .failure(let error):
                     self.refreshingClaudeDesktop = false
+                    QuotaDiagnostics.shared.capture("claude_credentials", failure: QuotaDiagnostics.failure(error), remote: false)
                     self.claudeConnected = false
                     self.setStatus(provider: "claude", text: "autorisation requise")
                     self.renderStatusTitle()
@@ -2472,12 +2633,12 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         _ credential: ClaudeDesktopCredential,
         completion: @escaping (Bool, String) -> Void
     ) {
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!, timeoutInterval: 20)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("claude-code/2.1.69", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        quotaSession.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 defer { self.refreshingClaudeDesktop = false }
@@ -2488,6 +2649,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                     let data,
                     let initialValue = claudeDesktopQuotaSnapshot(from: data, plan: self.snapshot?.claude.plan)
                 else {
+                    QuotaDiagnostics.shared.capture("claude_usage",
+                        failure: QuotaDiagnostics.failure(error, status: (200...299 ~= status) || status == 0 ? nil : status), remote: false)
                     if status == 401 || status == 403 { self.claudeDesktopCredential = nil }
                     self.claudeConnected = false
                     self.setStatus(provider: "claude", text: "lecture impossible")
@@ -2517,6 +2680,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                         self.renderStatusTitle()
                         completion(true, "")
                     } catch {
+                        QuotaDiagnostics.shared.capture("claude_cache_write", failure: QuotaDiagnostics.failure(error), remote: false)
                         completion(false, error.localizedDescription)
                     }
                 }
@@ -2525,12 +2689,12 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                     finish(initialValue)
                     return
                 }
-                var profileRequest = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/profile")!)
+                var profileRequest = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/profile")!, timeoutInterval: 20)
                 profileRequest.setValue("application/json", forHTTPHeaderField: "Accept")
                 profileRequest.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
                 profileRequest.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
                 profileRequest.setValue("claude-cli (external, cli)", forHTTPHeaderField: "User-Agent")
-                URLSession.shared.dataTask(with: profileRequest) { profileData, profileResponse, _ in
+                quotaSession.dataTask(with: profileRequest) { profileData, profileResponse, _ in
                     let profileStatus = (profileResponse as? HTTPURLResponse)?.statusCode ?? 0
                     let plan = profileData
                         .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -2552,8 +2716,13 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             return
         }
         refreshItem.title = "Actualisation en cours…"
-        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+        let remote = configuredBridgeSource.remote
+        quotaSession.dataTask(with: request) { [weak self] _, response, error in
             let ok = (response as? HTTPURLResponse)?.statusCode == 202
+            if !ok {
+                QuotaDiagnostics.shared.capture("bridge_refresh",
+                    failure: QuotaDiagnostics.failure(error, status: (response as? HTTPURLResponse)?.statusCode), remote: remote)
+            }
             DispatchQueue.main.async {
                 self?.refreshItem.title = ok ? "Actualisation lancée ✓" : "Pont indisponible"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -2572,7 +2741,35 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 @main
 private struct QuotaMenu {
     static func main() {
+        if CommandLine.arguments.contains("--diagnostics-test") {
+            QuotaDiagnostics.shared.capture("diagnostic_smoke_test", failure: "synthetic", remote: false)
+            RunLoop.current.run(until: Date().addingTimeInterval(12))
+            print("Diagnostic test completed; verify reception in GlitchTip.")
+            return
+        }
         if CommandLine.arguments.contains("--self-test") {
+            let sensitiveError = NSError(domain: NSURLErrorDomain, code: -1001, userInfo: [
+                NSLocalizedDescriptionKey: "Bearer test-secret user@example.test /Users/private",
+                NSURLErrorFailingURLStringErrorKey: "http://private-host/?token=test-secret",
+            ])
+            let diagnostic = QuotaDiagnostics.shared.event("bridge_read",
+                failure: QuotaDiagnostics.failure(sensitiveError), remote: true, age: 1000)
+            let diagnosticJSON = String(data: try! JSONSerialization.data(withJSONObject: diagnostic), encoding: .utf8)!
+            precondition(!["test-secret", "user@example", "/Users/private", "private-host"].contains { diagnosticJSON.contains($0) })
+            precondition(QuotaDiagnostics.failure(ClaudeDesktopError.noAccount) == "credential_missing_or_expired")
+            precondition(QuotaDiagnostics.failure(nil, status: 401) == "http_401")
+            let staleData = Data(#"{"server_time":2000,"refresh":{"active":true,"started_at":1800,"completed_at":900},"display":{"claude":false},"providers":{"codex":{"status":"stale","updated_at":900},"claude":{"status":"error"}}}"#.utf8)
+            precondition(quotaFreshnessFailures(staleData).map(\.operation) == ["refresh_stalled", "refresh_overdue", "codex_quotas_stale"])
+            precondition(quotaFreshnessFailures(Data(#"{"server_time":2000,"refresh":{"completed_at":1990},"providers":{"codex":{"status":"ok","updated_at":1990}}}"#.utf8)).isEmpty)
+            precondition(quotaFreshnessFailures(Data("invalid".utf8)).isEmpty)
+            var trackingTimerFired = false
+            let trackingTimer = quotaTimer(interval: 0.01) { _ in trackingTimerFired = true }
+            let trackingDeadline = Date().addingTimeInterval(0.15)
+            while !trackingTimerFired && Date() < trackingDeadline {
+                RunLoop.main.run(mode: .eventTracking, before: trackingDeadline)
+            }
+            trackingTimer.invalidate()
+            guard trackingTimerFired else { exit(1) }
             let claudeGood = claudeState(from: CommandResult(
                 status: 0,
                 output: #"{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}"#

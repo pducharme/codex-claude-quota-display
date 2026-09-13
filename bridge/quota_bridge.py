@@ -5,6 +5,7 @@ import argparse
 import hmac
 import json
 import os
+import platform
 import re
 import secrets
 import selectors
@@ -14,12 +15,95 @@ import subprocess
 import tempfile
 import threading
 import time
+import traceback
+import uuid
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
+
+APP_VERSION = "1.0.23"
+DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
+DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
+
+
+class Diagnostics:
+    def __init__(self, enabled=False):
+        self.enabled = enabled
+        self.disabled_path = Path.home() / "Library/Application Support/Quota Display/diagnostics-disabled"
+        self.lock = threading.Lock()
+        self.last_sent = {}
+        self.retry_at = 0
+        self.started = time.monotonic()
+        self.session = uuid.uuid4().hex
+
+    def capture(self, operation, error, provider="bridge", last_success=None):
+        if not self.enabled or self.disabled_path.exists():
+            return
+        # Construct a small allowlisted payload; never serialize exceptions, locals or CLI output.
+        kind = next((name for cls, name in (
+            (subprocess.TimeoutExpired, "timeout"), (TimeoutError, "timeout"),
+            (FileNotFoundError, "unavailable"), (json.JSONDecodeError, "invalid_json"),
+            (ValueError, "invalid_data"), (OSError, "os_error"),
+            (RuntimeError, "provider_rejected"),
+        ) if isinstance(error, cls)), "unexpected_error")
+        now = time.monotonic()
+        fingerprint = (operation, provider, kind)
+        with self.lock:
+            if now < self.retry_at or now - self.last_sent.get(fingerprint, -float("inf")) < 900:
+                return
+            self.last_sent[fingerprint] = now
+        event = {
+            "event_id": uuid.uuid4().hex, "timestamp": time.time(), "platform": "python",
+            "level": "error", "release": "quota-display@" + APP_VERSION,
+            "environment": "production", "logger": "quota-display.bridge",
+            "message": f"{operation}: {provider}: {kind}",
+            "fingerprint": list(fingerprint),
+            "tags": {"component": "bridge", "provider": provider, "operation": operation},
+            "contexts": {
+                "os": {"name": "macOS", "version": platform.mac_ver()[0]},
+                "runtime": {"name": "Python", "version": platform.python_version()},
+            },
+            "extra": {"session": self.session, "uptime_seconds": int(now - self.started),
+                      "last_success_age_seconds": max(0, int(time.time() - last_success)) if last_success else None},
+            "exception": {"values": [{"type": kind, "value": f"{operation}: {provider}",
+                "stacktrace": {"frames": [
+                    {"filename": Path(frame.filename).name, "function": frame.name, "lineno": frame.lineno}
+                    for frame in traceback.extract_tb(error.__traceback__)[-12:]
+                ]}}]},
+        }
+        try:
+            threading.Thread(target=self.send, args=(event,), daemon=True).start()
+        except RuntimeError:
+            pass  # Diagnostics must not stop the refresh loop if a thread cannot start.
+
+    def send(self, event):
+        if not self.enabled or self.disabled_path.exists():
+            return
+        request = Request(DIAGNOSTICS_URL, data=json.dumps(event).encode(), headers={
+            "Content-Type": "application/json",
+            "X-Sentry-Auth": f"Sentry sentry_version=7, sentry_key={DIAGNOSTICS_KEY}",
+        })
+        try:
+            with urlopen(request, timeout=5) as response:
+                return response.status
+        except Exception as error:
+            delay = 60
+            if isinstance(error, HTTPError) and error.code == 429:
+                try:
+                    delay = max(900, float(error.headers.get("Retry-After", "900")))
+                except ValueError:
+                    delay = 900
+            with self.lock:
+                self.retry_at = time.monotonic() + delay
+            # ponytail: drop failed diagnostics; no disk queue or retry worker.
+            return None
+
+
+diagnostics = Diagnostics()
 
 EMPTY_WINDOWS = {
     "five_hour": {"used_percent": None, "resets_at": None},
@@ -304,8 +388,7 @@ def read_codex(timeout=20):
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
+        bufsize=0,
     )
     requests = (
         {
@@ -315,7 +398,7 @@ def read_codex(timeout=20):
                 "clientInfo": {
                     "name": "quota-display",
                     "title": "Quota Display",
-                    "version": "1.0.10",
+                    "version": APP_VERSION,
                 },
                 "capabilities": {"experimentalApi": False},
             },
@@ -324,32 +407,43 @@ def read_codex(timeout=20):
         {"id": 2, "method": "account/rateLimits/read", "params": None},
     )
 
+    selector = selectors.DefaultSelector()
     try:
         for request in requests:
-            process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
+            process.stdin.write((json.dumps(request, separators=(",", ":")) + "\n").encode())
         process.stdin.flush()
 
-        selector = selectors.DefaultSelector()
+        os.set_blocking(process.stdout.fileno(), False)
         selector.register(process.stdout, selectors.EVENT_READ)
+        pending = b""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not selector.select(timeout=min(0.5, deadline - time.monotonic())):
                 continue
-            line = process.stdout.readline()
-            if not line:
+            chunk = os.read(process.stdout.fileno(), 65536)
+            if not chunk:
                 break
-            message = json.loads(line)
-            if message.get("id") == 2:
-                if "error" in message:
-                    raise RuntimeError("Codex rejected rate-limit request")
-                return parse_codex_limits(message["result"])
+            pending += chunk
+            if len(pending) > 1024 * 1024:
+                raise ValueError("Codex response exceeds size limit")
+            while b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+                message = json.loads(line)
+                if message.get("id") == 2:
+                    if "error" in message:
+                        raise RuntimeError("Codex rejected rate-limit request")
+                    return parse_codex_limits(message["result"])
         raise TimeoutError("Codex rate-limit request timed out")
     finally:
+        selector.close()
         process.terminate()
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             process.kill()
+            process.wait(timeout=2)
+        process.stdin.close()
+        process.stdout.close()
 
 
 def read_claude(timeout=40):
@@ -589,6 +683,8 @@ class QuotaState:
         self.refreshing = False
         self.refresh_generation = 0
         self.refresh_completed_at = None
+        self.refresh_started_at = None
+        self.interval = 300
         self.providers = {
             "codex": {
                 "status": "loading",
@@ -650,31 +746,36 @@ class QuotaState:
                 previous["status"] = (
                     "stale" if previous["updated_at"] is not None else "error"
                 )
+                last_success = previous["updated_at"]
+            diagnostics.capture("provider_refresh", error, name, last_success)
             print(f"{name}: {type(error).__name__}: {error}", flush=True)
 
     def _run_refresh(self):
-        threads = [
-            threading.Thread(
-                target=self.refresh_provider, args=("codex", read_codex), daemon=True
-            ),
-            threading.Thread(
-                target=self.refresh_provider, args=("claude", read_claude), daemon=True
-            ),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        with self.lock:
-            self.refresh_generation += 1
-            self.refresh_completed_at = int(time.time())
-            self.refreshing = False
+        threads = []
+        try:
+            for name, reader in (("codex", read_codex), ("claude", read_claude)):
+                thread = threading.Thread(target=self.refresh_provider, args=(name, reader), daemon=True)
+                thread.start()
+                threads.append(thread)
+            for thread in threads:
+                thread.join()
+            with self.lock:
+                self.refresh_generation += 1
+                self.refresh_completed_at = int(time.time())
+        except Exception as error:
+            diagnostics.capture("refresh_cycle", error)
+        finally:
+            for thread in threads:
+                thread.join()
+            with self.lock:
+                self.refreshing = False
 
     def refresh(self):
         with self.lock:
             if self.refreshing:
                 return False
             self.refreshing = True
+            self.refresh_started_at = int(time.time())
         self._run_refresh()
         return True
 
@@ -683,7 +784,13 @@ class QuotaState:
             if self.refreshing:
                 return False
             self.refreshing = True
-        threading.Thread(target=self._run_refresh, daemon=True).start()
+            self.refresh_started_at = int(time.time())
+        try:
+            threading.Thread(target=self._run_refresh, daemon=True).start()
+        except Exception:
+            with self.lock:
+                self.refreshing = False
+            raise
         return True
 
     def refresh_status(self):
@@ -692,6 +799,8 @@ class QuotaState:
                 "active": self.refreshing,
                 "generation": self.refresh_generation,
                 "completed_at": self.refresh_completed_at,
+                "started_at": self.refresh_started_at,
+                "interval_seconds": self.interval,
             }
 
     def payload(self):
@@ -702,9 +811,12 @@ class QuotaState:
                 "active": self.refreshing,
                 "generation": self.refresh_generation,
                 "completed_at": self.refresh_completed_at,
+                "started_at": self.refresh_started_at,
+                "interval_seconds": self.interval,
             }
         return {
             "version": 1,
+            "app_version": APP_VERSION,
             "server_time": int(time.time()),
             "api": {"status": "online", "address": self.api_address},
             "display": display,
@@ -803,7 +915,10 @@ def token_from(path):
 
 def refresh_loop(state, interval):
     while True:
-        state.refresh()
+        try:
+            state.refresh()
+        except Exception as error:
+            diagnostics.capture("refresh_loop", error)
         time.sleep(interval)
 
 
@@ -846,12 +961,14 @@ def main():
         print(json.dumps(state.payload(), indent=2))
         return
 
+    diagnostics.enabled = True
+    state.interval = max(60, args.interval)
     token = token_from(args.token_file)
     QuotaHandler.state = state
     QuotaHandler.weather = WeatherCache()
     QuotaHandler.token = token
     threading.Thread(
-        target=refresh_loop, args=(state, max(60, args.interval)), daemon=True
+        target=refresh_loop, args=(state, state.interval), daemon=True
     ).start()
     server = ThreadingHTTPServer((args.listen, args.port), QuotaHandler)
     print(f"quota bridge listening on {args.listen}:{args.port}", flush=True)

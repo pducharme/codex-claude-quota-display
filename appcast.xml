@@ -3,6 +3,28 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.0.23</title>
+            <pubDate>Sun, 13 Sep 2026 10:55:51 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.0.23</sparkle:version>
+            <sparkle:shortVersionString>1.0.23</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.0.23</h2>
+<ul>
+  <li>Les échecs d’actualisation sont signalés à GlitchTip pour aider à diagnostiquer les quotas qui cessent de se mettre à jour.</li>
+  <li>Les actualisations continuent lorsque le menu reste ouvert et reprennent au réveil du Mac.</li>
+  <li>La lecture Codex respecte son délai maximal même si une réponse arrive incomplète. Une erreur ne laisse plus le cycle d’actualisation verrouillé.</li>
+  <li>Les appels réseau du Companion ont une durée maximale et les quotas trop anciens sont détectés.</li>
+</ul>
+<p>Les diagnostics contiennent uniquement des informations techniques : version, type d’erreur et ancienneté des quotas. Aucun jeton, compte ou contenu de conversation n’est transmis; GlitchTip tronque l’adresse IP de connexion. L’envoi peut être désactivé dans <strong>Paramètres → Partager les erreurs techniques</strong>.</p>
+<p>En mode distant, mettez aussi à jour le Mac source. Les erreurs antérieures à la mise à jour ne sont pas récupérées. Aucun reflash du mini-écran n’est nécessaire.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.23/Quota-Display-1.0.23.zip" length="2213349" type="application/octet-stream" sparkle:edSignature="cXDYOFsNY7/pizd8+lRoD8HuRvsehyqnBNdCNZthanHh80KBmiSANsRgyBm83FjDkjyEnS6/PXRpwzAvnSGgDw=="/>
+        </item>
+        <item>
             <title>1.0.22</title>
             <pubDate>Thu, 10 Sep 2026 22:25:25 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -41,26 +63,6 @@
 <p>Les réglages existants et la source API sont conservés. Aucun nouveau flash du mini-écran n’est nécessaire.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.21/Quota-Display-1.0.21.zip" length="2174375" type="application/octet-stream" sparkle:edSignature="tMjjalwTdAy6kqCAzMkBi1pReT0yC+TlztHKwWr7uShZJwCeV8Ivuk5WzeZHkO+TH7wZsQqHj1/lvhFyzlOTDQ=="/>
-        </item>
-        <item>
-            <title>1.0.20</title>
-            <pubDate>Mon, 07 Sep 2026 20:49:18 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.20</sparkle:version>
-            <sparkle:shortVersionString>1.0.20</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.20</h2>
-<ul>
-  <li>Les réglages de veille vérifient maintenant la source à chaque ouverture pour afficher l’horaire actuel.</li>
-  <li>Une erreur de connexion ou d’enregistrement ne suggère plus de mettre à jour une source qui prend déjà en charge la veille. Les messages distinguent les délais de réponse, les problèmes de jeton et les réponses du serveur.</li>
-  <li>Une actualisation déjà en cours ne fait plus passer la source à l’état hors ligne.</li>
-</ul>
-<p>Ce correctif s’installe sur le Companion utilisé pour régler l’horaire, y compris un client distant. Il reste compatible avec une source en version 1.0.19 et ne nécessite aucun nouveau flash du mini-écran.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.20/Quota-Display-1.0.20.zip" length="2173686" type="application/octet-stream" sparkle:edSignature="CEHfESo1qX4qbRuTiO5w+Roc7A2JHSjIVps8+Rv98Be/a1ixuO8RZxvsbmmBs7rm7PsHK+gqfQRd9e6fEDRlDw=="/>
         </item>
     </channel>
 </rss>

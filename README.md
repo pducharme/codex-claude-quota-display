@@ -211,6 +211,31 @@ Le pont utilise HTTP sur le réseau local. Ne redirigez pas le port `8788` vers
 Internet; utilisez un réseau de confiance ou un VPN. Les jetons OpenAI et
 Anthropic ne sont jamais envoyés aux écrans ni aux Companions clients.
 
+## Diagnostic des actualisations
+
+À partir de la version 1.0.23, le Companion et le pont source signalent leurs
+échecs d’actualisation à GlitchTip : type d’erreur, code HTTP ou système,
+version de l’application et de macOS/Python, mode local ou distant, temps
+écoulé depuis la dernière lecture et identifiant aléatoire de session.
+Les erreurs du pont incluent les noms des fichiers/fonctions concernés, sans
+chemin personnel ni variables locales.
+
+Aucun jeton, compte, adresse de source, pourcentage de quota, contenu de
+conversation ou sortie brute des fournisseurs n’est transmis. GlitchTip tronque l’adresse IP de connexion avant de l’associer
+à l’événement. Une même erreur est limitée
+à un envoi par quinze minutes et par processus. Les envois se font en arrière-plan;
+un échec de GlitchTip n’interrompt pas l’actualisation.
+
+Décochez **Paramètres → Partager les erreurs techniques** pour désactiver
+l’envoi du Companion et du pont sur ce Mac. En mode distant, ce réglage doit
+être désactivé séparément sur le Mac source. Pour un pont sans Companion,
+créez le fichier vide
+`~/Library/Application Support/Quota Display/diagnostics-disabled`.
+
+La collecte commence après la mise à jour; elle ne récupère pas les erreurs
+anciennes. Mettez aussi à jour le Mac source lorsqu’il est distinct du client.
+Les mini-écrans n’envoient pas de diagnostic directement.
+
 ## Développement
 
 L’installation depuis les sources nécessite les outils de ligne de commande
