@@ -103,8 +103,9 @@ Une seule installation peut servir plusieurs mini-écrans et Companions :
    des mini-écrans.
 
 En mode distant, les connexions aux fournisseurs sont gérées uniquement par le
-Mac source. L’action **Actualiser les quotas** du client demande une nouvelle
-lecture à cette source. Le choix des fournisseurs affichés est aussi enregistré
+Mac source. Le pont du Mac client reste disponible, mais ne lance plus de
+lectures locales des fournisseurs tant qu’une source distante est configurée.
+L’action **Actualiser les quotas** du client demande une nouvelle lecture à cette source. Le choix des fournisseurs affichés est aussi enregistré
 sur la source : tous les Companions et mini-écrans adoptent le même affichage.
 
 ## Installer le mini-écran
@@ -272,6 +273,13 @@ Quota Display est un projet indépendant, sans affiliation avec OpenAI,
 Anthropic ou LILYGO. Les noms et marques appartiennent à leurs propriétaires
 respectifs. Les intégrations reposent sur les sessions locales des applications
 et peuvent nécessiter une adaptation si leurs interfaces changent.
+
+Pour Claude, le pont privilégie le cache récent du Companion connecté à
+Claude Desktop. En son absence, il lit les quotas JSON avec la session Claude
+Code conservée dans le trousseau. Il n’exécute pas de requête de modèle et ne
+renouvelle pas les jetons des autres applications. Une session expirée doit
+être renouvelée dans Claude Code ou Claude Desktop. Les fenêtres absentes de
+la réponse restent « NON FOURNI ».
 
 Consultez aussi [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), le
 [dépôt matériel LilyGO](https://github.com/Xinyuan-LilyGO/T-Display-S3-Long)

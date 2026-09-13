@@ -1,0 +1,9 @@
+<h2>Quota Display 1.0.24</h2>
+<ul>
+  <li>En mode distant, le Mac client ne consulte plus ses propres comptes Codex et Claude. Les quotas restent fournis par le Mac source.</li>
+  <li>La lecture des quotas Claude utilise les données JSON du fournisseur. La sortie de la commande CLI, qui peut ne contenir que les coûts de session, n’est plus interprétée comme des quotas.</li>
+  <li>Le compte Claude Desktop reste prioritaire. Une session manquante ou expirée est identifiée clairement.</li>
+  <li>Après une interruption réseau ou un démarrage trop lent de la source, le Companion réessaie automatiquement. Les erreurs persistantes restent signalées à GlitchTip.</li>
+  <li>Un changement de source ne peut plus laisser une ancienne requête bloquer le rafraîchissement.</li>
+</ul>
+<p>La source configurée, les jetons et les réglages d’affichage sont conservés. En mode distant, mettez à jour les Companions clients et le Mac source. Aucun reflash du mini-écran n’est nécessaire.</p>

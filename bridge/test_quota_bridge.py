@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 import json
+import io
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
-from datetime import datetime
 from pathlib import Path
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
 from unittest.mock import patch
-from zoneinfo import ZoneInfo
 
 from quota_bridge import (
     QuotaState,
     Diagnostics,
     QuotaHandler,
     command_path,
-    parse_claude_usage,
+    parse_claude_api_usage,
+    ClaudeAuthenticationRequired,
+    NoCredentialRedirect,
     parse_codex_limits,
     read_claude,
     read_codex,
@@ -167,29 +168,23 @@ class QuotaParsingTest(unittest.TestCase):
             [1_805_000_000, 1_810_000_000],
         )
 
-    def test_claude_usage_and_reset_are_parsed(self):
-        text = """\
-Current session: 12% used · resets 2am (America/Toronto)
-Current week (all models): 39% used · resets Jul 28 at 11:59am (America/Toronto)
-Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
-"""
-        now = datetime(2026, 7, 26, 8, 0, tzinfo=ZoneInfo("America/Toronto"))
-        windows = parse_claude_usage(text, now)
-        self.assertEqual(windows["five_hour"]["used_percent"], 12)
+    def test_claude_json_quota_windows_and_invalid_cli_cost_output(self):
+        windows = parse_claude_api_usage({
+            "five_hour": {"utilization": 12.8, "resets_at": "2026-09-13T20:00:00Z"},
+            "seven_day": {"utilization": 39, "resets_at": "2026-09-18T20:00:00+00:00"},
+            "limits": [{"kind": "weekly_scoped", "scope": {"model": {"display_name": "Fable"}},
+                        "percent": 81, "resets_at": "2026-09-18T20:00:00.000Z"}],
+        })
+        self.assertEqual(windows["five_hour"], {"used_percent": 12, "resets_at": 1789329600})
         self.assertEqual(windows["weekly"]["used_percent"], 39)
         self.assertEqual(windows["fable_weekly"]["used_percent"], 81)
-        self.assertEqual(
-            windows["weekly"]["resets_at"],
-            int(
-                datetime(
-                    2026, 7, 28, 11, 59, tzinfo=ZoneInfo("America/Toronto")
-                ).timestamp()
-            ),
-        )
-        self.assertEqual(
-            windows["fable_weekly"]["resets_at"],
-            windows["weekly"]["resets_at"],
-        )
+        self.assertEqual(windows["weekly"]["resets_at"], windows["fable_weekly"]["resets_at"])
+        for invalid in ["Total cost: $0.0000\nUsage: 0 input, 0 output", {}, [],
+                        {"five_hour": {"utilization": True}},
+                        {"five_hour": {"utilization": float("nan")}},
+                        {"five_hour": {"utilization": 101}}]:
+            with self.assertRaises(ValueError):
+                parse_claude_api_usage(invalid)
 
     def test_fresh_claude_desktop_cache_is_parsed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -208,27 +203,65 @@ Current week (Fable): 81% used · resets Jul 28 at 11:59am (America/Toronto)
                 read_claude_desktop_cache(path, now=2_000)
 
     @patch("quota_bridge.read_claude_desktop_cache")
-    @patch("quota_bridge.command_path", return_value="/usr/local/bin/claude")
-    @patch("quota_bridge.subprocess.run")
-    def test_claude_cli_fills_fable_missing_from_desktop_cache(
-        self, run, _command_path, desktop_cache
-    ):
+    @patch("quota_bridge.read_claude_oauth")
+    def test_desktop_cache_never_mixes_a_different_cli_account(self, oauth, desktop_cache):
         desktop_cache.return_value = {
-            "five_hour": {"used_percent": 42, "resets_at": 2_000},
-            "weekly": {"used_percent": 51, "resets_at": 3_000},
+            "five_hour": {"used_percent": 42, "resets_at": 2000},
+            "weekly": {"used_percent": 51, "resets_at": 3000},
             "fable_weekly": {"used_percent": None, "resets_at": None},
             "plan": "Max 5X",
         }
-        run.return_value.returncode = 0
-        run.return_value.stdout = """\
-Current session: 43% used
-Current week (all models): 52% used
-Current week (Fable): 65% used · resets Sep 8 at 12pm (America/Toronto)
-"""
-        windows = read_claude()
-        self.assertEqual(windows["five_hour"]["used_percent"], 42)
-        self.assertEqual(windows["weekly"]["used_percent"], 51)
-        self.assertEqual(windows["fable_weekly"]["used_percent"], 65)
+        self.assertEqual(read_claude(), desktop_cache.return_value)
+        oauth.assert_not_called()
+
+    @patch("quota_bridge.read_claude_desktop_cache", side_effect=FileNotFoundError())
+    @patch("quota_bridge.read_claude_oauth")
+    @patch("quota_bridge.build_opener")
+    def test_claude_api_fallback_and_expired_credentials(self, opener, oauth, _cache):
+        oauth.return_value = {"accessToken": "test-token", "expiresAt": (time.time() + 3600) * 1000,
+                              "subscriptionType": "max", "rateLimitTier": "default_claude_max_5x"}
+        opener.return_value.open.return_value = io.BytesIO(b'{"five_hour":{"utilization":12}}')
+        self.assertEqual(read_claude()["five_hour"]["used_percent"], 12)
+        request = opener.return_value.open.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.anthropic.com/api/oauth/usage")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
+        opener.assert_called_with(NoCredentialRedirect)
+        self.assertIsNone(NoCredentialRedirect().redirect_request(None, None, 302, "", {}, "https://other.test"))
+        opener.return_value.open.side_effect = HTTPError(request.full_url, 401, "", {}, None)
+        with self.assertRaises(ClaudeAuthenticationRequired):
+            read_claude()
+        for credentials in [{}, {"accessToken": "expired", "expiresAt": 1}]:
+            oauth.return_value = credentials
+            opener.reset_mock()
+            with self.assertRaises(ClaudeAuthenticationRequired):
+                read_claude()
+            opener.assert_not_called()
+
+    @patch("quota_bridge.read_codex", return_value={})
+    @patch("quota_bridge.read_claude", return_value={})
+    def test_remote_mode_skips_providers_and_switching_back_resumes(self, claude, codex):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "display.json"
+            source = path.with_name("source-host")
+            source.write_text("http://source.example:8788\n")
+            state = QuotaState(display_path=path)
+            self.assertFalse(state.refresh())
+            self.assertFalse(state.start_refresh())
+            self.assertFalse(state.payload()["refresh"]["enabled"])
+            self.assertFalse(state.refresh_status()["enabled"])
+            codex.assert_not_called()
+            claude.assert_not_called()
+            source.write_text("")
+            self.assertTrue(state.refresh())
+            self.assertTrue(state.payload()["refresh"]["enabled"])
+            codex.assert_called_once()
+            claude.assert_called_once()
+            def fail_after_switch():
+                source.write_text("source.example:8788")
+                raise ValueError("old local request")
+            with patch("quota_bridge.diagnostics.capture") as capture:
+                state.refresh_provider("claude", fail_after_switch)
+                capture.assert_not_called()
 
     @patch("quota_bridge.subprocess.run")
     def test_claude_plan_uses_keychain_tier(self, run):

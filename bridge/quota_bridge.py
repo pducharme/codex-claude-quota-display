@@ -4,9 +4,9 @@
 import argparse
 import hmac
 import json
+import math
 import os
 import platform
-import re
 import secrets
 import selectors
 import shutil
@@ -17,15 +17,15 @@ import threading
 import time
 import traceback
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 from urllib.error import HTTPError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 
-APP_VERSION = "1.0.23"
+APP_VERSION = "1.0.24"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -45,6 +45,7 @@ class Diagnostics:
             return
         # Construct a small allowlisted payload; never serialize exceptions, locals or CLI output.
         kind = next((name for cls, name in (
+            (ClaudeAuthenticationRequired, "authentication_required"),
             (subprocess.TimeoutExpired, "timeout"), (TimeoutError, "timeout"),
             (FileNotFoundError, "unavailable"), (json.JSONDecodeError, "invalid_json"),
             (ValueError, "invalid_data"), (OSError, "os_error"),
@@ -62,7 +63,7 @@ class Diagnostics:
             "environment": "production", "logger": "quota-display.bridge",
             "message": f"{operation}: {provider}: {kind}",
             "fingerprint": list(fingerprint),
-            "tags": {"component": "bridge", "provider": provider, "operation": operation},
+            "tags": {"component": "bridge", "provider": provider, "operation": operation, "source_mode": "local"},
             "contexts": {
                 "os": {"name": "macOS", "version": platform.mac_ver()[0]},
                 "runtime": {"name": "Python", "version": platform.python_version()},
@@ -109,21 +110,6 @@ EMPTY_WINDOWS = {
     "five_hour": {"used_percent": None, "resets_at": None},
     "weekly": {"used_percent": None, "resets_at": None},
     "fable_weekly": {"used_percent": None, "resets_at": None},
-}
-ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-MONTHS = {
-    "jan": 1,
-    "feb": 2,
-    "mar": 3,
-    "apr": 4,
-    "may": 5,
-    "jun": 6,
-    "jul": 7,
-    "aug": 8,
-    "sep": 9,
-    "oct": 10,
-    "nov": 11,
-    "dec": 12,
 }
 
 
@@ -187,7 +173,7 @@ def parse_codex_limits(result):
     return windows
 
 
-def read_claude_plan():
+def read_claude_oauth():
     try:
         result = subprocess.run(
             [
@@ -203,13 +189,18 @@ def read_claude_plan():
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return None
+        return {}
     if result.returncode != 0:
-        return None
+        return {}
     try:
         oauth = json.loads(result.stdout).get("claudeAiOauth") or {}
     except (AttributeError, json.JSONDecodeError):
-        return None
+        return {}
+    return oauth if isinstance(oauth, dict) else {}
+
+
+def read_claude_plan(oauth=None):
+    oauth = read_claude_oauth() if oauth is None else oauth
     subscription = str(oauth.get("subscriptionType") or "").lower()
     tier = str(oauth.get("rateLimitTier") or "").lower()
     if subscription == "max":
@@ -217,85 +208,46 @@ def read_claude_plan():
     return "Pro" if subscription == "pro" else None
 
 
-def _clock(hour, minute, meridiem):
-    hour = int(hour) % 12
-    if meridiem.lower() == "pm":
-        hour += 12
-    return hour, int(minute or 0)
+class NoCredentialRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # Never forward an OAuth token to a redirected origin.
 
 
-def parse_claude_reset(value, now=None):
-    """Parse Claude's English reset labels into epoch seconds."""
-    if not value:
-        return None
-    value = value.strip().replace("\u202f", " ").replace("\u00a0", " ")
-    zone_match = re.search(r"\(([^()]+)\)\s*$", value)
-    if not zone_match:
-        return None
-    try:
-        zone = ZoneInfo(zone_match.group(1))
-    except Exception:
-        return None
-
-    now = now or datetime.now(zone)
-    now = now.astimezone(zone)
-    body = value[: zone_match.start()].strip().lower()
-
-    full = re.fullmatch(
-        r"([a-z]{3})\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?(am|pm)",
-        body,
-    )
-    if full and full.group(1) in MONTHS:
-        hour, minute = _clock(full.group(3), full.group(4), full.group(5))
-        target = datetime(
-            now.year,
-            MONTHS[full.group(1)],
-            int(full.group(2)),
-            hour,
-            minute,
-            tzinfo=zone,
-        )
-        if target < now - timedelta(days=1):
-            target = target.replace(year=target.year + 1)
-        return int(target.timestamp())
-
-    relative = re.fullmatch(
-        r"(?:(today|tomorrow)\s+at\s+)?(\d{1,2})(?::(\d{2}))?(am|pm)",
-        body,
-    )
-    if relative:
-        hour, minute = _clock(relative.group(2), relative.group(3), relative.group(4))
-        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if relative.group(1) == "tomorrow" or (
-            relative.group(1) != "today" and target <= now
-        ):
-            target += timedelta(days=1)
-        return int(target.timestamp())
-    return None
+class ClaudeAuthenticationRequired(RuntimeError):
+    pass
 
 
-def parse_claude_usage(text, now=None):
-    text = ANSI_RE.sub("", text)
-    patterns = {
-        "five_hour": r"^Current session:\s*(\d+)% used(?:\s*·\s*resets\s+(.+))?$",
-        "weekly": (
-            r"^Current week \(all models\):\s*(\d+)% used"
-            r"(?:\s*·\s*resets\s+(.+))?$"
-        ),
-        "fable_weekly": (
-            r"^Current week \(Fable\):\s*(\d+)% used"
-            r"(?:\s*·\s*resets\s+(.+))?$"
-        ),
-    }
-    windows = {key: value.copy() for key, value in EMPTY_WINDOWS.items()}
-    for key, pattern in patterns.items():
-        match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE)
-        if match:
-            windows[key] = _window(
-                match.group(1), parse_claude_reset(match.group(2), now)
-            )
-    if all(window["used_percent"] is None for window in windows.values()):
-        raise ValueError("Claude /usage did not contain plan usage windows")
+def parse_claude_api_usage(source):
+    if not isinstance(source, dict):
+        raise ValueError("Claude usage response is not an object")
+    def window(value):
+        if not isinstance(value, dict):
+            return _window()
+        used = value.get("utilization", value.get("percent"))
+        if type(used) not in (int, float) or not math.isfinite(used) or not 0 <= used <= 100:
+            return _window()
+        reset = None
+        try:
+            date = datetime.fromisoformat(value["resets_at"].replace("Z", "+00:00"))
+            if date.tzinfo is not None:
+                reset = int(date.timestamp())
+        except (KeyError, AttributeError, ValueError, OverflowError):
+            pass
+        return _window(used, reset)
+    fable = source.get("seven_day_fable")
+    limits = source.get("limits")
+    for limit in limits if isinstance(limits, list) else []:
+        if not isinstance(limit, dict) or limit.get("kind") != "weekly_scoped":
+            continue
+        scope = limit.get("scope")
+        model = scope.get("model") if isinstance(scope, dict) else None
+        if isinstance(model, dict) and str(model.get("display_name", "")).casefold() == "fable":
+            fable = limit
+            break
+    windows = {"five_hour": window(source.get("five_hour")),
+               "weekly": window(source.get("seven_day")), "fable_weekly": window(fable)}
+    if all(value["used_percent"] is None for value in windows.values()):
+        raise ValueError("Claude usage response has no quota windows")
     return windows
 
 
@@ -446,67 +398,32 @@ def read_codex(timeout=20):
         process.stdout.close()
 
 
-def read_claude(timeout=40):
-    cached = None
+def read_claude(timeout=20):
     try:
-        cached = read_claude_desktop_cache()
-        if cached["fable_weekly"]["used_percent"] is not None:
-            return cached
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        # Stay on the Desktop account; never fill its missing windows from another CLI account.
+        return read_claude_desktop_cache()
+    except (OSError, ValueError, TypeError):
         pass
-    installed = Path.home() / ".local" / "bin" / "claude"
-    claude = command_path("claude", (installed,))
-    if not claude:
-        if cached:
-            return cached
-        raise RuntimeError("claude executable not found")
-    env = os.environ.copy()
-    env["LC_ALL"] = "C"
-    command = [
-        claude,
-        "--safe-mode",
-        "--no-session-persistence",
-        "--tools",
-        "",
-        "--model",
-        "quota-display-invalid-model",
-        "-p",
-        "/usage",
-        "--output-format",
-        "text",
-    ]
+    oauth = read_claude_oauth()
+    token = oauth.get("accessToken")
+    expiry = oauth.get("expiresAt")
+    if (not isinstance(token, str) or not token.strip()
+            or type(expiry) not in (int, float) or not math.isfinite(expiry)
+            or expiry <= time.time() * 1000):
+        raise ClaudeAuthenticationRequired("Connect Claude Code or authorize Claude Desktop")
+    request = Request("https://api.anthropic.com/api/oauth/usage", headers={
+        "Authorization": "Bearer " + token,
+        "Accept": "application/json", "anthropic-beta": "oauth-2025-04-20",
+        "User-Agent": "claude-code/2.1.69",
+    })
     try:
-        result = subprocess.run(
-            command,
-            cwd=Path.home(),
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        if cached:
-            return cached
+        with build_opener(NoCredentialRedirect).open(request, timeout=timeout) as response:
+            usage = parse_claude_api_usage(json.load(response))
+    except HTTPError as error:
+        if error.code in (401, 403):
+            raise ClaudeAuthenticationRequired("Claude session must be renewed") from None
         raise
-    if result.returncode != 0:
-        if cached:
-            return cached
-        output = ANSI_RE.sub("", result.stderr or result.stdout).strip().splitlines()
-        detail = " | ".join(output[-8:])[:800] if output else "no diagnostic output"
-        raise RuntimeError(f"Claude /usage failed ({result.returncode}): {detail}")
-    try:
-        usage = parse_claude_usage(result.stdout)
-    except ValueError:
-        if cached:
-            return cached
-        raise
-    usage["plan"] = cached.get("plan") if cached else read_claude_plan()
-    if cached:
-        for key in EMPTY_WINDOWS:
-            if cached[key]["used_percent"] is None:
-                cached[key] = usage[key]
-        return cached
+    usage["plan"] = read_claude_plan(oauth)
     return usage
 
 
@@ -730,6 +647,14 @@ class QuotaState:
             self.display = display
             return json.loads(json.dumps(display))
 
+    def local_providers_enabled(self):
+        if self.display_path is None:
+            return True
+        try:
+            return not self.display_path.with_name("source-host").read_text().strip()
+        except FileNotFoundError:
+            return True
+
     def refresh_provider(self, name, reader):
         try:
             windows = reader()
@@ -741,6 +666,8 @@ class QuotaState:
                 }
             print(f"{name}: refreshed", flush=True)
         except Exception as error:
+            if not self.local_providers_enabled():
+                return
             with self.lock:
                 previous = self.providers[name]
                 previous["status"] = (
@@ -772,7 +699,7 @@ class QuotaState:
 
     def refresh(self):
         with self.lock:
-            if self.refreshing:
+            if self.refreshing or not self.local_providers_enabled():
                 return False
             self.refreshing = True
             self.refresh_started_at = int(time.time())
@@ -781,7 +708,7 @@ class QuotaState:
 
     def start_refresh(self):
         with self.lock:
-            if self.refreshing:
+            if self.refreshing or not self.local_providers_enabled():
                 return False
             self.refreshing = True
             self.refresh_started_at = int(time.time())
@@ -797,6 +724,7 @@ class QuotaState:
         with self.lock:
             return {
                 "active": self.refreshing,
+                "enabled": self.local_providers_enabled(),
                 "generation": self.refresh_generation,
                 "completed_at": self.refresh_completed_at,
                 "started_at": self.refresh_started_at,
@@ -809,6 +737,7 @@ class QuotaState:
             display = json.loads(json.dumps(self.display))
             refresh = {
                 "active": self.refreshing,
+                "enabled": self.local_providers_enabled(),
                 "generation": self.refresh_generation,
                 "completed_at": self.refresh_completed_at,
                 "started_at": self.refresh_started_at,

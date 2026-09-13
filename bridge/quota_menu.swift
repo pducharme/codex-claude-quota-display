@@ -124,11 +124,19 @@ private func quotaTimer(interval: TimeInterval, action: @escaping (Timer) -> Voi
 
 private let quotaSession: URLSession = {
     let configuration = URLSessionConfiguration.ephemeral
+    configuration.waitsForConnectivity = true
     configuration.timeoutIntervalForRequest = 20
     configuration.timeoutIntervalForResource = 45
     configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
     return URLSession(configuration: configuration)
 }()
+
+private func quotaRetryDelay(error: Error?, attempt: Int) -> TimeInterval? {
+    guard attempt >= 0, attempt < 2, let error = error as? URLError,
+          [.cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet,
+           .networkConnectionLost, .timedOut].contains(error.code) else { return nil }
+    return TimeInterval((attempt + 1) * 5)
+}
 
 private struct CommandResult {
     let status: Int32
@@ -1701,7 +1709,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var snapshot: QuotaSnapshot?
     private var bridgeOnline = false
     private var checking = false
-    private var loadingQuotas = false
+    private var quotaRequestID: UUID?
+    private var quotaRetry: DispatchWorkItem?
     private var refreshingClaudeDesktop = false
     private var claudeDesktopCredential: ClaudeDesktopCredential?
     private var autoPrompted = Set<String>()
@@ -2183,7 +2192,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             return
         }
 
-        loadingQuotas = false
+        quotaRequestID = nil
         bridgeOnline = false
         snapshot = nil
         dashboard.snapshot = nil
@@ -2193,6 +2202,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         updateSourceItems()
         checkAuthentication(autoPrompt: false)
         loadQuotas()
+        if !remote { refreshQuotas() }
         renderStatusTitle()
     }
 
@@ -2327,8 +2337,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         }.resume()
     }
 
-    private func loadQuotas() {
-        guard !loadingQuotas else { return }
+    private func loadQuotas(retryAttempt: Int = 0) {
+        guard quotaRequestID == nil else { return }
+        quotaRetry?.cancel()
+        quotaRetry = nil
         let sourceURL = configuredBridgeSource.url
         let requestedDisplayRevision = displayRevision
         guard let request = bridgeRequest(path: "/v1/quotas") else {
@@ -2339,21 +2351,32 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             renderStatusTitle()
             return
         }
-        loadingQuotas = true
+        let requestID = UUID()
+        quotaRequestID = requestID
         quotaSession.dataTask(with: request) { [weak self] data, response, error in
             let code = (response as? HTTPURLResponse)?.statusCode
             let loaded = code == 200 && error == nil ? data.flatMap(quotaSnapshot(from:)) : nil
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard self.quotaRequestID == requestID else { return }
+                self.quotaRequestID = nil
                 guard self.configuredBridgeSource.url == sourceURL else { return }
-                self.loadingQuotas = false
                 self.bridgeOnline = code == 200 && loaded != nil
                 self.dashboard.apiOnline = self.bridgeOnline
                 self.persistentDashboard.apiOnline = self.bridgeOnline
                 if !self.bridgeOnline {
-                    QuotaDiagnostics.shared.capture("bridge_read",
-                        failure: QuotaDiagnostics.failure(error, status: code == 200 ? nil : code),
-                        remote: self.configuredBridgeSource.remote)
+                    if let delay = quotaRetryDelay(error: error, attempt: retryAttempt) {
+                        let retry = DispatchWorkItem { [weak self] in
+                            guard self?.configuredBridgeSource.url == sourceURL else { return }
+                            self?.loadQuotas(retryAttempt: retryAttempt + 1)
+                        }
+                        self.quotaRetry = retry
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: retry)
+                    } else {
+                        QuotaDiagnostics.shared.capture("bridge_read",
+                            failure: QuotaDiagnostics.failure(error, status: code == 200 ? nil : code),
+                            remote: self.configuredBridgeSource.remote)
+                    }
                 } else if let data {
                     for failure in quotaFreshnessFailures(data) {
                         QuotaDiagnostics.shared.capture(failure.operation, failure: "stale",
@@ -2748,6 +2771,11 @@ private struct QuotaMenu {
             return
         }
         if CommandLine.arguments.contains("--self-test") {
+            precondition(quotaRetryDelay(error: URLError(.cannotConnectToHost), attempt: 0) == 5)
+            precondition(quotaRetryDelay(error: URLError(.notConnectedToInternet), attempt: 1) == 10)
+            precondition(quotaRetryDelay(error: URLError(.timedOut), attempt: 2) == nil)
+            precondition(quotaRetryDelay(error: URLError(.userAuthenticationRequired), attempt: 0) == nil)
+            precondition(quotaRetryDelay(error: nil, attempt: 0) == nil)
             let sensitiveError = NSError(domain: NSURLErrorDomain, code: -1001, userInfo: [
                 NSLocalizedDescriptionKey: "Bearer test-secret user@example.test /Users/private",
                 NSURLErrorFailingURLStringErrorKey: "http://private-host/?token=test-secret",
