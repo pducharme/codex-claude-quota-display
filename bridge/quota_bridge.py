@@ -25,7 +25,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 from urllib.error import HTTPError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 
-APP_VERSION = "1.0.25"
+APP_VERSION = "1.0.27"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 

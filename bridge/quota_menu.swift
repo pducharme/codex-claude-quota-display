@@ -512,6 +512,7 @@ private struct ProviderQuotas {
     let weekly: QuotaWindow
     let fableWeekly: QuotaWindow
     let bankedResets: Int?
+    let bankedResetExpirations: [Int]
 }
 
 private struct DisplaySleep: Codable, Equatable {
@@ -848,7 +849,9 @@ private func providerQuotas(_ value: Any?) -> ProviderQuotas? {
         fiveHour: quotaWindow(value["five_hour"]),
         weekly: quotaWindow(value["weekly"]),
         fableWeekly: quotaWindow(value["fable_weekly"]),
-        bankedResets: resets?["available_count"] as? Int
+        bankedResets: resets?["available_count"] as? Int,
+        bankedResetExpirations: (resets?["expirations"] as? [[String: Any]] ?? [])
+            .compactMap { $0["expires_at"] as? Int }.filter { $0 > 0 }.sorted()
     )
 }
 
@@ -908,6 +911,20 @@ private func resetCountdown(
     if days > 0 { return "\(days)j \(hours)h" }
     if hours > 0 { return "\(hours)h \(minutes)m" }
     return "\(minutes)m"
+}
+
+private func bankedResetRows(_ provider: ProviderQuotas?, now: Int = Int(Date().timeIntervalSince1970)) -> [String] {
+    guard let count = provider?.bankedResets else { return ["Resets en banque non disponibles"] }
+    guard count > 0 else { return ["Aucun reset en banque"] }
+    guard let expirations = provider?.bankedResetExpirations, !expirations.isEmpty else {
+        return ["Dates d’expiration non fournies"]
+    }
+    return expirations.enumerated().map { index, expiry in
+        let remaining = expiry > now
+            ? "Dans \(resetCountdown(QuotaWindow(usedPercent: nil, resetsAt: expiry), now: now))"
+            : "Expiré"
+        return "#\(index + 1)   \(dateText(expiry))   ·   \(remaining)"
+    }
 }
 
 private func statusProviderIcon(codex: Bool, warning: Bool) -> NSImage {
@@ -1258,6 +1275,10 @@ private final class QuotaDashboardView: NSView {
     private let refreshSpinner = NSProgressIndicator()
     private var iconFrame = 0
     let refreshButton = NSButton()
+    let bankedResetsButton = NSButton()
+    private let bankedResetsScroll = NSScrollView()
+    private let bankedResetsText = NSTextField(labelWithString: "")
+    private(set) var showingBankedResets = false
 
     var apiOnline = false {
         didSet {
@@ -1267,18 +1288,21 @@ private final class QuotaDashboardView: NSView {
     }
     var snapshot: QuotaSnapshot? {
         didSet {
+            updateBankedResets()
             needsDisplay = true
             setAccessibilityValue(accessibilitySummary)
         }
     }
     var showCodex = true {
         didSet {
+            updateBankedResets()
             needsDisplay = true
             setAccessibilityValue(accessibilitySummary)
         }
     }
     var showClaude = true {
         didSet {
+            updateBankedResets()
             needsDisplay = true
             setAccessibilityValue(accessibilitySummary)
         }
@@ -1309,10 +1333,59 @@ private final class QuotaDashboardView: NSView {
         refreshSpinner.autoresizingMask = [.minXMargin]
         refreshSpinner.setAccessibilityLabel("Actualisation des quotas en cours")
         addSubview(refreshSpinner)
+        bankedResetsButton.title = ""
+        bankedResetsButton.isBordered = false
+        bankedResetsButton.target = self
+        bankedResetsButton.action = #selector(toggleBankedResets)
+        bankedResetsScroll.drawsBackground = false
+        bankedResetsScroll.hasVerticalScroller = true
+        bankedResetsScroll.autohidesScrollers = true
+        bankedResetsScroll.documentView = bankedResetsText
+        addSubview(bankedResetsScroll)
+        addSubview(bankedResetsButton)
+        updateBankedResets()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let target = super.hitTest(point) else { return nil }
+        return showingBankedResets && NSApp?.currentEvent?.type == .scrollWheel
+            ? bankedResetsScroll : target
+    }
+
+    @objc private func toggleBankedResets() {
+        showingBankedResets.toggle()
+        updateBankedResets()
+        needsDisplay = true
+        setAccessibilityValue(accessibilitySummary)
+    }
+
+    private func updateBankedResets() {
+        let screen = bounds.insetBy(dx: 8, dy: 6)
+        let codex = dashboardPanelRects(in: screen, showCodex: showCodex, showClaude: showClaude).codex
+        if codex == nil { showingBankedResets = false }
+        let full = dashboardPanelRects(in: screen, showCodex: true, showClaude: false).codex!
+        bankedResetsButton.isHidden = codex == nil
+        bankedResetsButton.frame = showingBankedResets ? bounds : codex ?? .zero
+        let label = showingBankedResets ? "Cliquer n’importe où pour revenir aux quotas" : "Codex : voir les dates d’expiration des resets en banque"
+        bankedResetsButton.toolTip = label
+        bankedResetsButton.setAccessibilityLabel(label)
+        bankedResetsButton.keyEquivalent = showingBankedResets ? "\u{1b}" : ""
+        bankedResetsScroll.isHidden = !showingBankedResets
+        guard showingBankedResets else { return }
+        bankedResetsScroll.frame = NSRect(x: full.minX + 146, y: full.minY + 48, width: full.width - 158, height: 100)
+        let rows = bankedResetRows(snapshot?.codex)
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = 25
+        style.maximumLineHeight = 25
+        bankedResetsText.attributedStringValue = NSAttributedString(string: rows.joined(separator: "\n"), attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: textColor, .paragraphStyle: style,
+        ])
+        bankedResetsText.frame = NSRect(x: 0, y: 0, width: bankedResetsScroll.contentSize.width, height: CGFloat(rows.count) * 25)
     }
 
     func setRefreshing(_ active: Bool) {
@@ -1333,10 +1406,12 @@ private final class QuotaDashboardView: NSView {
     private var accessibilitySummary: String {
         guard let snapshot else { return "Chargement des quotas" }
         var parts: [String] = []
-        if showCodex {
+        if showingBankedResets {
+            parts.append("Codex, \(snapshot.codex.bankedResets.map(String.init) ?? "—") resets en banque. " + bankedResetRows(snapshot.codex).joined(separator: ". "))
+        } else if showCodex {
             parts.append("Codex, forfait \(snapshot.codex.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)).")
         }
-        if showClaude {
+        if showClaude && !showingBankedResets {
             parts.append("Claude, forfait \(snapshot.claude.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)).")
         }
         parts.append("API \(snapshot.apiAddress), \(apiOnline ? "en ligne" : "hors ligne"). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true)).")
@@ -1355,10 +1430,13 @@ private final class QuotaDashboardView: NSView {
             fiveHour: QuotaWindow(usedPercent: nil, resetsAt: nil),
             weekly: QuotaWindow(usedPercent: nil, resetsAt: nil),
             fableWeekly: QuotaWindow(usedPercent: nil, resetsAt: nil),
-            bankedResets: nil
+            bankedResets: nil,
+            bankedResetExpirations: []
         )
-        let panels = dashboardPanelRects(in: screen, showCodex: showCodex, showClaude: showClaude)
-        if let rect = panels.codex {
+        let panels = dashboardPanelRects(in: screen, showCodex: showingBankedResets || showCodex, showClaude: !showingBankedResets && showClaude)
+        if showingBankedResets, let rect = panels.codex {
+            drawBankedResets(in: rect)
+        } else if let rect = panels.codex {
             drawProviderCard(
                 title: "CODEX",
                 provider: snapshot?.codex ?? empty,
@@ -1396,6 +1474,21 @@ private final class QuotaDashboardView: NSView {
         trackColor.setFill()
         NSRect(x: screen.minX + 12, y: 208, width: screen.width - 24, height: 1).fill()
         drawAPIStatus(y: 219)
+    }
+
+    private func drawBankedResets(in rect: NSRect) {
+        NSColor(srgbRed: 8 / 255, green: 29 / 255, blue: 48 / 255, alpha: 1).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10).fill()
+        codexColor.setFill()
+        NSBezierPath(roundedRect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 4), xRadius: 2, yRadius: 2).fill()
+        miniScreenProviderIcon(codex: true, frame: iconFrame, color: codexColor, background: screenColor).draw(
+            in: NSRect(x: rect.minX + 6, y: rect.minY + 8, width: 32, height: 26),
+            from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil
+        )
+        drawMiniScreenText("RESETS EN BANQUE", in: NSRect(x: rect.minX + 44, y: rect.minY + 12, width: 250, height: 14), scale: 2, color: textColor)
+        drawText("Cliquer pour revenir", in: NSRect(x: rect.maxX - 130, y: rect.minY + 12, width: 116, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: codexColor, alignment: .right)
+        drawMiniScreenText(snapshot?.codex.bankedResets.map(String.init) ?? "—", in: NSRect(x: rect.minX + 24, y: rect.minY + 58, width: 98, height: 35), scale: 5, color: codexColor, alignment: .center)
+        drawText("DISPONIBLES", in: NSRect(x: rect.minX + 14, y: rect.minY + 111, width: 118, height: 12), font: .systemFont(ofSize: 9, weight: .bold), color: mutedColor, alignment: .center)
     }
 
     private func drawProviderCard(
@@ -1596,6 +1689,7 @@ private final class QuotaDashboardView: NSView {
                 yRadius: 3.5
             ).fill()
         }
+        drawText("Voir les dates ›", in: NSRect(x: rect.maxX - 112, y: y, width: 102, height: 12), font: .systemFont(ofSize: 9, weight: .medium), color: accent, alignment: .right)
     }
 
     private func quotaColor(_ percent: Int?) -> NSColor {
@@ -2809,7 +2903,7 @@ private struct QuotaMenu {
             )).connected
             let codexGood = codexState(from: CommandResult(status: 0, output: "Logged in using ChatGPT")).connected
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
-            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
+            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1791173954},{"expires_at":1791080428}]}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             let sleep = DisplaySleep(enabled: true, startMinute: 1380, endMinute: 420, timezone: "America/Toronto")
             let sleepFields = DisplaySleepFields(schedule: sleep)
@@ -2900,6 +2994,8 @@ private struct QuotaMenu {
                 showClaude: true
             )
             let dashboardView = QuotaDashboardView(frame: NSRect(x: 0, y: 0, width: 640, height: 250))
+            let dashboardHost = NSView(frame: dashboardView.frame)
+            dashboardHost.addSubview(dashboardView)
             let statusView = CompactStatusView(frame: NSRect(x: 0, y: 0, width: 90, height: 22))
             statusView.snapshot = quotas
             let statusSnapshots = [(true, true), (true, false), (false, true), (true, true)].compactMap { codex, claude -> Data? in
@@ -2920,6 +3016,42 @@ private struct QuotaMenu {
                 return frames[0] != nil && frames[1] != nil && frames[0] != frames[1] && frames[0] == frames[2]
             }
             dashboardView.snapshot = quotas
+            precondition(quotas?.codex.bankedResetExpirations == [1791080428, 1791173954])
+            let resetRows = bankedResetRows(quotas?.codex, now: 1791080428 - 9000)
+            precondition(resetRows.count == 2 && resetRows[0].contains(dateText(1791080428)) && resetRows[0].hasSuffix("Dans 2h 30m"))
+            precondition(bankedResetRows(quotas?.codex, now: 1791080428)[0].hasSuffix("Expiré"))
+            precondition(bankedResetRows(nil) == ["Resets en banque non disponibles"])
+            precondition(bankedResetRows(providerQuotas(["banked_resets": ["available_count": 0]])) == ["Aucun reset en banque"])
+            precondition(bankedResetRows(providerQuotas(["banked_resets": ["available_count": 2]])) == ["Dates d’expiration non fournies"])
+            precondition(providerQuotas(["banked_resets": ["expirations": [["expires_at": NSNull()], ["expires_at": -1], ["expires_at": "invalid"], ["expires_at": 42]]]])?.bankedResetExpirations == [42])
+            for (codex, claude) in [(true, true), (true, false), (false, true)] {
+                dashboardView.showCodex = codex
+                dashboardView.showClaude = claude
+                precondition(dashboardView.bankedResetsButton.isHidden == !codex)
+                guard codex else { continue }
+                precondition(dashboardHost.hitTest(dashboardView.convert(NSPoint(x: 50, y: 30), to: dashboardHost)) === dashboardView.bankedResetsButton)
+                precondition(dashboardHost.hitTest(dashboardView.convert(NSPoint(x: 605, y: 192), to: dashboardHost)) === dashboardView.refreshButton)
+                dashboardView.bankedResetsButton.performClick(nil)
+                precondition(dashboardView.showingBankedResets)
+                precondition(dashboardView.bankedResetsButton.frame == dashboardView.bounds)
+                for point in [NSPoint(x: 4, y: 4), NSPoint(x: 80, y: 90), NSPoint(x: 250, y: 80), NSPoint(x: 600, y: 160), NSPoint(x: 605, y: 192), NSPoint(x: 40, y: 225)] {
+                    let button = dashboardHost.hitTest(dashboardView.convert(point, to: dashboardHost)) as? NSButton
+                    precondition(button === dashboardView.bankedResetsButton)
+                    button?.performClick(nil)
+                    precondition(!dashboardView.showingBankedResets)
+                    dashboardView.bankedResetsButton.performClick(nil)
+                }
+                dashboardView.snapshot = quotas
+                precondition(dashboardView.showingBankedResets)
+                dashboardView.bankedResetsButton.performClick(nil)
+                precondition(!dashboardView.showingBankedResets)
+            }
+            dashboardView.showCodex = true
+            dashboardView.showClaude = true
+            dashboardView.bankedResetsButton.performClick(nil)
+            dashboardView.showCodex = false
+            precondition(!dashboardView.showingBankedResets && dashboardView.bankedResetsButton.isHidden)
+            dashboardView.showCodex = true
             let iconScreen = NSImage(size: NSSize(width: 64, height: 18), flipped: true) { rect in
                 NSColor.cyan.setFill()
                 rect.fill()
@@ -2986,6 +3118,9 @@ private struct QuotaMenu {
                 autoLaunchOn == true, autoLaunchOff == false,
                 parsedLaunchPID == 4321
             else { exit(1) }
+            if CommandLine.arguments.contains("--banked-resets") {
+                dashboardView.bankedResetsButton.performClick(nil)
+            }
             if let index = CommandLine.arguments.firstIndex(of: "--snapshot"),
                CommandLine.arguments.indices.contains(index + 1),
                let bitmap = dashboardView.bitmapImageRepForCachingDisplay(in: dashboardView.bounds) {

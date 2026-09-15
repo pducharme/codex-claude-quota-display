@@ -3,6 +3,25 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.0.27</title>
+            <pubDate>Tue, 15 Sep 2026 10:20:33 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.0.27</sparkle:version>
+            <sparkle:shortVersionString>1.0.27</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.0.27</h2>
+<ul>
+  <li>Cliquez sur Codex ou « Voir les dates » pour consulter les dates d’expiration des resets en banque et le temps restant.</li>
+  <li>Un clic n’importe où dans la vue des dates ramène à la page des quotas.</li>
+</ul>
+<p>Disponible dans le menu et la fenêtre permanente du Companion. Aucun reflash du mini-écran n’est nécessaire.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.27/Quota-Display-1.0.27.zip" length="2313603" type="application/octet-stream" sparkle:edSignature="8+AMDlkLMFeREMdbzAZ+uu48X4+scNknbDZNPmFJ2ZlUMAC4THPwEAq+XDa5Xd9r6yh0KsnYMFym+IeF5swUAw=="/>
+        </item>
+        <item>
             <title>1.0.25</title>
             <pubDate>Sun, 13 Sep 2026 14:36:42 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -43,28 +62,6 @@
 <p>La source configurée, les jetons et les réglages d’affichage sont conservés. En mode distant, mettez à jour les Companions clients et le Mac source. Aucun reflash du mini-écran n’est nécessaire.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.24/Quota-Display-1.0.24.zip" length="2226510" type="application/octet-stream" sparkle:edSignature="E47FXOUOmxUtKV88MilAct3upqw90J/PjzMgqrF7uYE4j7IACii0mF/2VmbfNzl7ER1JiiCzd51LIY65bgFEBw=="/>
-        </item>
-        <item>
-            <title>1.0.23</title>
-            <pubDate>Sun, 13 Sep 2026 10:55:51 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.23</sparkle:version>
-            <sparkle:shortVersionString>1.0.23</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.23</h2>
-<ul>
-  <li>Les échecs d’actualisation sont signalés à GlitchTip pour aider à diagnostiquer les quotas qui cessent de se mettre à jour.</li>
-  <li>Les actualisations continuent lorsque le menu reste ouvert et reprennent au réveil du Mac.</li>
-  <li>La lecture Codex respecte son délai maximal même si une réponse arrive incomplète. Une erreur ne laisse plus le cycle d’actualisation verrouillé.</li>
-  <li>Les appels réseau du Companion ont une durée maximale et les quotas trop anciens sont détectés.</li>
-</ul>
-<p>Les diagnostics contiennent uniquement des informations techniques : version, type d’erreur et ancienneté des quotas. Aucun jeton, compte ou contenu de conversation n’est transmis; GlitchTip tronque l’adresse IP de connexion. L’envoi peut être désactivé dans <strong>Paramètres → Partager les erreurs techniques</strong>.</p>
-<p>En mode distant, mettez aussi à jour le Mac source. Les erreurs antérieures à la mise à jour ne sont pas récupérées. Aucun reflash du mini-écran n’est nécessaire.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.23/Quota-Display-1.0.23.zip" length="2213349" type="application/octet-stream" sparkle:edSignature="cXDYOFsNY7/pizd8+lRoD8HuRvsehyqnBNdCNZthanHh80KBmiSANsRgyBm83FjDkjyEnS6/PXRpwzAvnSGgDw=="/>
         </item>
     </channel>
 </rss>
