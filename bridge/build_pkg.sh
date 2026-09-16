@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.0.27}
+VERSION=${1:-1.0.28}
 if ! printf '%s\n' "$VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "Version invalide: $VERSION" >&2
   exit 2
@@ -63,8 +63,10 @@ COPYFILE_DISABLE=1 /usr/bin/pkgbuild \
   --version "$VERSION" \
   --ownership recommended \
   --install-location / \
-  "$WORK_DIR/$PACKAGE_NAME"
-/usr/bin/install -m 644 "$WORK_DIR/$PACKAGE_NAME" "$OUTPUT_DIR/$PACKAGE_NAME"
+  "$WORK_DIR/Quota-Display-component.pkg"
+/usr/bin/sed "s/__VERSION__/$VERSION/g" "$SCRIPT_DIR/package/Distribution.xml" > "$WORK_DIR/Distribution.xml"
+/usr/bin/productbuild --distribution "$WORK_DIR/Distribution.xml" \
+  --package-path "$WORK_DIR" "$OUTPUT_DIR/$PACKAGE_NAME"
 (
   cd "$OUTPUT_DIR"
   /usr/bin/shasum -a 256 "$PACKAGE_NAME" > "$PACKAGE_NAME.sha256"

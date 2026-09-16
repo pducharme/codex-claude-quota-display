@@ -25,7 +25,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 from urllib.error import HTTPError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 
-APP_VERSION = "1.0.27"
+APP_VERSION = "1.0.28"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -757,7 +757,7 @@ class QuotaState:
 class QuotaHandler(BaseHTTPRequestHandler):
     state = None
     weather = None
-    token = ""
+    token_path = None
 
     def _json(self, status, payload):
         body = json.dumps(payload, separators=(",", ":")).encode()
@@ -769,9 +769,13 @@ class QuotaHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self):
-        expected = f"Bearer {self.token}"
+        try:
+            token = token_from(self.token_path, create=False)
+        except (OSError, ValueError, TypeError):
+            return False
+        expected = f"Bearer {token}"
         supplied = self.headers.get("Authorization", "")
-        return hmac.compare_digest(supplied, expected)
+        return hmac.compare_digest(supplied.encode(), expected.encode())
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -827,14 +831,18 @@ class QuotaHandler(BaseHTTPRequestHandler):
         print(f"http: {message % args}", flush=True)
 
 
-def token_from(path):
+def token_from(path, *, create=True):
     path = Path(path).expanduser()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
+    try:
         token = path.read_text().strip()
-        if len(token) >= 16:
-            return token
-        raise RuntimeError(f"invalid token file: {path}")
+    except FileNotFoundError:
+        if not create:
+            raise
+    else:
+        if not 16 <= len(token) <= 256 or not all(33 <= ord(c) <= 126 for c in token):
+            raise ValueError(f"invalid token file: {path}")
+        return token
+    path.parent.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(24)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w") as handle:
@@ -892,10 +900,10 @@ def main():
 
     diagnostics.enabled = True
     state.interval = max(60, args.interval)
-    token = token_from(args.token_file)
+    token_from(args.token_file)
     QuotaHandler.state = state
     QuotaHandler.weather = WeatherCache()
-    QuotaHandler.token = token
+    QuotaHandler.token_path = Path(args.token_file).expanduser()
     threading.Thread(
         target=refresh_loop, args=(state, state.interval), daemon=True
     ).start()

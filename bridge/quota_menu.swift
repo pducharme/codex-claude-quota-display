@@ -1129,6 +1129,12 @@ private func isLocalBridge(_ url: URL) -> Bool {
     url.host == "127.0.0.1" || url.host == "localhost" || url.host == "::1"
 }
 
+private func apiToken(_ value: String) -> String? {
+    let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (16...256).contains(token.utf8.count)
+        && token.unicodeScalars.allSatisfy { (33...126).contains($0.value) } ? token : nil
+}
+
 // Adafruit GFX classic glyphs used by the mini-screen firmware (row 8 includes descenders).
 private let miniScreenGlyphs: [Character: [UInt8]] = [
     " ": [0x00, 0x00, 0x00, 0x00, 0x00],
@@ -1783,6 +1789,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
     private let sleepItem = NSMenuItem(title: "Veille des mini-écrans…", action: nil, keyEquivalent: "")
     private let copyAPIItem = NSMenuItem(title: "Copier la configuration API", action: nil, keyEquivalent: "")
+    private let serverKeyItem = NSMenuItem(title: "Clé API de ce Mac…", action: nil, keyEquivalent: "")
     private let autoLaunchItem = NSMenuItem(title: "Démarrer l’API avec la session", action: nil, keyEquivalent: "")
     private let updatesItem = NSMenuItem(title: "Mises à jour", action: nil, keyEquivalent: "")
     private let checkUpdateItem = NSMenuItem(title: "Vérifier les mises à jour…", action: nil, keyEquivalent: "")
@@ -1959,6 +1966,9 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         copyAPIItem.action = #selector(copyAPIConfiguration)
         copyAPIItem.toolTip = "Copie l’adresse et le jeton nécessaires aux mini-écrans et aux Companions distants."
         api.addItem(copyAPIItem)
+        serverKeyItem.target = self
+        serverKeyItem.action = #selector(editServerAPIKey)
+        api.addItem(serverKeyItem)
         autoLaunchItem.target = self
         autoLaunchItem.action = #selector(toggleAutoLaunch)
         autoLaunchItem.state = .mixed
@@ -2135,7 +2145,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     @objc private func copyAPIConfiguration() {
         let source = configuredBridgeSource
         guard
-            let address = snapshot?.apiAddress,
+            let address = source.remote ? source.url.absoluteString : snapshot?.apiAddress,
             let token = try? String(contentsOf: source.tokenURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             token.count >= 16
@@ -2148,6 +2158,35 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         NSPasteboard.general.setString("Adresse: \(address)\nJeton: \(token)", forType: .string)
         copyAPIItem.title = "Configuration API copiée ✓"
         restoreCopyAPITitle()
+    }
+
+    @objc private func editServerAPIKey() {
+        let tokenURL = appSupportURL.appendingPathComponent("token")
+        let alert = NSAlert()
+        alert.messageText = "Clé API de ce Mac"
+        alert.informativeText = "Les mini-écrans et les Companions connectés à ce Mac doivent utiliser cette même clé. Vous pouvez remettre une ancienne clé après une réinstallation."
+            + (configuredBridgeSource.remote ? " Pour modifier la clé de votre source distante, ouvrez ce réglage sur le Mac source." : "")
+        alert.addButton(withTitle: "Enregistrer")
+        alert.addButton(withTitle: "Annuler")
+        let field = NSSecureTextField(string: (try? String(contentsOf: tokenURL, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        field.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
+        field.placeholderString = "Clé API : 16 à 256 caractères, sans espace"
+        field.setAccessibilityLabel("Clé API du serveur de ce Mac")
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let token = apiToken(field.stringValue) else {
+            showSourceError("La clé doit contenir de 16 à 256 caractères non accentués, sans espace.", title: "Clé API de ce Mac")
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try writePrivate(token, to: tokenURL)
+            if !configuredBridgeSource.remote { loadQuotas() }
+        } catch {
+            showSourceError("La clé API n’a pas pu être enregistrée.", title: "Clé API de ce Mac")
+        }
     }
 
     private func restoreCopyAPITitle() {
@@ -2306,10 +2345,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private func showSourceError(_ message: String) {
+    private func showSourceError(_ message: String, title: String = "Source des quotas") {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Source des quotas"
+        alert.messageText = title
         alert.informativeText = message
         alert.runModal()
     }
@@ -2866,6 +2905,10 @@ private struct QuotaMenu {
             return
         }
         if CommandLine.arguments.contains("--self-test") {
+            precondition(apiToken("  existing-api-key-1234\n") == "existing-api-key-1234")
+            for invalid in ["", "too-short", "api key with spaces", "api-key-with-é-1234", "api-key\nwith-newline-1234", String(repeating: "a", count: 257)] {
+                precondition(apiToken(invalid) == nil)
+            }
             precondition(quotaRetryDelay(error: URLError(.cannotConnectToHost), attempt: 0) == 5)
             precondition(quotaRetryDelay(error: URLError(.notConnectedToInternet), attempt: 1) == 10)
             precondition(quotaRetryDelay(error: URLError(.timedOut), attempt: 2) == nil)

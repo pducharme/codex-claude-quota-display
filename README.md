@@ -57,7 +57,7 @@ Le projet contient trois parties :
 ### Prérequis
 
 - macOS 13 ou une version plus récente;
-- Python 3 installé dans `/opt/homebrew/bin`, `/usr/local/bin` ou `/usr/bin`;
+- Python 3.9 ou plus récent (Python.org, Homebrew ou outils de ligne de commande Apple);
 - Codex.app et/ou Claude Desktop installés et connectés.
 
 Téléchargez le fichier `.pkg` de la
@@ -69,6 +69,10 @@ l’ouverture de session.
 Le paquet n’est pas encore notarié par Apple.
 Si macOS le bloque, utilisez **clic droit → Ouvrir** ou autorisez-le dans
 **Réglages Système → Confidentialité et sécurité**.
+
+Le paquet vérifie Python avant de modifier l’installation. Si les outils de
+ligne de commande Apple sont encore en cours d’installation, attendez la fin,
+puis rouvrez le paquet. Leur installation se lance avec `xcode-select --install`.
 
 Après l’installation :
 
@@ -104,6 +108,12 @@ Une seule installation peut servir plusieurs mini-écrans et Companions :
    l’adresse et le jeton copiés.
 4. Utilisez la même adresse et le même jeton dans le portail de configuration
    des mini-écrans.
+
+Sur le Mac source, **Paramètres → API et connexions → Clé API de ce Mac…**
+permet de modifier la clé servie ou de restaurer une ancienne clé après une
+réinstallation. Le changement prend effet immédiatement. Tous ses clients
+doivent utiliser cette même clé. **Copier la configuration API** reste disponible
+sur un Companion client même lorsque la source est hors ligne ou refuse sa clé.
 
 En mode distant, les connexions aux fournisseurs sont gérées uniquement par le
 Mac source. Le pont du Mac client reste disponible, mais ne lance plus de
@@ -254,6 +264,7 @@ Vérifications principales :
 
 ```sh
 python3 bridge/test_quota_bridge.py
+python3 bridge/test_installer.py
 c++ -std=c++11 -Wall -Wextra -pedantic firmware/test_sleep.cpp -o /tmp/quota-sleep-test
 /tmp/quota-sleep-test
 python3 bridge/quota_bridge.py --once

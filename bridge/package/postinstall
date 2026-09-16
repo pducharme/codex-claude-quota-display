@@ -21,15 +21,9 @@ BRIDGE_PLIST="$LAUNCH_AGENTS/com.pducharme.quota-display.plist"
 MENU_PLIST="$LAUNCH_AGENTS/com.pducharme.quota-display-menu.plist"
 DOMAIN="gui/$USER_UID"
 
-PYTHON=""
-for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
-  if [ -x "$candidate" ]; then
-    PYTHON="$candidate"
-    break
-  fi
-done
-if [ -z "$PYTHON" ]; then
-  echo "Python 3 est requis. Installez-le avec Homebrew, puis relancez ce paquet." >&2
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if ! PYTHON=$(/bin/sh "$SCRIPT_DIR/find_python.sh"); then
+  echo "Python 3.9 ou plus récent est requis. Terminez son installation, puis rouvrez ce paquet." >&2
   exit 1
 fi
 

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+  <title>Quota Display</title>
+  <options customize="never"/>
+  <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+  <installation-check script="checkPython()"/>
+  <script><![CDATA[
+    function checkPython() {
+      var paths = [
+        '/opt/homebrew/bin/python3', '/usr/local/bin/python3',
+        '/Library/Developer/CommandLineTools/usr/bin/python3',
+        '/Applications/Xcode.app/Contents/Developer/usr/bin/python3',
+        '/var/db/xcode_select_link/usr/bin/python3',
+        '/var/db/xcode_select_link/Toolchains/XcodeDefault.xctoolchain/usr/bin/python3'
+      ];
+      for (var i = 0; i < paths.length; i++) {
+        if (system.files.fileExistsAtPath(paths[i])) return true;
+      }
+      my.result.type = 'Fatal';
+      my.result.title = 'Python 3 requis';
+      my.result.message = 'Quota Display nécessite Python 3.9 ou plus récent. Terminez d’abord l’installation des outils de ligne de commande Apple, ou installez Python depuis python.org. Pour installer les outils Apple, ouvrez Terminal et exécutez : xcode-select --install. Attendez la fin, puis rouvrez ce paquet. Aucun fichier du Companion n’a été modifié.';
+      return false;
+    }
+  ]]></script>
+  <choices-outline><line choice="default"/></choices-outline>
+  <choice id="default" visible="false"><pkg-ref id="com.pducharme.quota-display"/></choice>
+  <pkg-ref id="com.pducharme.quota-display" version="__VERSION__" onConclusion="none">Quota-Display-component.pkg</pkg-ref>
+</installer-gui-script>

@@ -27,6 +27,7 @@ from quota_bridge import (
     read_claude_desktop_cache,
     read_claude_plan,
     read_weather,
+    token_from,
 )
 
 
@@ -374,10 +375,11 @@ class QuotaParsingTest(unittest.TestCase):
             self.assertIsNone(state.payload()["display"]["sleep"])
 
             class Handler(QuotaHandler):
-                token = "test-token"
+                token_path = Path(directory) / "token"
                 def log_message(self, *_args):
                     pass
 
+            Handler.token_path.write_text("test-api-token-1234")
             Handler.state = state
             server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -388,7 +390,7 @@ class QuotaParsingTest(unittest.TestCase):
 
             def request(method, route, value=None, authorized=True):
                 connection = HTTPConnection(*server.server_address, timeout=2)
-                headers = {"Authorization": "Bearer test-token"} if authorized else {}
+                headers = {"Authorization": "Bearer test-api-token-1234"} if authorized else {}
                 connection.request(method, route, json.dumps(value) if value is not None else None, headers)
                 response = connection.getresponse()
                 result = response.status, json.loads(response.read())
@@ -422,6 +424,48 @@ class QuotaParsingTest(unittest.TestCase):
             self.assertEqual(state.payload()["display"]["sleep"], saved)
             self.assertEqual(request("POST", "/v1/display", {"sleep": {**saved, "enabled": False}})[0], 200)
             self.assertFalse(QuotaState(display_path=path).payload()["display"]["sleep"]["enabled"])
+
+    def test_api_key_changes_without_restart_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "token"
+            original = token_from(path)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(token_from(path), original)
+
+            class Handler(QuotaHandler):
+                token_path = path
+                state = QuotaState()
+                def log_message(self, *_args):
+                    pass
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                def status(key):
+                    connection = HTTPConnection(*server.server_address, timeout=2)
+                    connection.request("GET", "/v1/quotas", headers={"Authorization": "Bearer " + key})
+                    response = connection.getresponse()
+                    response.read()
+                    connection.close()
+                    return response.status
+
+                self.assertEqual(status(original), 200)
+                replacement = "restored-api-key-123456"
+                path.write_text(replacement + "\n")
+                self.assertEqual(status(original), 401)
+                self.assertEqual(status(replacement), 200)
+                self.assertEqual(status("é" * 20), 401)
+                for invalid in ["short", "api key with spaces", "é" * 20, "x" * 257]:
+                    path.write_text(invalid)
+                    self.assertEqual(status(replacement), 401)
+                path.unlink()
+                self.assertEqual(status(replacement), 401)
+                self.assertFalse(path.exists())
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join()
 
 
 if __name__ == "__main__":

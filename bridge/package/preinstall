@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if ! /bin/sh "$SCRIPT_DIR/find_python.sh" >/dev/null; then
+  echo "Python 3.9 ou plus récent est requis. Terminez l’installation de Python ou des outils de ligne de commande Apple, puis rouvrez ce paquet. Aucun fichier du Companion n’a été modifié." >&2
+  exit 1
+fi

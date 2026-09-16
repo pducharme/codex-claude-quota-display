@@ -3,7 +3,10 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 APP_DIR="$HOME/Library/Application Support/Quota Display"
-PYTHON=$(command -v python3)
+if ! PYTHON=$(/bin/sh "$SCRIPT_DIR/package/find_python.sh"); then
+  echo "Python 3.9 ou plus récent est requis. Terminez l’installation des outils de ligne de commande Apple, puis relancez ce script." >&2
+  exit 1
+fi
 PLIST="$HOME/Library/LaunchAgents/com.pducharme.quota-display.plist"
 MENU_PLIST="$HOME/Library/LaunchAgents/com.pducharme.quota-display-menu.plist"
 LABEL="com.pducharme.quota-display"
