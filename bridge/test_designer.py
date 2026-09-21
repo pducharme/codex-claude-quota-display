@@ -103,6 +103,29 @@ class DesignerTests(unittest.TestCase):
         self.designer.action("a0f262e09880", "focus.toggle")
         self.assertIsNone(self.designer.focus["a0f262e09880"]["until"])
 
+    def test_pages_outside_rotation_preserve_flight_interruptions(self):
+        c = self.config()
+        self.assertTrue(all(p["in_rotation"] for p in validate(c)["pages"]))
+        for p in c["pages"]:
+            p["in_rotation"] = p["kind"] != "sky"
+        self.designer.publish(dict(config=c, targets=["000000000001"], base_revision=0))
+        frame = self.designer.frame("000000000001")
+        self.assertTrue(frame["auto_sky"])
+        sky = next(p for p in frame["pages"] if p["kind"] == "sky")
+        self.assertFalse(sky["in_rotation"])
+        reloaded = Designer(self.designer.path, self.state, WeatherCache())
+        self.assertEqual(
+            [p["in_rotation"] for p in reloaded.frame("000000000001")["pages"]],
+            [p["in_rotation"] for p in frame["pages"]],
+        )
+        c["pages"][0]["in_rotation"] = "false"
+        with self.assertRaises(ValueError):
+            validate(c)
+        for p in c["pages"]:
+            p["in_rotation"] = False
+        with self.assertRaisesRegex(ValueError, "au moins une page"):
+            validate(c)
+
     def test_flight_freshness_radius_unknown_route_and_failures(self):
         stamp = time.time()
         sky = dict(enabled=True, lat=45, lon=-72, radius=10)

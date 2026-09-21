@@ -312,7 +312,8 @@ function render() {
   $("pages").replaceChildren();
   config.pages.forEach((p, i) => {
     let b = button(
-      p.name || "Sans titre",
+      (p.name || "Sans titre") +
+        (p.in_rotation === false ? " · hors rotation" : ""),
       () => {
         pageIndex = i;
         selected = -1;
@@ -325,6 +326,7 @@ function render() {
   });
   $("preview-name").textContent = p.name;
   $("page-name").value = p.name;
+  $("in-rotation").checked = p.in_rotation !== false;
   $("font").value = p.font;
   $("accent").value = p.accent;
   $("background").value = p.background;
@@ -419,6 +421,8 @@ $("weather-city").onchange = () =>
   changed(() => (config.city = $("weather-city").value));
 $("rotation").onchange = () =>
   changed(() => (config.rotation = Number($("rotation").value)));
+$("in-rotation").onchange = () =>
+  changed(() => (page().in_rotation = $("in-rotation").checked));
 for (const key of ["text", "binding", "size", "x", "y", "w", "h"])
   $(key).onchange = () =>
     changed(() => {
@@ -547,6 +551,8 @@ $("publish").onclick = async () => {
   const button = $("publish");
   button.disabled = true;
   try {
+    if (!config.pages.some((p) => p.in_rotation !== false))
+      throw new Error("Gardez au moins une page dans la rotation.");
     state = await api("publish", {
       config,
       targets: [...chosen],

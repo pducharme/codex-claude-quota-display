@@ -42,7 +42,10 @@ bool designerValid(JsonDocument &doc) {
   JsonArray pages=doc["pages"];
   if(pages.size()>8 || ((doc["revision"]|0)>0 && pages.size()==0)) return false;
   if ((doc["rotation"]|0)<0 || (doc["rotation"]|0)>600) return false;
+  bool hasRotationPage=false;
   for(JsonObject p:pages) {
+    if(!p["in_rotation"].isNull()&&!p["in_rotation"].is<bool>())return false;
+    if(p["in_rotation"]|true)hasRotationPage=true;
     String kind=p["kind"]|"";
     if(kind!="custom"&&kind!="sky"&&kind!="native-quotas"&&kind!="native-weather") return false;
     if(!p["blocks"].is<JsonArray>() || p["blocks"].size()>16) return false;
@@ -56,7 +59,13 @@ bool designerValid(JsonDocument &doc) {
       if(type=="artwork") {String pixels=b["pixels"]|"";if(pixels.length()!=0&&pixels.length()!=4096)return false;for(size_t i=0;i<pixels.length();i++)if(!isxdigit((unsigned char)pixels[i]))return false;}
     }
   }
-  return true;
+  return pages.size()==0||hasRotationPage;
+}
+
+int designerRotationIndex(int current) {
+  std::vector<bool> included;
+  for(JsonObject p:designerDocument["pages"].as<JsonArray>())included.push_back(p["in_rotation"]|true);
+  return designerNextRotation(included,current);
 }
 
 uint16_t designerColor(const char *s,uint16_t fallback) {
@@ -225,6 +234,7 @@ void startDesigner() {
     JsonDocument cached;auto error=deserializeJson(cached,f);f.close();
     if(error==DeserializationError::Ok&&designerValid(cached)){
       designerDocument=cached;designerRevision=cached["revision"]|0;
+      designerIndex=std::max(0,designerRotationIndex(-1));
       designerDocument["flight"].clear();
       if(designerDocument["pages"].size())currentPage=Page::Designed;
       break;
@@ -293,7 +303,7 @@ void updateDesigner() {
       uint32_t revision=next["revision"]|0;
       bool changed=revision!=designerRevision;
       designerDocument=next;designerReceived=now;
-      if(changed){designerRevision=revision;designerCache(body);designerIndex=0;designerPinned=false;designerInterrupted=false;designerSelection.reset();designerPageStarted=now;if(currentPage!=Page::Settings)currentPage=designerDocument["pages"].size()?Page::Designed:Page::Dashboard;Serial.printf("Designer revision applied: %u\n",revision);}
+      if(changed){designerRevision=revision;designerCache(body);designerIndex=std::max(0,designerRotationIndex(-1));designerPinned=false;designerInterrupted=false;designerSelection.reset();designerPageStarted=now;if(currentPage!=Page::Settings)currentPage=designerDocument["pages"].size()?Page::Designed:Page::Dashboard;Serial.printf("Designer revision applied: %u\n",revision);}
     }
   }
   int skyIndex=-1;int i=0;for(JsonObject p:designerDocument["pages"].as<JsonArray>()){if(String(p["kind"]|"")=="sky")skyIndex=i;i++;}
@@ -313,5 +323,8 @@ void updateDesigner() {
 
 void rotateDesigner() {
   uint32_t interval=(designerDocument["rotation"]|0)*1000UL;
-  if(interval&&!designerInterrupted&&!designerPinned&&!swipeTracking&&!displaySleeping&&currentPage==Page::Designed&&millis()-lastTouchMillis>5000&&millis()-designerPageStarted>=interval)designerNavigate(1);
+  if(interval&&!designerInterrupted&&!designerPinned&&!swipeTracking&&!displaySleeping&&currentPage==Page::Designed&&millis()-lastTouchMillis>5000&&millis()-designerPageStarted>=interval){
+    int next=designerRotationIndex(designerIndex);
+    if(next>=0){designerIndex=next;designerPageStarted=millis();}
+  }
 }

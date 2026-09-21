@@ -1,6 +1,13 @@
 #include <cassert>
 #include "include/DesignerSelection.h"
 int main(){
+  assert(designerNextRotation({false,true,true},-1)==1); // excluded first page is not shown on boot/publication
+  assert(designerNextRotation({true,false,true},0)==2); // skip flight page in ordinary rotation
+  assert(designerNextRotation({true,false,true},2)==0); // wrap around
+  assert(designerNextRotation({true,false},0)==0); // only one ordinary page
+  assert(designerNextRotation({false,true,false},0)==1); // leave a manually selected excluded page
+  assert(designerNextRotation({},0)==-1);
+  assert(designerNextRotation({false,false},0)==-1);
   DesignerSelection s;
   assert(s.update({{"A",true}},100,false)=="A");
   assert(s.update({{"A",false},{"B",true}},1000,false)=="A"); // outer margin retains current flight

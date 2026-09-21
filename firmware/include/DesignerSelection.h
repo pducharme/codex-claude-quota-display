@@ -4,6 +4,17 @@
 #include <vector>
 #include <algorithm>
 
+// The start page and timed rotation share the same eligibility rule. Manual
+// swipes still visit every page, including a flight page reserved for alerts.
+inline int designerNextRotation(const std::vector<bool>& included,int current){
+  int count=included.size();
+  for(int step=1;step<=count;step++){
+    int index=(current+step+count)%count;
+    if(included[index])return index;
+  }
+  return -1;
+}
+
 struct DesignerAircraft { std::string id; bool inside; };
 struct DesignerDismissal { std::string id; uint32_t absentAt; bool absent; };
 // Pure selection policy shared with a host-side check. All time is monotonic milliseconds.

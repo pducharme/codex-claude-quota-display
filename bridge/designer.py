@@ -200,6 +200,8 @@ def validate(config):
         ):
             raise ValueError("Identifiant de page invalide.")
         ids.add(pid)
+        if type(p.get("in_rotation", True)) is not bool:
+            raise ValueError("Choix de rotation invalide.")
         kind = p.get("kind")
         font = p.get("font")
         if (
@@ -285,6 +287,7 @@ def validate(config):
                 id=pid,
                 name=label(p.get("name", ""), 32),
                 kind=kind,
+                in_rotation=p.get("in_rotation", True),
                 font=font,
                 accent=color(p.get("accent")),
                 background=color(p.get("background")),
@@ -293,6 +296,8 @@ def validate(config):
         )
         if source:
             out[-1]["source"] = source
+    if not any(p["in_rotation"] for p in out):
+        raise ValueError("Gardez au moins une page dans la rotation.")
     sky = config.get("sky", {})
     if not isinstance(sky, dict) or type(sky.get("enabled", False)) is not bool:
         raise ValueError("Zone invalide.")
