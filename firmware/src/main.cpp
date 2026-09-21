@@ -9,6 +9,7 @@
 #include <Wire.h>
 #include <sys/time.h>
 #include "DisplaySleep.h"
+#include "ConfigurationValidation.h"
 #include "Arduino_GFX_Library.h"
 #include "Arduino_AXS15231.h"
 
@@ -78,6 +79,13 @@ void updateDisplaySleep();
 Preferences preferences;
 WebServer web(80);
 DNSServer dns;
+bool setupPortalActive = false;
+uint32_t settingsStarted = 0;
+String settingsPassword;
+String formNonce;
+constexpr uint32_t SETTINGS_MS = 5UL * 60UL * 1000UL;
+void drawSettings();
+void closeSettings();
 
 String wifiSsid;
 String wifiPassword;
@@ -100,8 +108,10 @@ int swipeCurrentX = 0;
 int swipeCurrentY = 0;
 int swipePull = 0;
 uint32_t lastTouchMillis = 0;
+uint32_t touchStarted = 0;
+bool longPressHandled = false;
 
-enum class Page { Dashboard, CodexDetail, Weather };
+enum class Page { Dashboard, CodexDetail, Weather, Settings };
 Page currentPage = Page::Dashboard;
 
 struct Window {
@@ -661,7 +671,9 @@ void drawWeatherPage(int pull = 0, bool refreshing = false, int frame = 0) {
 void drawCurrentPage(int pull = 0, bool refreshing = false, int frame = 0) {
   updateDisplaySleep();
   if (displaySleeping) return;
-  if (currentPage == Page::CodexDetail) {
+  if (currentPage == Page::Settings) {
+    drawSettings();
+  } else if (currentPage == Page::CodexDetail) {
     drawCodexDetail(pull, refreshing, frame);
   } else if (currentPage == Page::Weather) {
     drawWeatherPage(pull, refreshing, frame);
@@ -706,19 +718,44 @@ void drawMessage(const String &title, const String &line1,
   present();
 }
 
-bool validHost(const String &value) {
-  if (value.length() < 3 || value.length() > 120) return false;
-  for (size_t i = 0; i < value.length(); ++i) {
-    char c = value[i];
-    if (!(isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' ||
-          c == ':')) {
-      return false;
-    }
+String randomCode() {
+  char code[17];
+  snprintf(code, sizeof(code), "%08lx%08lx",
+           static_cast<unsigned long>(esp_random()),
+           static_cast<unsigned long>(esp_random()));
+  return String(code);
+}
+
+bool authorizeSettings() {
+  web.sendHeader("Cache-Control", "no-store");
+  web.sendHeader("X-Frame-Options", "DENY");
+  web.sendHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'");
+  if (setupPortalActive) return true;
+  if (settingsPassword.isEmpty() || millis() - settingsStarted >= SETTINGS_MS) {
+    web.send(403, "text/plain; charset=utf-8",
+             "Maintenez le doigt 2 secondes sur le mini-ecran pour ouvrir les reglages pendant 5 minutes.");
+    return false;
   }
-  return true;
+  if (web.authenticate("admin", settingsPassword.c_str())) return true;
+  web.requestAuthentication(DIGEST_AUTH, "Quota Display", "Utilisez le code affiche sur le mini-ecran.");
+  return false;
+}
+
+String escapeHtml(String value) {
+  value.replace("&", "&amp;");
+  value.replace("\"", "&quot;");
+  value.replace("<", "&lt;");
+  value.replace(">", "&gt;");
+  value.replace("'", "&#39;");
+  return value;
 }
 
 void saveConfiguration() {
+  if (!authorizeSettings()) return;
+  if (formNonce.isEmpty() || web.arg("nonce") != formNonce) {
+    web.send(403, "text/plain; charset=utf-8", "Formulaire expire. Rechargez la page.");
+    return;
+  }
   String ssid = web.arg("ssid");
   String password = web.arg("password");
   String host = web.arg("host");
@@ -728,22 +765,37 @@ void saveConfiguration() {
   host.trim();
   token.trim();
   city.trim();
+  if (host.startsWith("http://")) host.remove(0, 7);
+  if (host.endsWith("/")) host.remove(host.length() - 1);
+  if (token.isEmpty()) token = bridgeToken;
+  if (password.isEmpty() && ssid == wifiSsid && web.arg("open_wifi") != "1") {
+    password = wifiPassword;
+  }
 
   if (ssid.length() < 1 || ssid.length() > 32 || password.length() > 64 ||
-      !validHost(host) || token.length() < 16 || token.length() > 128 ||
+      !validHost(host.c_str()) || !validToken(token.c_str()) ||
       city.length() < 1 || city.length() > 80) {
     web.send(400, "text/plain; charset=utf-8",
              "Configuration invalide. Verifiez les champs.");
     return;
   }
 
-  preferences.begin("quota", false);
-  preferences.putString("ssid", ssid);
-  preferences.putString("password", password);
-  preferences.putString("host", host);
-  preferences.putString("token", token);
-  preferences.putString("city", city);
+  // Save the connection together so a failed write cannot mix an old key and a new host.
+  JsonDocument connection;
+  connection["ssid"] = ssid;
+  connection["password"] = password;
+  connection["host"] = host;
+  connection["token"] = token;
+  connection["city"] = city;
+  String serialized;
+  serializeJson(connection, serialized);
+  bool opened = preferences.begin("quota", false);
+  size_t written = opened ? preferences.putString("connection", serialized) : 0;
   preferences.end();
+  if (written != serialized.length()) {
+    web.send(500, "text/plain; charset=utf-8", "Enregistrement impossible. Reessayez.");
+    return;
+  }
   web.send(200, "text/html; charset=utf-8",
            "<h1>Configuration enregistree</h1><p>L'ecran redemarre.</p>");
   delay(750);
@@ -751,24 +803,81 @@ void saveConfiguration() {
 }
 
 String setupPage() {
-  return R"HTML(
+  String page = R"HTML(
 <!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quota Display</title>
 <style>
 body{font:16px system-ui;background:#07101d;color:#e6edf5;max-width:32rem;margin:2rem auto;padding:0 1rem}
 label{display:block;margin:1rem 0 .35rem}input{box-sizing:border-box;width:100%;padding:.8rem;border:1px solid #334155;border-radius:.5rem;background:#111827;color:white}
+input[type=checkbox]{width:auto}small{display:block;color:#b6c4d7;margin-top:.4rem}input:focus-visible,button:focus-visible{outline:2px solid #38bdf8;outline-offset:3px}
 button{margin-top:1.4rem;padding:.85rem 1.2rem;border:0;border-radius:.5rem;background:#38bdf8;color:#07101d;font-weight:700}
-</style></head><body><h1>AI Quota Display</h1>
+</style></head><body><h1>Réglages du mini-écran</h1>
+<p>Modifiez la source des quotas. Les champs secrets laissés vides conservent leur valeur actuelle.</p>
 <form method="post" action="/save">
-<label>Nom du Wi-Fi</label><input name="ssid" maxlength="32" required>
-<label>Mot de passe Wi-Fi</label><input name="password" type="password" maxlength="64">
-<label>Pont Mac (adresse:port)</label><input name="host" placeholder="192.168.1.20:8788" required>
-<label>Jeton du pont</label><input name="token" type="password" maxlength="128" required>
-<label>Ville pour la meteo</label><input name="city" value="Sherbrooke" maxlength="80" required>
-<button type="submit">Enregistrer et redemarrer</button>
+<input type="hidden" name="nonce" value="%NONCE%">
+<label for="host">Adresse de l’API</label><input id="host" name="host" value="%HOST%" placeholder="192.168.1.20:8788" maxlength="128" autocapitalize="none" spellcheck="false" required>
+<small>Adresse et port du Companion source, avec ou sans http://.</small>
+<label for="token">Clé API</label><input id="token" name="token" type="password" minlength="16" maxlength="128" autocomplete="new-password" aria-describedby="token-help" %TOKEN_REQUIRED%>
+<small id="token-help">%TOKEN_HELP%</small>
+<details %WIFI_OPEN%><summary>Wi-Fi et météo</summary>
+<label for="ssid">Nom du Wi-Fi</label><input id="ssid" name="ssid" value="%SSID%" maxlength="32" required>
+<label for="password">Mot de passe Wi-Fi</label><input id="password" name="password" type="password" maxlength="64" autocomplete="new-password" aria-describedby="wifi-help">
+<small id="wifi-help">Laissez vide pour conserver le mot de passe du même réseau. Pour changer de réseau, saisissez son mot de passe.</small>
+<label><input name="open_wifi" type="checkbox" value="1"> Ce réseau Wi-Fi n’a pas de mot de passe</label>
+<label for="city">Ville pour la météo</label><input id="city" name="city" value="%CITY%" maxlength="80" required>
+</details>
+<button type="submit">Enregistrer et redémarrer</button>
+<p>%CANCEL_HELP%</p>
 </form></body></html>
 )HTML";
+  page.replace("%TOKEN_HELP%", bridgeToken.isEmpty() ? "Saisissez la clé copiée depuis le Companion." : "Une clé est enregistrée. Laissez vide pour la conserver.");
+  page.replace("%TOKEN_REQUIRED%", bridgeToken.isEmpty() ? "required" : "");
+  page.replace("%WIFI_OPEN%", setupPortalActive ? "open" : "");
+  page.replace("%CANCEL_HELP%", setupPortalActive ? "Pour annuler, redémarrez le mini-écran sans enregistrer." : "Pour annuler, fermez cette page et touchez le mini-écran. L’accès se ferme automatiquement après 5 minutes.");
+  page.replace("%NONCE%", formNonce);
+  page.replace("%HOST%", escapeHtml(bridgeHost));
+  page.replace("%SSID%", escapeHtml(wifiSsid));
+  page.replace("%CITY%", escapeHtml(weatherCity));
+  return page;
+}
+
+void startWebServer() {
+  web.on("/", HTTP_GET, [] {
+    if (authorizeSettings()) web.send(200, "text/html; charset=utf-8", setupPage());
+  });
+  web.on("/save", HTTP_POST, saveConfiguration);
+  web.onNotFound([] {
+    if (setupPortalActive) {
+      web.sendHeader("Location", "http://192.168.4.1/", true);
+      web.send(302, "text/plain", "");
+    } else {
+      web.send(404, "text/plain", "Page introuvable");
+    }
+  });
+  web.begin();
+}
+
+void drawSettings() {
+  drawMessage("REGLAGES WEB", "http://" + WiFi.localIP().toString(),
+              "admin / " + settingsPassword,
+              "Meme Wi-Fi - acces 5 min - toucher pour fermer");
+}
+
+void openSettings() {
+  settingsPassword = randomCode().substring(0, 8);
+  formNonce = randomCode();
+  settingsStarted = millis();
+  currentPage = Page::Settings;
+  swipePull = 0;
+  drawCurrentPage();
+}
+
+void closeSettings() {
+  settingsPassword = "";
+  formNonce = "";
+  currentPage = Page::Dashboard;
+  drawCurrentPage();
 }
 
 [[noreturn]] void startSetupPortal() {
@@ -777,21 +886,16 @@ button{margin-top:1.4rem;padding:.85rem 1.2rem;border:0;border-radius:.5rem;back
   snprintf(suffix, sizeof(suffix), "%06lX",
            static_cast<unsigned long>(suffixValue & 0xFFFFFF));
   String accessPoint = "QuotaDisplay-" + String(suffix);
-  String password = "QD" + String(suffix);
+  String password = randomCode().substring(0, 8);
+  setupPortalActive = true;
+  formNonce = randomCode();
 
   WiFi.disconnect(true);
   WiFi.mode(WIFI_AP);
   WiFi.softAP(accessPoint.c_str(), password.c_str());
   dns.start(53, "*", WiFi.softAPIP());
-  web.on("/", HTTP_GET, [] { web.send(200, "text/html", setupPage()); });
-  web.on("/save", HTTP_POST, saveConfiguration);
-  web.onNotFound([] {
-    web.sendHeader("Location", "http://192.168.4.1/", true);
-    web.send(302, "text/plain", "");
-  });
-  web.begin();
-  Serial.printf("Setup AP: %s / %s / http://192.168.4.1\n",
-                accessPoint.c_str(), password.c_str());
+  startWebServer();
+  Serial.printf("Setup AP: %s / http://192.168.4.1\n", accessPoint.c_str());
 
   drawMessage("CONFIGURATION", accessPoint, "Mot de passe: " + password,
               "Ouvrir http://192.168.4.1");
@@ -850,30 +954,36 @@ bool loadConfiguration() {
   weatherCity =
       preferences.isKey("city") ? preferences.getString("city") : "Sherbrooke";
   String saved = preferences.getString("sleep");
+  bool hasConnection = preferences.isKey("connection");
+  String savedConnection = preferences.getString("connection");
   preferences.end();
+  if (hasConnection) {
+    JsonDocument connection;
+    if (deserializeJson(connection, savedConnection) != DeserializationError::Ok) return false;
+    wifiSsid = connection["ssid"].as<String>();
+    wifiPassword = connection["password"].as<String>();
+    bridgeHost = connection["host"].as<String>();
+    bridgeToken = connection["token"].as<String>();
+    weatherCity = connection["city"].as<String>();
+  }
   JsonDocument schedule;
   if (deserializeJson(schedule, saved) == DeserializationError::Ok) {
     readSleepSchedule(schedule.as<JsonVariantConst>(), false);
   }
-  return wifiSsid.length() && validHost(bridgeHost) &&
-         bridgeToken.length() >= 16;
+  return wifiSsid.length() && validHost(bridgeHost.c_str()) &&
+         validToken(bridgeToken.c_str());
 }
 
-void clearConfigurationIfRequested() {
+void openConfigurationIfRequested() {
   pinMode(BOOT_BUTTON, INPUT_PULLUP);
   if (digitalRead(BOOT_BUTTON) != LOW) return;
-  drawMessage("REINITIALISER?", "Garder BOOT appuye", "pendant 3 secondes");
+  drawMessage("CONFIGURATION", "Garder BOOT appuye", "pendant 3 secondes");
   uint32_t started = millis();
   while (digitalRead(BOOT_BUTTON) == LOW && millis() - started < 3000) {
     delay(20);
   }
   if (millis() - started >= 3000) {
-    preferences.begin("quota", false);
-    preferences.clear();
-    preferences.end();
-    drawMessage("CONFIG EFFACEE", "Redemarrage...");
-    delay(800);
-    ESP.restart();
+    startSetupPortal();
   }
 }
 
@@ -1252,6 +1362,8 @@ void handleTouch() {
     lastTouchMillis = millis();
     if (!swipeTracking) {
       swipeTracking = true;
+      touchStarted = millis();
+      longPressHandled = false;
       swipeStartX = x;
       swipeStartY = y;
       swipeCurrentX = x;
@@ -1263,6 +1375,14 @@ void handleTouch() {
     swipeCurrentY = y;
     int deltaX = swipeCurrentX - swipeStartX;
     int deltaY = swipeCurrentY - swipeStartY;
+    if (currentPage != Page::Settings && !longPressHandled &&
+        abs(deltaX) < 12 && abs(deltaY) < 12 && millis() - touchStarted >= 2000) {
+      openSettings();
+      // Waking the LCD resets gesture tracking; keep this press consumed until release.
+      swipeTracking = true;
+      longPressHandled = true;
+    }
+    if (currentPage == Page::Settings || displaySleeping) return;
     if (swipeStartY <= SWIPE_START_Y && deltaY > abs(deltaX)) {
       int nextPull = constrain(y - swipeStartY, 0, SWIPE_MAX);
       if (abs(nextPull - swipePull) >= 2) {
@@ -1286,7 +1406,13 @@ void handleTouch() {
   Serial.printf("Touch released: dx=%d dy=%d refresh=%s\n", deltaX, deltaY,
                 shouldRefresh ? "yes" : "no");
   swipeTracking = false;
-  if (shouldRefresh) {
+  if (displaySleeping) return;
+  if (longPressHandled) {
+    // Releasing the long press must not close the settings it just opened.
+    longPressHandled = false;
+  } else if (currentPage == Page::Settings) {
+    if (tap) closeSettings();
+  } else if (shouldRefresh) {
     animateGestureRefresh();
   } else if (horizontal) {
     Page nextPage = deltaX < 0 ? Page::Weather : Page::Dashboard;
@@ -1314,6 +1440,23 @@ void handleTouch() {
   swipePull = 0;
 }
 
+bool disableStatusLed() {
+  // SY6970 REG07: same settings as XPowersLib init + disableStatLed.
+  // Disable the I2C watchdog so it cannot restore the blinking LED; retain
+  // charging termination, the charging safety timer and temperature limits.
+  constexpr uint8_t address = 0x6A;
+  constexpr uint8_t reg = 0x07;
+  Wire.beginTransmission(address);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(address, uint8_t(1)) != 1)
+    return false;
+  uint8_t value = (Wire.read() & ~0x30) | 0x40;
+  Wire.beginTransmission(address);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
 void setupDisplay() {
   pinMode(TFT_BL, OUTPUT);
   pinMode(TFT_RST, OUTPUT);
@@ -1330,6 +1473,7 @@ void setupDisplay() {
   delay(2);
   Wire.begin(TOUCH_SDA, TOUCH_SCL, 100000);
   Wire.setTimeOut(20);
+  Serial.printf("Charge status LED: %s\n", disableStatusLed() ? "disabled" : "I2C error");
 
   if (!panel->begin(32000000) || !view->begin(GFX_SKIP_OUTPUT_BEGIN)) {
     while (true) delay(1000);
@@ -1360,7 +1504,7 @@ void restartDisplay() {
 }
 
 void updateDisplaySleep() {
-  bool sleeping = sleepSchedule.asleepAt(time(nullptr));
+  bool sleeping = currentPage != Page::Settings && sleepSchedule.asleepAt(time(nullptr));
   if (sleeping == displaySleeping) return;
   displaySleeping = sleeping;
   swipeTracking = false;
@@ -1383,11 +1527,12 @@ void setup() {
   Serial.begin(115200);
   Serial.printf("Boot reset reason: %d\n", static_cast<int>(esp_reset_reason()));
   setupDisplay();
-  clearConfigurationIfRequested();
-
-  if (!loadConfiguration()) startSetupPortal();
+  bool configured = loadConfiguration();
+  openConfigurationIfRequested();
+  if (!configured) startSetupPortal();
   configTzTime(sleepTimezone.c_str(), "pool.ntp.org", "time.nist.gov");
   if (!connectWifi()) startSetupPortal();
+  startWebServer();
 
   drawMessage("SYNCHRONISATION", "Lecture des quotas...");
   bool fetched = fetchAll();
@@ -1397,13 +1542,22 @@ void setup() {
 }
 
 void loop() {
+  web.handleClient();
+  if (currentPage == Page::Settings && millis() - settingsStarted >= SETTINGS_MS) {
+    closeSettings();
+  }
   updateDisplaySleep();
   if (WiFi.status() != WL_CONNECTED) {
     online = false;
     WiFi.reconnect();
   }
 
-  if (!displaySleeping) handleTouch();
+  // A long press also opens settings while the scheduled backlight is off.
+  handleTouch();
+  if (currentPage == Page::Settings) {
+    delay(10);
+    return;
+  }
 
   if (!displaySleeping && !swipeTracking &&
       static_cast<int32_t>(millis() - nextLcdRestartMillis) >= 0) {

@@ -129,6 +129,12 @@ révisions actuelles.
 
 ### Firmware précompilé
 
+La [version firmware du 20 septembre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.09.20)
+inclut les réglages web tactiles et désactive la DEL de charge clignotante dès
+le démarrage, y compris pendant la veille. La charge de la batterie reste active.
+Les deux images et leurs sommes SHA-256 sont disponibles dans cette release,
+indépendamment des mises à jour de l’application Mac.
+
 L’image complète se trouve dans
 [`firmware/releases/quota-display-full.bin`](firmware/releases/quota-display-full.bin)
 et doit être écrite à l’adresse `0x0` :
@@ -144,6 +150,17 @@ python -m esptool --chip esp32s3 --port "$SERIAL_PORT" \
 
 Remplacez la valeur de `SERIAL_PORT` par le port USB détecté sur votre
 ordinateur.
+
+Pour **mettre à jour un écran déjà configuré**, utilisez uniquement l’image
+application à `0x10000` afin de conserver le Wi-Fi, la clé et l’horaire de veille :
+
+```sh
+python -m esptool --chip esp32s3 --port "$SERIAL_PORT" \
+  write_flash 0x10000 firmware/releases/quota-display.bin
+```
+
+N’utilisez pas l’image complète à `0x0` pour cette mise à jour : elle recouvre
+aussi la zone des réglages.
 
 ### Compilation depuis les sources
 
@@ -168,8 +185,34 @@ mot de passe temporaire est affiché sur le LCD.
    ville utilisée pour la météo.
 4. Enregistrez. L’écran redémarre et commence sa synchronisation.
 
-Pour rouvrir le portail et remplacer la configuration, maintenez **BOOT**
-pendant trois secondes au démarrage.
+### Modifier l’adresse de l’API ou sa clé
+
+Aucun accès aux boutons du boîtier n’est nécessaire :
+
+1. Maintenez le doigt **deux secondes sur l’écran tactile**, même pendant la veille.
+2. L’écran affiche son adresse web et un code temporaire.
+3. Depuis un téléphone ou un ordinateur sur le **même Wi-Fi**, ouvrez cette
+   adresse. Connectez-vous avec **admin** et le code affiché sur l’écran.
+4. Modifiez **Adresse de l’API** et/ou **Clé API**, puis choisissez
+   **Enregistrer et redémarrer**.
+
+Le Wi-Fi et la ville restent configurés. Laissez la clé vide pour conserver
+la clé actuelle; elle n’est jamais renvoyée dans la page. La section **Wi-Fi et
+météo** permet aussi de modifier ces réglages. Un mot de passe Wi-Fi vide
+conserve celui du même réseau, sauf si **Ce réseau Wi-Fi n’a pas de mot de passe**
+est coché.
+
+L’accès expire après cinq minutes ou lorsque vous touchez à nouveau l’écran.
+Les quotas sont en pause pendant l’affichage du code. Le code ne dépend pas de
+l’ancienne clé API : vous pouvez donc remplacer une clé devenue invalide.
+La page utilise HTTP et doit rester sur un réseau de confiance.
+
+Cette fonction nécessite une première mise à jour du firmware par USB sur
+chaque écran déjà installé; ensuite, les réglages se modifient par le Web.
+Si le Wi-Fi est inaccessible au démarrage, le réseau `QuotaDisplay-XXXXXX`
+s’ouvre automatiquement et conserve les réglages pour les corriger. Le maintien
+de **BOOT** pendant trois secondes au démarrage reste un accès de secours au
+portail, sans effacement préalable.
 
 ## Utilisation du mini-écran
 
@@ -265,6 +308,9 @@ Vérifications principales :
 ```sh
 python3 bridge/test_quota_bridge.py
 python3 bridge/test_installer.py
+python3 firmware/test_status_led.py
+c++ -std=c++11 -Wall -Wextra -pedantic firmware/test_configuration.cpp -o /tmp/quota-configuration-test
+/tmp/quota-configuration-test
 c++ -std=c++11 -Wall -Wextra -pedantic firmware/test_sleep.cpp -o /tmp/quota-sleep-test
 /tmp/quota-sleep-test
 python3 bridge/quota_bridge.py --once
