@@ -29,6 +29,12 @@ private final class DesignerWindow: NSWindowController, WKNavigationDelegate {
     required init?(coder: NSCoder) { nil }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if navigationAction.navigationType == .linkActivated,
+           let url = navigationAction.request.url, url.scheme == "https",
+           url.host == "pducharme.github.io", url.path.hasPrefix("/codex-claude-quota-display/") {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel); return
+        }
         guard let url = navigationAction.request.url, url.scheme == origin.scheme,
               url.host == origin.host, url.port == origin.port, url.path.hasPrefix("/designer") else {
             decisionHandler(.cancel); return
@@ -2704,7 +2710,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             guard let installedBridge = installedBridgeURL(in: try? Data(contentsOf: launchAgent)) else { return }
             var bridgeUpdated = false
             if let resources = bundledBridge?.deletingLastPathComponent(), resources != installedBridge.deletingLastPathComponent() {
-                let names = ["designer.py"] + ((try? FileManager.default.subpathsOfDirectory(atPath: resources.appendingPathComponent("designer").path)) ?? []).map { "designer/" + $0 }
+                let names = ["designer.py", "designer_integrations.py"] + ((try? FileManager.default.subpathsOfDirectory(atPath: resources.appendingPathComponent("designer").path)) ?? []).map { "designer/" + $0 }
                 for name in names {
                     let source = resources.appendingPathComponent(name)
                     var isDirectory: ObjCBool = false

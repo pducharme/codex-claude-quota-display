@@ -23,6 +23,16 @@ const examples = {
   "weather.temperature": "21 °C",
   "weather.condition": "Éclaircies",
   "focus.remaining": "25:00",
+  "source.title": "Votre morceau",
+  "source.artist": "Artiste",
+  "source.volume": "45 %",
+  "source.primary": "72",
+  "source.secondary": "18",
+  "source.third": "23",
+  "source.status": "Données d’exemple",
+  "source.start": "14:30",
+  "source.remaining": "25 min",
+  "source.progress": 72,
 };
 const descriptions = [
   "Les quotas restants, à votre façon.",
@@ -282,10 +292,14 @@ function render() {
     : p.kind === "sky"
       ? "Le trajet et l’avion sont placés automatiquement. Choisissez votre police, vos couleurs et votre zone."
       : "Cette page conserve le rendu actuel. Ajoutez un modèle Quotas ou Météo pour une page personnalisable.";
+  renderSource();
   $("blocks").replaceChildren();
   p.blocks.forEach((b, i) => {
     const item = button(
-      b.text || b.binding || "Jauge",
+      b.text ||
+        Array.from($("binding").options).find((o) => o.value === b.binding)
+          ?.textContent ||
+        "Jauge",
       () => {
         selected = i;
         render();
@@ -596,10 +610,23 @@ async function init() {
       const name = document.createElement("strong"),
         desc = document.createElement("span");
       name.textContent = p.name;
-      desc.textContent = descriptions[i];
-      b.append(name, desc);
+      desc.textContent = p.description || descriptions[i];
+      if (p.requires) {
+        const requires = document.createElement("small");
+        requires.textContent = p.requires;
+        b.append(requires);
+      }
+      b.dataset.search = [p.name, p.category || "", p.description || ""]
+        .join(" ")
+        .toLocaleLowerCase("fr");
+      b.prepend(name, desc);
       $("templates").append(b);
     });
+    $("template-search").oninput = () => {
+      const query = $("template-search").value.toLocaleLowerCase("fr").trim();
+      for (const card of $("templates").children)
+        card.hidden = !card.dataset.search.includes(query);
+    };
     render();
     deviceList();
     message(

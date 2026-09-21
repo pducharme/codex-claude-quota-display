@@ -4,6 +4,8 @@ Quota Display affiche les limites d’utilisation de **Codex** et de **Claude**
 dans un Companion macOS et, facultativement, sur un mini-écran
 **LILYGO T-Display S3 Long**.
 
+[Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
+
 [Télécharger la dernière version](https://github.com/pducharme/codex-claude-quota-display/releases/latest)
 
 ![Mini-écran Quota Display affichant les quotas Codex et Claude, passant au noir pendant la veille puis se rallumant](docs/assets/mini-screen-sleep.gif)

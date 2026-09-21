@@ -7,6 +7,7 @@
     <title>Designer — Quota Display</title>
     <link rel="stylesheet" href="/designer/style.css" />
     <script src="/designer/app.js" defer></script>
+    <script src="/designer/connections.js" defer></script>
   </head>
   <body>
     <header>
@@ -15,6 +16,12 @@
         <p>Composez votre mini-écran.</p>
       </div>
       <div class="actions">
+        <a
+          class="guide-link"
+          href="https://pducharme.github.io/codex-claude-quota-display/"
+          >Guide</a
+        >
+        <button id="open-connections">Connexions</button>
         <button id="undo" disabled>Annuler</button
         ><button id="redo" disabled>Rétablir</button
         ><button id="publish" class="primary" disabled>
@@ -71,6 +78,7 @@
           l’aperçu.
         </p>
         <div id="blocks" aria-label="Éléments de la page"></div>
+        <section id="source-settings" class="sky-settings" hidden></section>
         <section class="sky-settings" id="sky-settings" hidden>
           <h2>Quand un avion passe</h2>
           <label class="check"
@@ -192,6 +200,48 @@
         <button id="remove-page" class="quiet danger">Supprimer la page</button>
       </aside>
     </main>
+    <dialog id="connections">
+      <div class="section-title">
+        <h2>Connexions du Mac source</h2>
+        <button id="close-connections" aria-label="Fermer les connexions">
+          ✕
+        </button>
+      </div>
+      <p>
+        Connectez Home Assistant une fois, puis choisissez vos appareils par
+        leur nom dans chaque page.
+      </p>
+      <form id="ha-connect">
+        <label class="field"
+          >Adresse Home Assistant<input
+            id="ha-url"
+            type="url"
+            placeholder="http://homeassistant.local:8123"
+            required
+            autocomplete="url"
+        /></label>
+        <label class="field"
+          >Jeton d’accès de longue durée<input
+            id="ha-token"
+            type="password"
+            required
+            autocomplete="off"
+            maxlength="4096"
+        /></label>
+        <p class="hint">
+          Créez un jeton dans votre profil Home Assistant, rubrique Sécurité. Il
+          est conservé dans le trousseau du Mac source et n’est jamais envoyé
+          aux mini-écrans.
+        </p>
+        <button id="save-connection" class="primary" type="submit">
+          Connecter Home Assistant
+        </button>
+        <button id="refresh-connections" type="button">
+          Actualiser les appareils
+        </button>
+      </form>
+      <p id="ha-status" role="status"></p>
+    </dialog>
     <dialog id="gallery">
       <div class="section-title">
         <div>
@@ -200,6 +250,12 @@
         </div>
         <button id="close-gallery" aria-label="Fermer">✕</button>
       </div>
+      <label class="field"
+        >Rechercher un modèle<input
+          id="template-search"
+          type="search"
+          placeholder="Musique, météo, maison…"
+      /></label>
       <div id="templates"></div>
     </dialog>
   </body>

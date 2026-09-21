@@ -44,6 +44,7 @@ done
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/bin/install -m 755 "$SCRIPT_DIR/quota_bridge.py" "$RESOURCES/quota_bridge.py"
 /usr/bin/install -m 644 "$SCRIPT_DIR/designer.py" "$RESOURCES/designer.py"
+/usr/bin/install -m 644 "$SCRIPT_DIR/designer_integrations.py" "$RESOURCES/designer_integrations.py"
 /usr/bin/ditto "$SCRIPT_DIR/designer" "$RESOURCES/designer"
 /usr/bin/install -m 600 \
   "$SCRIPT_DIR/com.pducharme.quota-display.plist.template" \

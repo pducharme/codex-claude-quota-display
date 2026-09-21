@@ -353,3 +353,19 @@ summary {
     min-height: 40px;
   }
 }
+
+.template small {
+  display: block;
+  color: var(--muted);
+  margin-top: 10px;
+  font-size: 11px;
+}
+#ha-status {
+  margin-top: 16px;
+}
+
+.guide-link {
+  color: var(--accent);
+  align-self: center;
+  padding: 6px;
+}

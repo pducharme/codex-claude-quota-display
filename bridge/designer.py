@@ -18,6 +18,15 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse, urlencode
 from urllib.request import Request, urlopen
 
+from designer_integrations import (
+    Connections,
+    MODULES,
+    BINDINGS as SOURCE_BINDINGS,
+    ACTIONS as SOURCE_ACTIONS,
+    validate_source,
+    templates as source_templates,
+)
+
 ASSETS = Path(__file__).with_name("designer")
 FONTS = ["pixel", "silkscreen", "pixelify", "terminal", "modern", "mono"]
 BINDINGS = {
@@ -112,7 +121,7 @@ def templates():
         ),
         page("Dans le ciel", kind="sky", font="mono"),
         page("Page libre"),
-    ]
+    ] + source_templates(page, block)
 
 
 def number(v, low, high):
@@ -167,7 +176,7 @@ def validate(config):
             if (
                 not isinstance(b, dict)
                 or b.get("type") not in KINDS
-                or b.get("binding", "") not in BINDINGS | {""}
+                or b.get("binding", "") not in BINDINGS | SOURCE_BINDINGS | {""}
             ):
                 raise ValueError("Élément inconnu.")
             x = int(number(b.get("x"), 0, 639))
@@ -176,7 +185,7 @@ def validate(config):
             h = int(number(b.get("h"), 8, 180 - y))
             size = int(number(b.get("size", 1), 1, 4))
             action = b.get("action", "")
-            if action not in ("", "focus.toggle"):
+            if action not in {"", "focus.toggle"} | SOURCE_ACTIONS:
                 raise ValueError("Action inconnue.")
             clean.append(
                 block(
@@ -191,6 +200,15 @@ def validate(config):
                     action,
                 )
             )
+        source = validate_source(p.get("source"))
+        if (
+            any(
+                b["binding"].startswith("source.") or b["action"].startswith("source.")
+                for b in clean
+            )
+            and not source
+        ):
+            raise ValueError("Connexion requise pour cet élément.")
         out.append(
             dict(
                 id=pid,
@@ -202,6 +220,8 @@ def validate(config):
                 blocks=clean,
             )
         )
+        if source:
+            out[-1]["source"] = source
     sky = config.get("sky", {})
     if not isinstance(sky, dict) or type(sky.get("enabled", False)) is not bool:
         raise ValueError("Zone invalide.")
@@ -450,6 +470,7 @@ class Designer:
         self.weather = weather
         self.flights = flights or Flights()
         self.lock = threading.RLock()
+        self.connections = Connections(self.path.with_name("designer-connections.json"))
         self.sessions = {}
         self.devices = {}
         self.focus = {}
@@ -541,6 +562,7 @@ class Designer:
                 revision=data["revision"],
                 config=data["config"],
                 templates=templates(),
+                connections=self.connections.info(),
                 load_error=self.load_error,
                 rollback=bool(data["previous"]),
                 devices=[
@@ -560,6 +582,8 @@ class Designer:
             configs = [
                 copy.deepcopy(t["config"]) for t in self.data["targets"].values()
             ]
+        if any(p.get("source") for c in configs for p in c["pages"]):
+            self.connections.poll()
         zones = set()
         for c in configs:
             sky = c["sky"]
@@ -585,17 +609,32 @@ class Designer:
 
         threading.Thread(target=loop, daemon=True).start()
 
-    def action(self, device, action):
-        if not DEVICE.fullmatch(device) or action != "focus.toggle":
+    def action(self, device, action, page_id=""):
+        if (
+            not DEVICE.fullmatch(device)
+            or action not in {"focus.toggle"} | SOURCE_ACTIONS
+        ):
             raise ValueError("Action invalide.")
         with self.lock:
             target = self.data["targets"].get(device)
             if not target or not any(
-                b.get("action") == action
+                b.get("action") == action and (not page_id or p["id"] == page_id)
                 for p in target["config"]["pages"]
                 for b in p["blocks"]
             ):
                 raise ValueError("Action non publiée.")
+            if action.startswith("source."):
+                page = next(
+                    (p for p in target["config"]["pages"] if p["id"] == page_id), None
+                )
+                if not page or not page.get("source"):
+                    raise ValueError("Page inconnue.")
+                source = copy.deepcopy(page["source"])
+            else:
+                source = None
+        if source:
+            return self.connections.action(source, action, device, page_id)
+        with self.lock:
             now = time.time()
             focus = self.focus.setdefault(device, {"remaining": 1500, "until": None})
             if focus["until"] is not None:
@@ -667,8 +706,14 @@ class Designer:
             pages = []
             for p in c["pages"]:
                 resolved = copy.deepcopy(p)
+                page_values = dict(values)
+                if p.get("source"):
+                    page_values.update(
+                        self.connections.values(p["source"], device, p["id"])
+                    )
+                resolved.pop("source", None)
                 for b in resolved["blocks"]:
-                    v = values.get(b["binding"])
+                    v = page_values.get(b["binding"])
                     b["value"] = v if type(v) in (int, float) else None
                     if b["binding"]:
                         formatted = ("--" if v is None else str(v)) + (
@@ -734,6 +779,7 @@ class Designer:
             elif method == "GET" and path in (
                 "/designer/app.js",
                 "/designer/style.css",
+                "/designer/connections.js",
                 "/designer/fonts.json",
             ):
                 self.send(
@@ -781,6 +827,11 @@ class Designer:
                     result = self.publish(body)
                 elif path == "/designer/api/rollback":
                     result = self.rollback(body.get("base_revision"))
+                elif path == "/designer/api/connect":
+                    result = self.connections.connect(body)
+                elif path == "/designer/api/connections":
+                    self.connections.poll()
+                    result = self.connections.info()
                 elif path == "/designer/api/places":
                     query = label(body.get("query", ""), 80)
                     if len(query) < 2:
@@ -805,7 +856,9 @@ class Designer:
                     }
                 elif path == "/v1/designer/action":
                     result = self.action(
-                        str(body.get("device", "")), body.get("action")
+                        str(body.get("device", "")),
+                        body.get("action"),
+                        str(body.get("page", "")),
                     )
                 else:
                     h._json(404, {"error": "not_found"})

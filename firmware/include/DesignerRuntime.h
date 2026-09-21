@@ -17,7 +17,10 @@ String designerFlightID;
 DesignerSelection designerSelection;
 SemaphoreHandle_t designerMutex = nullptr;
 String designerPending;
-bool designerActionPending = false;
+struct DesignerAction { char body[192]; };
+QueueHandle_t designerActions = nullptr;
+volatile int designerActionResult = 0;
+volatile uint32_t designerActionFinished = 0;
 volatile uint32_t designerReportedRevision = 0;
 volatile bool designerReportedSleep = false;
 bool designerFS = false;
@@ -146,6 +149,10 @@ void drawDesigner() {
     }
   }
   if(!designerReceived||millis()-designerReceived>30000){view->fillRect(0,0,640,18,bg);designerText(8,1,622,16,"Hors ligne - anciennes valeurs",0,1,COLOR_AMBER);}
+  if(designerActionFinished && millis()-designerActionFinished<3000 && designerActionResult!=200) {
+    view->fillRect(0,156,640,24,bg);
+    designerText(8,158,622,20,designerActionResult==429?"Trop de commandes - patientez":"Commande non confirmee - verifiez la connexion",0,1,COLOR_AMBER);
+  }
   if(designerPinned)view->fillCircle(633,5,3,COLOR_AMBER);
   present();
   if(!displaySleeping)designerReportedRevision=designerRevision;
@@ -155,9 +162,18 @@ void designerNetwork(void *) {
   const String id=designerDeviceID();
   for(;;) {
     if(WiFi.status()==WL_CONNECTED) {
-      bool action=false;
-      if(xSemaphoreTake(designerMutex,pdMS_TO_TICKS(20))){action=designerActionPending;designerActionPending=false;xSemaphoreGive(designerMutex);}
-      if(action){HTTPClient http;http.setConnectTimeout(1500);http.setTimeout(2000);if(http.begin("http://"+bridgeHost+"/v1/designer/action")){http.addHeader("Authorization","Bearer "+bridgeToken);http.addHeader("Content-Type","application/json");int code=http.POST("{\"device\":\""+id+"\",\"action\":\"focus.toggle\"}");Serial.printf("Designer action: %d\n",code);http.end();}}
+      DesignerAction action;
+      // Up to four queued taps per frame; the bounded queue keeps touch responsive.
+      for(int n=0;n<4 && designerActions && xQueueReceive(designerActions,&action,0)==pdTRUE;n++) {
+        HTTPClient command;command.setConnectTimeout(1500);command.setTimeout(2000);
+        int code=-1;
+        if(command.begin("http://"+bridgeHost+"/v1/designer/action")) {
+          command.addHeader("Authorization","Bearer "+bridgeToken);
+          command.addHeader("Content-Type","application/json");code=command.POST(String(action.body));command.end();
+        }
+        designerActionResult=code;designerActionFinished=millis();
+        Serial.printf("Designer action: %d\n",code);
+      }
       HTTPClient http;http.setConnectTimeout(1500);http.setTimeout(2000);
       if(http.begin("http://"+bridgeHost+"/v1/designer/frame?device="+id+"&applied="+String(designerReportedRevision)+"&sleeping="+(designerReportedSleep?"1":"0"))) {
         http.addHeader("Authorization","Bearer "+bridgeToken);
@@ -199,6 +215,7 @@ void startDesigner() {
   }
   designerPageStarted=millis();
   designerMutex=xSemaphoreCreateMutex();
+  designerActions=xQueueCreate(8,sizeof(DesignerAction));
   if(designerMutex)xTaskCreate(designerNetwork,"designer",8192,nullptr,1,nullptr);
 }
 
@@ -237,8 +254,13 @@ void designerTap(int x,int y) {
     if(c&&(!a||x<317)){currentPage=Page::CodexDetail;return;}
   }
   for(JsonObject b:p["blocks"].as<JsonArray>()) {
-    if(String(b["type"]|"")=="button"&&String(b["action"]|"")=="focus.toggle"&&x>=b["x"].as<int>()&&y>=b["y"].as<int>()&&x<b["x"].as<int>()+b["w"].as<int>()&&y<b["y"].as<int>()+b["h"].as<int>()) {
-      if(xSemaphoreTake(designerMutex,pdMS_TO_TICKS(10))){designerActionPending=true;xSemaphoreGive(designerMutex);}return;
+    if(String(b["type"]|"")=="button"&&String(b["action"]|"").length()>0&&x>=b["x"].as<int>()&&y>=b["y"].as<int>()&&x<b["x"].as<int>()+b["w"].as<int>()&&y<b["y"].as<int>()+b["h"].as<int>()) {
+      JsonDocument action;action["device"]=designerDeviceID();action["page"]=p["id"];action["action"]=b["action"];
+      DesignerAction pending;
+      if(measureJson(action)>=sizeof(pending.body))return;
+      serializeJson(action,pending.body,sizeof(pending.body));
+      if(!designerActions||xQueueSend(designerActions,&pending,0)!=pdTRUE){designerActionResult=429;designerActionFinished=millis();}
+      return;
     }
   }
   designerPinned=!designerPinned;

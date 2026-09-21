@@ -26,7 +26,7 @@ class DesignerTests(unittest.TestCase):
 
     def config(self):
         c = default_config()
-        c["pages"] = templates()
+        c["pages"] = templates()[:6]
         c["sky"] = dict(enabled=True, lat=45, lon=-72, radius=10)
         c["auto_sky"] = True
         return c
