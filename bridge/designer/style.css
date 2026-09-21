@@ -394,3 +394,16 @@ summary {
   outline: 2px solid var(--ink);
   outline-offset: -2px;
 }
+
+.source-reading {
+  font-size: 12px;
+  margin: 12px 0;
+}
+#service-connections {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+}
+#service-connections summary {
+  font-size: 14px;
+  font-weight: 600;
+}

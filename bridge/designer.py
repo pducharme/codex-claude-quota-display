@@ -638,8 +638,10 @@ class Designer:
             configs = [
                 copy.deepcopy(t["config"]) for t in self.data["targets"].values()
             ]
-        if any(p.get("source") for c in configs for p in c["pages"]):
+        sources = [p["source"] for c in configs for p in c["pages"] if p.get("source")]
+        if any(MODULES[s["module"]]["provider"] == "home_assistant" for s in sources):
             self.connections.poll()
+        self.connections.services.poll(sources)
         if any(
             p.get("source", {}).get("module") == "mac_stats"
             for c in configs
@@ -892,6 +894,34 @@ class Designer:
                     result = self.rollback(body.get("base_revision"))
                 elif path == "/designer/api/connect":
                     result = self.connections.connect(body)
+                elif path == "/designer/api/service-connect":
+                    self.connections.services.configure(
+                        body.get("provider"), body.get("credentials")
+                    )
+                    result = self.connections.info()
+                elif path == "/designer/api/mac-shortcuts":
+                    result = {"shortcuts": self.connections.controls.shortcuts()}
+                elif path == "/designer/api/source-preview":
+                    source = validate_source(body.get("source"))
+                    if source is None:
+                        raise ValueError("Source requise.")
+                    if MODULES[source["module"]]["provider"] == "home_assistant":
+                        self.connections.poll()
+                    elif source["module"] == "mac_stats":
+                        self.connections.mac.poll()
+                    else:
+                        with self.lock:
+                            sources = [
+                                copy.deepcopy(p["source"])
+                                for target in self.data["targets"].values()
+                                for p in target["config"]["pages"]
+                                if p.get("source")
+                            ]
+                        self.connections.services.poll(sources + [source])
+                    result = {
+                        "values": self.connections.values(source, "preview", "preview"),
+                        "choices": self.connections.choices(source),
+                    }
                 elif path == "/designer/api/connections":
                     self.connections.poll()
                     result = self.connections.info()

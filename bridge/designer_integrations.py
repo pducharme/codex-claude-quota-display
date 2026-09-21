@@ -11,7 +11,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from designer_local import MacStats
+from designer_local import MacStats, MacControls
+from designer_services import WebServices, MODULES as WEB_MODULES, validate_options
 from urllib.parse import urlsplit
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
@@ -151,6 +152,54 @@ MODULES = {
         ],
     ),
 }
+MODULES["spotify"] = dict(
+    name="Télécommande Spotify",
+    category="Musique",
+    description="Morceau, lecture, volume et appareil Spotify Connect.",
+    slots=[("player", "Compte Spotify", ["media_player"])],
+    fields=[("title", "Morceau"), ("artist", "Artiste"), ("volume", "Volume")],
+    actions=[a for a in MODULES["sonos"]["actions"] if a[0] != "mute"]
+    + [("select_output", "Appareil")],
+    options=[
+        dict(
+            key="output",
+            label="Appareil Spotify Connect",
+            type="remote_choice",
+            default="",
+        )
+    ],
+)
+MODULES["sonos"]["slots"].append(
+    ("favorites", "Favoris Sonos (facultatif)", ["sensor"])
+)
+MODULES["sonos"]["options"] = [
+    dict(key="favorite", label="Favori à lancer", type="remote_choice", default="")
+]
+MODULES["sonos"]["actions"].append(("favorite", "Favori"))
+MODULES["sports"] = dict(
+    name="Score sportif",
+    category="Fun",
+    description="Équipes, score, période et prochain match via TeamTracker.",
+    slots=[("game", "Équipe TeamTracker", ["sensor"])],
+    fields=[
+        ("team", "Équipe"),
+        ("score", "Score"),
+        ("opponent", "Adversaire"),
+        ("period", "Période / prochain match"),
+    ],
+)
+MODULES["monitor"]["actions"] = [("acknowledge", "Vu, merci")]
+MODULES["ev"]["options"] = [
+    dict(
+        key="reminder_below",
+        label="Rappeler de brancher sous (%)",
+        type="number",
+        min=0,
+        max=100,
+        default=30,
+    )
+]
+
 for spec in MODULES.values():
     spec.setdefault("fields", [(key, label) for key, label, _ in spec["slots"]])
     spec.setdefault("actions", [])
@@ -170,6 +219,41 @@ MODULES["mac_stats"] = dict(
     requires="Le Companion mesure le Mac source; aucun compte nécessaire.",
     progress=True,
 )
+
+MODULES["sports"][
+    "requires"
+] = "Home Assistant avec l’intégration communautaire TeamTracker déjà configurée pour votre équipe."
+MODULES["spotify"][
+    "requires"
+] = "Home Assistant avec Spotify connecté, un compte Premium et un appareil Spotify Connect actif."
+
+MODULES["mac_controls"] = dict(
+    name="Contrôles du Mac",
+    category="Bureau",
+    description="Volume, silence et raccourcis choisis sur le Mac source.",
+    slots=[],
+    fields=[("volume", "Volume"), ("muted", "Muet"), ("shortcut", "Raccourci")],
+    actions=[
+        ("volume_down", "Vol -"),
+        ("mute", "Muet"),
+        ("volume_up", "Vol +"),
+        ("play_pause", "Lire/II"),
+        ("shortcut", "Lancer"),
+    ],
+    provider="local",
+    requires="Les commandes agissent sur le Mac source. Choisissez des raccourcis sans demande de saisie et vérifiez leurs autorisations.",
+    options=[
+        dict(
+            key="playback_shortcut",
+            label="Raccourci Lecture / pause",
+            type="shortcut",
+            default="",
+        ),
+        dict(key="shortcut", label="Autre raccourci", type="shortcut", default=""),
+    ],
+)
+
+MODULES.update(WEB_MODULES)
 
 BINDINGS = {"source." + key for m in MODULES.values() for key, _ in m["fields"]} | {
     "source.status",
@@ -197,7 +281,12 @@ def validate_source(value):
         ):
             raise ValueError("Appareil incompatible.")
         clean[slot] = entity
-    return dict(module=value["module"], entities=clean)
+    result = dict(module=value["module"], entities=clean)
+    if spec.get("options"):
+        result["options"] = validate_options(
+            value["module"], value.get("options", {}), spec["options"]
+        )
+    return result
 
 
 def templates(page, block):
@@ -220,7 +309,13 @@ def templates(page, block):
                     width - 8,
                     40,
                     binding="source." + field,
-                    size=1 if key in ("sonos", "meeting", "mac_stats") else 2,
+                    size=(
+                        1
+                        if key
+                        in ("sonos", "spotify", "meeting", "mac_stats", "mac_controls")
+                        or key in WEB_MODULES
+                        else 2
+                    ),
                 ),
             ]
         actions = m["actions"]
@@ -240,6 +335,28 @@ def templates(page, block):
                 )
         elif m.get("progress"):
             blocks.append(block("bar", 16, 114, 608, 22, binding="source.progress"))
+        if key == "youtube":
+            blocks = [
+                block("text", 16, 10, 608, 20, "Créateur YouTube"),
+                block("text", 16, 38, 190, 20, "Abonnés"),
+                block("value", 16, 64, 190, 36, binding="source.subscribers", size=2),
+                block("text", 230, 38, 190, 20, "Vues"),
+                block("value", 230, 64, 190, 36, binding="source.views", size=2),
+                block("text", 442, 38, 182, 20, "Objectif"),
+                block("value", 442, 64, 182, 30, binding="source.goal"),
+                block("bar", 442, 96, 182, 10, binding="source.progress"),
+                block("value", 16, 123, 608, 24, binding="source.latest"),
+                block("value", 16, 156, 608, 20, binding="source.status"),
+            ]
+        if key == "sports":
+            blocks = [
+                block("text", 16, 10, 608, 20, "Score sportif"),
+                block("value", 16, 48, 204, 44, binding="source.team", size=2),
+                block("value", 250, 48, 160, 44, binding="source.score", size=2),
+                block("value", 440, 48, 184, 44, binding="source.opponent", size=2),
+                block("value", 16, 110, 608, 28, binding="source.period"),
+                block("value", 16, 156, 608, 20, binding="source.status"),
+            ]
         p = page(m["name"], blocks, font="modern")
         p.update(
             source=dict(module=key, entities={}),
@@ -247,6 +364,8 @@ def templates(page, block):
             description=m["description"],
             requires=m["requires"],
         )
+        if m.get("options"):
+            p["source"]["options"] = {d["key"]: d["default"] for d in m["options"]}
         result.append(p)
     return result
 
@@ -383,6 +502,10 @@ class Connections:
         self.status = "not_connected"
         self.acknowledged = {}
         self.mac = MacStats()
+        self.controls = MacControls()
+        self.services = WebServices(
+            self.path.with_name("designer-services.json"), self.vault
+        )
         try:
             self.url = base_url(json.loads(self.path.read_text())["home_assistant"])
         except (OSError, ValueError, KeyError, TypeError):
@@ -443,6 +566,7 @@ class Connections:
                     at=self.at,
                 ),
                 modules=MODULES,
+                services=self.services.info(),
                 entities=[
                     dict(
                         id=k,
@@ -472,6 +596,10 @@ class Connections:
         with self.lock:
             source = validate_source(source)
             spec = MODULES[source["module"]]
+            if source["module"] in WEB_MODULES:
+                return self.services.values(source)
+            if source["module"] == "mac_controls":
+                return self.controls.values(source["options"])
             if source["module"] == "mac_stats":
                 return self.mac.values()
             if not self.url or not self.token:
@@ -505,7 +633,7 @@ class Connections:
                     values["source.progress"] = progress
             except (ValueError, TypeError):
                 pass
-            if source["module"] == "sonos":
+            if source["module"] in ("sonos", "spotify"):
                 e = selected.get("player") or {}
                 a = e.get("attributes", {})
                 volume = a.get("volume_level")
@@ -530,7 +658,7 @@ class Connections:
                             "source.title": "Indisponible",
                             "source.artist": "",
                             "source.volume": "--",
-                            "source.status": "Enceinte indisponible",
+                            "source.status": "Lecteur indisponible",
                         }
                     )
             elif source["module"] == "meeting":
@@ -560,31 +688,208 @@ class Connections:
                         (entity or {}).get("attributes", {}).get("friendly_name")
                         or "Choisir une scène"
                     )[:80]
-            elif source["module"] == "laundry":
-                signature = (primary.get("state"), primary.get("last_changed"))
+            elif source["module"] == "sports":
+                from datetime import datetime
+
+                e = selected.get("game") or {}
+                attrs = e.get("attributes", {})
+                phase = e.get("state")
+                if phase not in ("PRE", "IN", "POST", "BYE", "NOT_FOUND"):
+                    return {
+                        "source.status": "Choisissez un capteur TeamTracker disponible"
+                    }
+                if phase == "IN":
+                    try:
+                        stamp = datetime.fromisoformat(
+                            str(attrs["last_update"]).replace("Z", "+00:00")
+                        ).timestamp()
+                        if not -60 <= time.time() - stamp <= 120:
+                            return {"source.status": "Données sportives périmées"}
+                    except (KeyError, ValueError, TypeError):
+                        return {"source.status": "Fraîcheur du score indisponible"}
+                score = "--"
+                if phase in ("IN", "POST"):
+                    left, right = attrs.get("team_score"), attrs.get("opponent_score")
+                    if all(
+                        isinstance(n, (int, str)) and re.fullmatch(r"\d{1,4}", str(n))
+                        for n in (left, right)
+                    ):
+                        score = f"{left} - {right}"
+                period = ""
+                if phase == "IN":
+                    period = (
+                        "Période "
+                        + str(attrs.get("quarter") or "--")
+                        + " · "
+                        + str(attrs.get("clock") or "--")
+                    )
+                elif phase == "PRE":
+                    try:
+                        period = (
+                            datetime.fromisoformat(
+                                str(attrs["date"]).replace("Z", "+00:00")
+                            )
+                            .astimezone()
+                            .strftime("%d/%m à %H:%M")
+                        )
+                    except (KeyError, ValueError, TypeError):
+                        period = "Horaire indisponible"
+                values.update(
+                    {
+                        "source.team": str(
+                            attrs.get("team_abbr") or attrs.get("team_name") or "--"
+                        )[:16],
+                        "source.opponent": str(
+                            attrs.get("opponent_abbr")
+                            or attrs.get("opponent_name")
+                            or "--"
+                        )[:16],
+                        "source.score": score,
+                        "source.period": period,
+                        "source.status": {
+                            "PRE": "Prochain match",
+                            "IN": "En cours",
+                            "POST": "Terminé",
+                            "BYE": "Semaine sans match",
+                            "NOT_FOUND": "Aucun match trouvé",
+                        }[phase],
+                    }
+                )
+            elif source["module"] == "ev":
+                if (selected.get("third") or {}).get("state") == "off" and values.get(
+                    "source.progress", 101
+                ) < source["options"]["reminder_below"]:
+                    values["source.status"] = "Pensez à brancher le véhicule"
+            if source["module"] in ("laundry", "monitor"):
+                signature = self.state_signature(source)
                 if self.acknowledged.get((device, page)) == signature:
                     values["source.status"] = "Rappel acquitté"
+                elif source["module"] == "laundry" and primary.get("state") not in (
+                    None,
+                    "unknown",
+                    "unavailable",
+                ):
+                    from datetime import datetime
+
+                    try:
+                        minutes = max(
+                            0,
+                            int(
+                                (
+                                    time.time()
+                                    - datetime.fromisoformat(
+                                        str(primary["last_changed"]).replace(
+                                            "Z", "+00:00"
+                                        )
+                                    ).timestamp()
+                                )
+                                / 60
+                            ),
+                        )
+                        values["source.status"] = f"État actuel depuis {minutes} min"
+                    except (KeyError, ValueError, TypeError):
+                        pass
             return values
+
+    def choices(self, source):
+        """Display names and opaque IDs only; never pass provider URLs or credentials."""
+        source = validate_source(source)
+        with self.lock:
+            if self.status != "ok" or time.time() - self.at > 35:
+                return {}
+            selected = source["entities"]
+            if source["module"] == "spotify":
+                options = (
+                    self.entities.get(selected.get("player"), {})
+                    .get("attributes", {})
+                    .get("source_list", [])
+                )
+                return (
+                    {
+                        "output": [
+                            dict(value=n, label=n)
+                            for n in options
+                            if isinstance(n, str)
+                            and 0 < len(n) <= 120
+                            and not any(ord(c) < 32 for c in n)
+                        ][:100]
+                    }
+                    if isinstance(options, list)
+                    else {}
+                )
+            if source["module"] == "sonos":
+                options = (
+                    self.entities.get(selected.get("favorites"), {})
+                    .get("attributes", {})
+                    .get("items", {})
+                )
+                return (
+                    {
+                        "favorite": [
+                            dict(value=k, label=str(v)[:120])
+                            for k, v in options.items()
+                            if isinstance(k, str) and re.fullmatch(r"FV:\d+/\d+", k)
+                        ][:100]
+                    }
+                    if isinstance(options, dict)
+                    else {}
+                )
+            return {}
+
+    def state_signature(self, source):
+        return tuple(
+            (
+                entity,
+                self.entities.get(entity, {}).get("state"),
+                self.entities.get(entity, {}).get("last_changed"),
+            )
+            for entity in sorted(source["entities"].values())
+            if entity
+        )
 
     def action(self, source, action, device, page):
         source = validate_source(source)
         name = action.removeprefix("source.")
         if name not in {a[0] for a in MODULES[source["module"]]["actions"]}:
             raise ValueError("Action incompatible.")
+        if source["module"] == "mac_controls":
+            return self.controls.action(name, source["options"])
         with self.lock:
             if self.status != "ok" or time.time() - self.at > 35:
                 raise ValueError("Appareil indisponible.")
             url, token = self.url, self.token
             if name == "acknowledge":
-                e = self.entities.get(source["entities"].get("primary"), {})
-                self.acknowledged[device, page] = (
-                    e.get("state"),
-                    e.get("last_changed"),
-                )
+                signature = self.state_signature(source)
+                if not signature or any(
+                    state in (None, "unknown", "unavailable")
+                    for _, state, _ in signature
+                ):
+                    raise ValueError("Capteur indisponible.")
+                self.acknowledged[device, page] = signature
                 return {"ok": True}
             if name.startswith("scene_"):
                 entity = source["entities"].get(name[6:])
                 route, data = "scene/turn_on", {"entity_id": entity}
+            elif name in ("favorite", "select_output"):
+                entity = source["entities"].get("player")
+                key = "favorite" if name == "favorite" else "output"
+                chosen = source["options"][key]
+                if not chosen or chosen not in {
+                    o["value"] for o in self.choices(source).get(key, [])
+                }:
+                    raise ValueError(
+                        "Actualisez les choix et sélectionnez un appareil ou un favori disponible."
+                    )
+                if name == "favorite":
+                    route, data = "media_player/play_media", dict(
+                        entity_id=entity,
+                        media_content_type="favorite_item_id",
+                        media_content_id=chosen,
+                    )
+                else:
+                    route, data = "media_player/select_source", dict(
+                        entity_id=entity, source=chosen
+                    )
             else:
                 entity = source["entities"].get("player")
                 services = dict(

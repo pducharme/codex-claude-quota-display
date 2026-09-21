@@ -194,6 +194,10 @@ class DesignerTests(unittest.TestCase):
                 dict(config=self.config(), targets=["a0f262e09880"], base_revision=0)
             )
             h = {"Cookie": cookie, "Content-Type": "application/json"}
+            for route in ("service-connect", "source-preview", "mac-shortcuts"):
+                self.assertEqual(
+                    request("POST", "/designer/api/" + route, "{}", h)[0], 403
+                )
             self.assertEqual(
                 request("POST", "/designer/api/publish", payload, h)[0], 403
             )

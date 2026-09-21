@@ -1,11 +1,59 @@
 import copy
 import unittest
 from unittest.mock import patch
-from designer_local import MacStats, parse_stats, CAT
+from designer_local import MacStats, MacControls, AudioOutput, parse_stats, CAT
 from designer import templates, default_config, validate
 
 
 class LocalTests(unittest.TestCase):
+    def test_mac_commands_use_only_selected_shortcuts_and_report_failures(self):
+        import subprocess
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        calls = []
+
+        def runner(args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace(stdout="Lecture\nLumière $(touch nope)\n --help\n")
+
+        audio = Mock()
+        audio.read.return_value = dict(volume=None, muted=None)
+        controls = MacControls(audio, runner)
+        self.assertEqual(controls.values({})["source.volume"], "Fixe")
+        controls.action("volume_up", {})
+        audio.change.assert_called_once_with("volume_up")
+        options = dict(shortcut="Lumière $(touch nope)", playback_shortcut="Lecture")
+        controls.action("shortcut", options)
+        self.assertEqual(
+            calls[-1][0], ["/usr/bin/shortcuts", "run", options["shortcut"]]
+        )
+        self.assertNotIn("shell", calls[-1][1])
+        controls.action("play_pause", options)
+        self.assertEqual(calls[-1][0][-1], "Lecture")
+        before = len(calls)
+        with self.assertRaises(ValueError):
+            controls.action("arbitrary", options)
+        self.assertEqual(len(calls), before)
+        for name in ("missing", "--help"):
+            with self.assertRaises(ValueError):
+                controls.action("shortcut", dict(shortcut=name))
+            self.assertEqual(calls[-1][0], ["/usr/bin/shortcuts", "list"])
+        controls.runner = Mock(
+            side_effect=[
+                SimpleNamespace(stdout="Lecture"),
+                subprocess.TimeoutExpired("shortcuts", 15),
+            ]
+        )
+        with self.assertRaises(ValueError):
+            controls.action("play_pause", options)
+        self.assertEqual(
+            controls.runner.call_count, 2
+        )  # No replay of a possibly completed action.
+        # Reject unknown audio commands before loading CoreAudio or touching output.
+        with self.assertRaises(ValueError):
+            AudioOutput.__new__(AudioOutput).change("other")
+
     def test_stats_parser_rates_resets_and_unavailable(self):
         top = "CPU usage: 20.0% user, 10.0% sys, 70.0% idle\nPhysMem: 12G used (2G wired, 1G compressor), 4G unused."
         net = "Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll\nen0 1500 <Link#1> ab 1 0 2048 1 0 4096 0\nen0 1500 127.0.0.1 ab 1 0 2048 1 0 4096 0\nlo0 1500 <Link#2> 127 1 0 100000 1 0 100000 0"

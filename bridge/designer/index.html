@@ -232,10 +232,11 @@
         </button>
       </div>
       <p>
-        Connectez Home Assistant une fois, puis choisissez vos appareils par
-        leur nom dans chaque page.
+        Enregistrez vos accès une fois, puis choisissez les appareils, les
+        chaînes et les projets dans chaque page.
       </p>
-      <form id="ha-connect">
+      <h3>Home Assistant</h3>
+      <form id="ha-connect" method="post">
         <label class="field"
           >Adresse Home Assistant<input
             id="ha-url"
@@ -265,6 +266,7 @@
         </button>
       </form>
       <p id="ha-status" role="status"></p>
+      <div id="service-connections"></div>
     </dialog>
     <dialog id="gallery">
       <div class="section-title">

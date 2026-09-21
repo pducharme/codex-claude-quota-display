@@ -108,3 +108,213 @@ CAT = "".join(
         "0000000000000000",
     ]
 )
+
+
+class AudioOutput:
+    """CoreAudio scalar volume; unsupported outputs remain explicitly read-only."""
+
+    def __init__(self):
+        import ctypes as c
+
+        self.c = c
+
+        class Address(c.Structure):
+            _fields_ = [
+                ("selector", c.c_uint32),
+                ("scope", c.c_uint32),
+                ("element", c.c_uint32),
+            ]
+
+        self.Address = Address
+        self.core = c.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
+        self.core.AudioObjectGetPropertyData.argtypes = [
+            c.c_uint32,
+            c.POINTER(Address),
+            c.c_uint32,
+            c.c_void_p,
+            c.POINTER(c.c_uint32),
+            c.c_void_p,
+        ]
+        self.core.AudioObjectGetPropertyData.restype = c.c_int32
+        self.core.AudioObjectSetPropertyData.argtypes = [
+            c.c_uint32,
+            c.POINTER(Address),
+            c.c_uint32,
+            c.c_void_p,
+            c.c_uint32,
+            c.c_void_p,
+        ]
+        self.core.AudioObjectSetPropertyData.restype = c.c_int32
+        self.core.AudioObjectHasProperty.argtypes = [c.c_uint32, c.POINTER(Address)]
+        self.core.AudioObjectHasProperty.restype = c.c_ubyte
+        self.core.AudioObjectIsPropertySettable.argtypes = [
+            c.c_uint32,
+            c.POINTER(Address),
+            c.POINTER(c.c_ubyte),
+        ]
+        self.core.AudioObjectIsPropertySettable.restype = c.c_int32
+
+    @staticmethod
+    def fourcc(text):
+        return int.from_bytes(text.encode("ascii"), "big")
+
+    def address(self, selector, element=0, scope="outp"):
+        return self.Address(self.fourcc(selector), self.fourcc(scope), element)
+
+    def get(self, device, address, kind):
+        value = kind()
+        size = self.c.c_uint32(self.c.sizeof(value))
+        if (
+            self.core.AudioObjectGetPropertyData(
+                device,
+                self.c.byref(address),
+                0,
+                None,
+                self.c.byref(size),
+                self.c.byref(value),
+            )
+            != 0
+        ):
+            raise OSError("Audio indisponible.")
+        return value.value
+
+    def output(self):
+        return self.get(1, self.address("dOut", scope="glob"), self.c.c_uint32)
+
+    def properties(self, device, selector):
+        main = self.address(selector)
+        if self.core.AudioObjectHasProperty(device, self.c.byref(main)):
+            return [main]
+        return [
+            a
+            for a in (self.address(selector, 1), self.address(selector, 2))
+            if self.core.AudioObjectHasProperty(device, self.c.byref(a))
+        ]
+
+    def read(self):
+        device = self.output()
+        volumes = [
+            self.get(device, a, self.c.c_float) for a in self.properties(device, "volm")
+        ]
+        mute = [
+            self.get(device, a, self.c.c_uint32)
+            for a in self.properties(device, "mute")
+        ]
+        return dict(
+            volume=sum(volumes) / len(volumes) if volumes else None,
+            muted=all(mute) if mute else None,
+        )
+
+    def change(self, action):
+        if action not in ("mute", "volume_up", "volume_down"):
+            raise ValueError("Commande audio inconnue.")
+        device = self.output()
+        selector = "mute" if action == "mute" else "volm"
+        addresses = self.properties(device, selector)
+        if not addresses:
+            raise ValueError("Cette sortie audio ne permet pas cette commande.")
+        kind = self.c.c_uint32 if selector == "mute" else self.c.c_float
+        current = [self.get(device, a, kind) for a in addresses]
+        for address in addresses:
+            writable = self.c.c_ubyte()
+            if (
+                self.core.AudioObjectIsPropertySettable(
+                    device, self.c.byref(address), self.c.byref(writable)
+                )
+                != 0
+                or not writable.value
+            ):
+                raise ValueError("Sortie audio à volume fixe.")
+        for address, old in zip(addresses, current):
+            value = kind(
+                not all(current)
+                if selector == "mute"
+                else min(1, max(0, old + (0.05 if action == "volume_up" else -0.05)))
+            )
+            if (
+                self.core.AudioObjectSetPropertyData(
+                    device,
+                    self.c.byref(address),
+                    0,
+                    None,
+                    self.c.sizeof(value),
+                    self.c.byref(value),
+                )
+                != 0
+            ):
+                raise OSError("Commande audio non confirmée.")
+
+
+class MacControls:
+    def __init__(self, audio=None, runner=None):
+        self.audio = audio
+        self.runner = runner or subprocess.run
+
+    def output(self):
+        if self.audio is None:
+            self.audio = AudioOutput()
+        return self.audio
+
+    def shortcuts(self):
+        try:
+            result = self.runner(
+                ["/usr/bin/shortcuts", "list"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=True,
+            )
+            return sorted(
+                {
+                    name.strip()
+                    for name in result.stdout.splitlines()
+                    if 0 < len(name.strip()) <= 120 and not name.strip().startswith("-")
+                }
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+
+    def values(self, options):
+        try:
+            state = self.output().read()
+            return {
+                "source.volume": (
+                    f'{round(state["volume"]*100)} %'
+                    if state["volume"] is not None
+                    else "Fixe"
+                ),
+                "source.muted": (
+                    "Oui"
+                    if state["muted"]
+                    else "Non" if state["muted"] is not None else "--"
+                ),
+                "source.shortcut": options.get("shortcut") or "À choisir",
+                "source.status": "Commandes du Mac source",
+            }
+        except (OSError, ValueError):
+            return {"source.status": "Sortie audio du Mac indisponible"}
+
+    def action(self, action, options):
+        if action in ("volume_up", "volume_down", "mute"):
+            self.output().change(action)
+        elif action in ("shortcut", "play_pause"):
+            name = options.get(
+                "shortcut" if action == "shortcut" else "playback_shortcut", ""
+            )
+            if not name or name not in self.shortcuts():
+                raise ValueError("Choisissez un raccourci existant sur le Mac source.")
+            try:
+                self.runner(
+                    ["/usr/bin/shortcuts", "run", name],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=True,
+                )
+            except (OSError, subprocess.SubprocessError):
+                raise ValueError(
+                    "Raccourci non confirmé. Vérifiez ses autorisations sur le Mac source."
+                ) from None
+        else:
+            raise ValueError("Commande Mac inconnue.")
+        return {"ok": True}

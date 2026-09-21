@@ -21,6 +21,7 @@ install -m 700 "$SCRIPT_DIR/quota_bridge.py" "$APP_DIR/quota_bridge.py"
 install -m 600 "$SCRIPT_DIR/designer.py" "$APP_DIR/designer.py"
 install -m 600 "$SCRIPT_DIR/designer_integrations.py" "$APP_DIR/designer_integrations.py"
 install -m 600 "$SCRIPT_DIR/designer_local.py" "$APP_DIR/designer_local.py"
+install -m 600 "$SCRIPT_DIR/designer_services.py" "$APP_DIR/designer_services.py"
 /usr/bin/ditto "$SCRIPT_DIR/designer" "$APP_DIR/designer"
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
   -parse-as-library -swift-version 5 -O \

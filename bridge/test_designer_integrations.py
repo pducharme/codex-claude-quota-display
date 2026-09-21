@@ -70,6 +70,9 @@ class IntegrationTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_catalogue_roundtrip_boundaries_and_no_secrets(self):
+        self.assertEqual(
+            len(templates()), 28
+        )  # 26 requested uses, plus clock and blank.
         pages = [p for p in templates() if p.get("source")]
         self.assertEqual({p["source"]["module"] for p in pages}, set(MODULES))
         for page in pages:
@@ -147,6 +150,112 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(reloaded.info()["home_assistant"]["status"], "unavailable")
         reloaded.poll()
         self.assertEqual(reloaded.info()["home_assistant"]["status"], "ok")
+
+    def test_music_choices_are_current_and_actions_stay_bound_to_player(self):
+        c = self.connections
+        c.entities["media_player.bureau"]["attributes"]["source_list"] = [
+            "Bureau",
+            "Salon",
+        ]
+        spotify = dict(
+            module="spotify",
+            entities=dict(player="media_player.bureau"),
+            options=dict(output="Salon"),
+        )
+        self.assertEqual(
+            c.choices(spotify)["output"][1], dict(value="Salon", label="Salon")
+        )
+        c.action(spotify, "source.select_output", "device", "page")
+        self.assertEqual(
+            self.calls[-1][1], dict(entity_id="media_player.bureau", source="Salon")
+        )
+        self.assertTrue(self.calls[-1][0].endswith("/media_player/select_source"))
+        c.entities["sensor.favorites"] = dict(
+            state="2",
+            attributes=dict(items={"FV:2/31": "Jazz", "http://untrusted/": "Invalid"}),
+        )
+        sonos = dict(
+            module="sonos",
+            entities=dict(player="media_player.bureau", favorites="sensor.favorites"),
+            options=dict(favorite="FV:2/31"),
+        )
+        self.assertEqual(
+            c.choices(sonos)["favorite"], [dict(value="FV:2/31", label="Jazz")]
+        )
+        c.action(sonos, "source.favorite", "device", "page")
+        self.assertEqual(
+            self.calls[-1][1],
+            dict(
+                entity_id="media_player.bureau",
+                media_content_type="favorite_item_id",
+                media_content_id="FV:2/31",
+            ),
+        )
+        count = len(self.calls)
+        c.entities["sensor.favorites"]["attributes"]["items"] = {}
+        with self.assertRaises(ValueError):
+            c.action(sonos, "source.favorite", "device", "page")
+        c.at -= 40
+        self.assertEqual(c.choices(spotify), {})
+        with self.assertRaises(ValueError):
+            c.action(spotify, "source.select_output", "device", "page")
+        self.assertEqual(len(self.calls), count)
+
+    def test_sports_freshness_ev_reminder_and_acknowledgement_reset(self):
+        from datetime import datetime, timezone
+
+        c = self.connections
+        stamp = datetime.now(timezone.utc).isoformat()
+        game = dict(
+            state="IN",
+            attributes=dict(
+                team_abbr="MTL",
+                opponent_abbr="TOR",
+                team_score=2,
+                opponent_score=1,
+                quarter=3,
+                clock="5:10",
+                last_update=stamp,
+            ),
+        )
+        c.entities["sensor.game"] = game
+        source = dict(module="sports", entities=dict(game="sensor.game"))
+        self.assertEqual(c.values(source, "a", "p")["source.score"], "2 - 1")
+        game["attributes"]["last_update"] = "2020-01-01T00:00:00Z"
+        self.assertNotIn("source.score", c.values(source, "a", "p"))
+        game["state"] = "POST"
+        self.assertEqual(c.values(source, "a", "p")["source.status"], "Terminé")
+        game["state"] = "PRE"
+        self.assertEqual(c.values(source, "a", "p")["source.score"], "--")
+        c.entities["binary_sensor.plug"] = dict(state="off", attributes={})
+        c.entities["sensor.progress"]["state"] = "20"
+        ev = dict(
+            module="ev",
+            entities=dict(primary="sensor.progress", third="binary_sensor.plug"),
+        )
+        self.assertEqual(
+            c.values(ev, "a", "p")["source.status"], "Pensez à brancher le véhicule"
+        )
+        ev["options"] = dict(reminder_below=20)
+        self.assertEqual(c.values(ev, "a", "p")["source.status"], "À jour")
+        monitor = dict(
+            module="monitor",
+            entities=dict(primary="binary_sensor.plug", secondary="sensor.progress"),
+        )
+        c.action(monitor, "source.acknowledge", "a", "p")
+        self.assertEqual(
+            c.values(monitor, "a", "p")["source.status"], "Rappel acquitté"
+        )
+        self.assertNotEqual(
+            c.values(monitor, "b", "p")["source.status"], "Rappel acquitté"
+        )
+        c.entities["sensor.progress"]["state"] = "21"
+        self.assertNotEqual(
+            c.values(monitor, "a", "p")["source.status"], "Rappel acquitté"
+        )
+        c.entities["sensor.progress"]["state"] = "unavailable"
+        with self.assertRaises(ValueError):
+            c.action(monitor, "source.acknowledge", "a", "p")
 
     def test_http_transport_and_redirect_does_not_forward_token(self):
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

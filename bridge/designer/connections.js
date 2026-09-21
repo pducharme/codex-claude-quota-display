@@ -49,7 +49,135 @@ function renderSource() {
     label.append(select);
     box.append(label);
   }
-  if (spec.provider !== "local")
+  for (const definition of spec.options || []) {
+    const label = document.createElement("label");
+    label.className = "field";
+    label.textContent = definition.label;
+    const input = document.createElement(
+      definition.choices ||
+        ["shortcut", "remote_choice"].includes(definition.type)
+        ? "select"
+        : "input",
+    );
+    input.id = "source-option-" + definition.key;
+    if (definition.type === "shortcut") {
+      const names = state.shortcuts || [];
+      const current = p.source.options?.[definition.key] || "";
+      for (const name of [
+        "",
+        ...new Set([...names, ...(current ? [current] : [])]),
+      ]) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name || "Choisir un raccourci";
+        input.append(option);
+      }
+    } else if (definition.type === "remote_choice") {
+      const current = p.source.options?.[definition.key] || "";
+      const choices =
+        state.sourceChoices?.[JSON.stringify(p.source.entities)]?.[
+          definition.key
+        ] || [];
+      for (const entry of [
+        { value: "", label: "Choisir" },
+        ...choices,
+        ...(current && !choices.some((c) => c.value === current)
+          ? [{ value: current, label: "À actualiser : " + current }]
+          : []),
+      ]) {
+        const option = document.createElement("option");
+        option.value = entry.value;
+        option.textContent = entry.label;
+        input.append(option);
+      }
+    } else if (definition.choices)
+      for (const choice of definition.choices) {
+        const option = document.createElement("option");
+        option.value = choice;
+        option.textContent = choice;
+        input.append(option);
+      }
+    else {
+      input.type = definition.type || "text";
+      input.placeholder = definition.placeholder || "";
+      input.maxLength = 120;
+      if (definition.min !== undefined) {
+        input.min = definition.min;
+        input.max = definition.max;
+      }
+    }
+    input.value = p.source.options?.[definition.key] ?? definition.default;
+    input.oninput = input.onchange = () => {
+      const value =
+        definition.type === "number" ? Number(input.value) : input.value;
+      if (p.source.options?.[definition.key] === value) return;
+      snapshot();
+      p.source.options ||= {};
+      p.source.options[definition.key] = value;
+      message("Modifications non envoyées.");
+    };
+    label.append(input);
+    box.append(label);
+  }
+  if ((spec.options || []).some((d) => d.type === "remote_choice"))
+    box.append(
+      button("Actualiser les appareils et favoris", async () => {
+        try {
+          const result = await api("source-preview", { source: p.source });
+          state.sourceChoices ||= {};
+          state.sourceChoices[JSON.stringify(p.source.entities)] =
+            result.choices;
+          renderSource();
+          message(
+            Object.values(result.choices).some((c) => c.length)
+              ? "Choix actualisés."
+              : "Aucun choix disponible. Vérifiez le lecteur et ses réglages dans Home Assistant.",
+          );
+        } catch (e) {
+          message("Impossible de lire les appareils et favoris.", true);
+        }
+      }),
+    );
+  if (p.source.module === "mac_controls")
+    box.append(
+      button("Actualiser les raccourcis du Mac", async () => {
+        try {
+          const result = await api("mac-shortcuts", {});
+          state.shortcuts = result.shortcuts;
+          renderSource();
+          message(
+            result.shortcuts.length
+              ? "Raccourcis chargés depuis le Mac source."
+              : "Aucun raccourci disponible. Créez-en un dans l’application Raccourcis du Mac source.",
+          );
+        } catch (e) {
+          message("Impossible de lire les raccourcis du Mac source.", true);
+        }
+      }),
+    );
+  const preview = document.createElement("div");
+  preview.className = "source-reading";
+  preview.setAttribute("role", "status");
+  box.append(
+    button("Vérifier les données", async () => {
+      preview.textContent = "Lecture en cours…";
+      try {
+        const result = await api("source-preview", { source: p.source });
+        preview.replaceChildren();
+        for (const [key, name] of [...spec.fields, ["status", "État"]]) {
+          const line = document.createElement("p");
+          line.textContent =
+            name + " : " + (result.values["source." + key] ?? "--");
+          preview.append(line);
+        }
+      } catch (e) {
+        preview.textContent =
+          "Lecture impossible. Vérifiez les réglages de la page et ses connexions.";
+      }
+    }),
+    preview,
+  );
+  if (!["local", "public"].includes(spec.provider))
     box.append(button("Gérer les connexions", openConnections));
   const select = $("binding");
   select.querySelectorAll("[data-source]").forEach((el) => el.remove());
@@ -78,6 +206,7 @@ function openConnections() {
   $("ha-url").value = state.connections.home_assistant.url || "";
   $("ha-token").value = "";
   connectionStatus();
+  renderServiceConnections();
   $("connections").showModal();
 }
 $("open-connections").onclick = openConnections;
@@ -110,3 +239,71 @@ $("refresh-connections").onclick = async () => {
     $("ha-status").textContent = e.message;
   }
 };
+
+function renderServiceConnections() {
+  const box = $("service-connections");
+  box.replaceChildren();
+  for (const [provider, spec] of Object.entries(
+    state.connections.services || {},
+  )) {
+    const section = document.createElement("details"),
+      title = document.createElement("summary");
+    title.textContent =
+      spec.name + (spec.configured ? " — accès enregistrés" : "");
+    section.append(title);
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = spec.note;
+    section.append(note);
+    const form = document.createElement("form");
+    form.method = "post";
+    const inputs = {};
+    for (const field of spec.fields) {
+      const label = document.createElement("label");
+      label.className = "field";
+      label.textContent = field.label;
+      const input = document.createElement("input");
+      input.type = field.secret ? "password" : "text";
+      input.autocomplete = "off";
+      input.required = true;
+      input.maxLength = 4096;
+      input.id = "service-" + provider + "-" + field.key;
+      inputs[field.key] = input;
+      label.append(input);
+      form.append(label);
+    }
+    const save = document.createElement("button");
+    save.type = "submit";
+    save.textContent = "Enregistrer les accès";
+    const status = document.createElement("p");
+    status.className = "hint";
+    status.setAttribute("role", "status");
+    form.append(save, status);
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      save.disabled = true;
+      status.textContent = "Enregistrement dans le trousseau…";
+      try {
+        const credentials = Object.fromEntries(
+          Object.entries(inputs).map(([key, input]) => [key, input.value]),
+        );
+        state.connections = await api("service-connect", {
+          provider,
+          credentials,
+        });
+        for (const input of Object.values(inputs)) input.value = "";
+        title.textContent = spec.name + " — accès enregistrés";
+        status.textContent =
+          "Accès enregistrés. Utilisez Vérifier les données dans votre page pour valider la connexion.";
+        render();
+      } catch (e) {
+        status.textContent =
+          "Enregistrement impossible. Vérifiez les champs et l’accès au trousseau du Mac source.";
+      } finally {
+        save.disabled = false;
+      }
+    };
+    section.append(form);
+    box.append(section);
+  }
+}
