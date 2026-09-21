@@ -49,7 +49,8 @@ function renderSource() {
     label.append(select);
     box.append(label);
   }
-  box.append(button("Gérer les connexions", openConnections));
+  if (spec.provider !== "local")
+    box.append(button("Gérer les connexions", openConnections));
   const select = $("binding");
   select.querySelectorAll("[data-source]").forEach((el) => el.remove());
   for (const [field, label] of [

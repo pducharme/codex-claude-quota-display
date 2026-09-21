@@ -48,10 +48,11 @@ bool designerValid(JsonDocument &doc) {
     if(!p["blocks"].is<JsonArray>() || p["blocks"].size()>16) return false;
     for(JsonObject b:p["blocks"].as<JsonArray>()) {
       String type=b["type"]|"";
-      if(type!="text"&&type!="value"&&type!="bar"&&type!="button") return false;
+      if(type!="text"&&type!="value"&&type!="bar"&&type!="button"&&type!="pixels") return false;
       int x=b["x"]|-1,y=b["y"]|-1,w=b["w"]|0,h=b["h"]|0,s=b["size"]|0;
       if(x<0||y<0||w<8||h<8||x+w>640||y+h>180||s<1||s>4) return false;
       if(String(b["text"]|"").length()>400) return false;
+      if(type=="pixels") {String bits=b["pixels"]|"";if(bits.length()!=256)return false;for(size_t i=0;i<bits.length();i++)if(bits[i]!='0'&&bits[i]!='1')return false;}
     }
   }
   return true;
@@ -138,7 +139,13 @@ void drawDesigner() {
     for(JsonObject b:p["blocks"].as<JsonArray>()) {
       int x=b["x"],y=b["y"],w=b["w"],h=b["h"],scale=b["size"];
       String type=b["type"]|"";
-      if(type=="bar") {
+      if(type=="pixels") {
+        const char *bits=b["pixels"]|"";
+        for(int row=0;row<16;row++)for(int col=0;col<16;col++)if(bits[row*16+col]=='1') {
+          int left=x+col*w/16,top=y+row*h/16;
+          view->fillRect(left,top,(col+1)*w/16-col*w/16,(row+1)*h/16-row*h/16,accent);
+        }
+      } else if(type=="bar") {
         view->fillRect(x,y,w,h,COLOR_TRACK);
         if(!b["value"].isNull())view->fillRect(x,y,w*constrain(b["value"].as<int>(),0,100)/100,h,accent);
         else designerText(x+3,y,w-6,h,"--",font,1,COLOR_MUTED);

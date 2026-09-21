@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from designer_local import MacStats
 from urllib.parse import urlsplit
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
@@ -158,6 +159,18 @@ for spec in MODULES.values():
         "Home Assistant et les appareils ou services correspondants déjà connectés."
     )
 
+MODULES["mac_stats"] = dict(
+    name="Stats ordinateur",
+    category="Bureau",
+    description="CPU, mémoire et débit réseau du Mac source.",
+    slots=[],
+    fields=[("cpu", "CPU"), ("memory", "Mémoire"), ("network", "Réseau")],
+    actions=[],
+    provider="local",
+    requires="Le Companion mesure le Mac source; aucun compte nécessaire.",
+    progress=True,
+)
+
 BINDINGS = {"source." + key for m in MODULES.values() for key, _ in m["fields"]} | {
     "source.status",
     "source.progress",
@@ -207,7 +220,7 @@ def templates(page, block):
                     width - 8,
                     40,
                     binding="source." + field,
-                    size=1 if key in ("sonos", "meeting") else 2,
+                    size=1 if key in ("sonos", "meeting", "mac_stats") else 2,
                 ),
             ]
         actions = m["actions"]
@@ -369,6 +382,7 @@ class Connections:
         self.attempt = 0
         self.status = "not_connected"
         self.acknowledged = {}
+        self.mac = MacStats()
         try:
             self.url = base_url(json.loads(self.path.read_text())["home_assistant"])
         except (OSError, ValueError, KeyError, TypeError):
@@ -458,6 +472,8 @@ class Connections:
         with self.lock:
             source = validate_source(source)
             spec = MODULES[source["module"]]
+            if source["module"] == "mac_stats":
+                return self.mac.values()
             if not self.url or not self.token:
                 return {"source.status": "Connectez Home Assistant dans le Designer"}
             if self.status != "ok" or time.time() - self.at > 35:

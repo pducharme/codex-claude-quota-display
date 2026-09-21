@@ -78,6 +78,11 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(
                 validate(c)["pages"][0]["source"]["module"], page["source"]["module"]
             )
+        bad = default_config()
+        bad["pages"] = [next(p for p in pages if p["source"]["module"] == "sonos")]
+        bad["pages"][0]["blocks"][-1]["action"] = "source.scene_primary"
+        with self.assertRaises(ValueError):
+            validate(bad)
         for bad in [
             "file:///etc/passwd",
             "http://user:secret@host",

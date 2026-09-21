@@ -18,6 +18,7 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse, urlencode
 from urllib.request import Request, urlopen
 
+from designer_local import CAT
 from designer_integrations import (
     Connections,
     MODULES,
@@ -40,7 +41,7 @@ BINDINGS = {
     "weather.condition",
     "focus.remaining",
 }
-KINDS = {"text", "value", "bar", "button"}
+KINDS = {"text", "value", "bar", "button", "pixels"}
 DEVICE = re.compile(r"^[a-f0-9]{12}$")
 
 
@@ -70,58 +71,89 @@ def templates():
             blocks=blocks or [],
         )
 
-    return [
-        page(
-            "Quotas",
-            [
-                block("text", 20, 12, 280, 24, "Codex"),
-                block("text", 336, 12, 280, 24, "Claude"),
-                block("value", 20, 48, 280, 42, "Semaine", "codex.week", 2),
-                block("value", 336, 48, 280, 42, "Semaine", "claude.week", 2),
-                block("bar", 20, 108, 280, 24, binding="codex.week"),
-                block("bar", 336, 108, 280, 24, binding="claude.week"),
-                block("value", 20, 144, 280, 24, "5 h : ", "codex.5h"),
-                block("value", 336, 144, 280, 24, "5 h : ", "claude.5h"),
-            ],
-        ),
-        page(
-            "Météo",
-            [
-                block("text", 20, 12, 590, 24, "Météo"),
-                block("value", 20, 52, 280, 50, binding="weather.temperature", size=3),
-                block("value", 320, 62, 296, 32, binding="weather.condition"),
-                block("value", 20, 140, 596, 28, binding="date"),
-            ],
-            font="modern",
-        ),
-        page(
-            "Horloge",
-            [
-                block("value", 24, 26, 592, 76, binding="clock", size=4),
-                block("value", 24, 126, 592, 30, binding="date"),
-            ],
-            font="terminal",
-        ),
-        page(
-            "Focus",
-            [
-                block("text", 20, 12, 596, 24, "Un moment pour se concentrer"),
-                block("value", 20, 50, 350, 64, binding="focus.remaining", size=3),
-                block(
-                    "button",
-                    410,
-                    64,
-                    200,
-                    60,
-                    "Démarrer / pause",
-                    action="focus.toggle",
-                ),
-            ],
-            font="mono",
-        ),
-        page("Dans le ciel", kind="sky", font="mono"),
-        page("Page libre"),
-    ] + source_templates(page, block)
+    pixel = page(
+        "Pixel art / compagnon",
+        [
+            dict(block("pixels", 32, 18, 144, 144), pixels=CAT),
+            block("text", 215, 46, 405, 44, "Bonjour !", size=2),
+            block("value", 215, 112, 405, 36, binding="clock", size=2),
+        ],
+    )
+    pixel.update(
+        category="Fun",
+        description="Un petit compagnon, un dessin à modifier ou une image à importer.",
+    )
+    messages = page(
+        "Messages du foyer",
+        [
+            block("text", 24, 20, 592, 32, "Petit rappel"),
+            block("text", 24, 62, 592, 52, "Bonne journée !", size=2),
+            block("value", 24, 136, 592, 24, binding="date"),
+        ],
+        font="pixelify",
+    )
+    messages.update(
+        category="Maison",
+        description="Un message ou un rappel à écrire et à envoyer aux écrans.",
+    )
+    return (
+        [
+            page(
+                "Quotas",
+                [
+                    block("text", 20, 12, 280, 24, "Codex"),
+                    block("text", 336, 12, 280, 24, "Claude"),
+                    block("value", 20, 48, 280, 42, "Semaine", "codex.week", 2),
+                    block("value", 336, 48, 280, 42, "Semaine", "claude.week", 2),
+                    block("bar", 20, 108, 280, 24, binding="codex.week"),
+                    block("bar", 336, 108, 280, 24, binding="claude.week"),
+                    block("value", 20, 144, 280, 24, "5 h : ", "codex.5h"),
+                    block("value", 336, 144, 280, 24, "5 h : ", "claude.5h"),
+                ],
+            ),
+            page(
+                "Météo",
+                [
+                    block("text", 20, 12, 590, 24, "Météo"),
+                    block(
+                        "value", 20, 52, 280, 50, binding="weather.temperature", size=3
+                    ),
+                    block("value", 320, 62, 296, 32, binding="weather.condition"),
+                    block("value", 20, 140, 596, 28, binding="date"),
+                ],
+                font="modern",
+            ),
+            page(
+                "Horloge",
+                [
+                    block("value", 24, 26, 592, 76, binding="clock", size=4),
+                    block("value", 24, 126, 592, 30, binding="date"),
+                ],
+                font="terminal",
+            ),
+            page(
+                "Focus",
+                [
+                    block("text", 20, 12, 596, 24, "Un moment pour se concentrer"),
+                    block("value", 20, 50, 350, 64, binding="focus.remaining", size=3),
+                    block(
+                        "button",
+                        410,
+                        64,
+                        200,
+                        60,
+                        "Démarrer / pause",
+                        action="focus.toggle",
+                    ),
+                ],
+                font="mono",
+            ),
+            page("Dans le ciel", kind="sky", font="mono"),
+            page("Page libre"),
+        ]
+        + source_templates(page, block)
+        + [messages, pixel]
+    )
 
 
 def number(v, low, high):
@@ -200,6 +232,11 @@ def validate(config):
                     action,
                 )
             )
+            if b["type"] == "pixels":
+                pixels = b.get("pixels", "0" * 256)
+                if not isinstance(pixels, str) or not re.fullmatch("[01]{256}", pixels):
+                    raise ValueError("Dessin invalide.")
+                clean[-1]["pixels"] = pixels
         source = validate_source(p.get("source"))
         if (
             any(
@@ -209,6 +246,25 @@ def validate(config):
             and not source
         ):
             raise ValueError("Connexion requise pour cet élément.")
+        if source:
+            spec = MODULES[source["module"]]
+            allowed_actions = {"source." + key for key, _ in spec["actions"]}
+            allowed_bindings = {"source." + key for key, _ in spec["fields"]} | {
+                "source.status",
+                "source.progress",
+            }
+            if any(
+                (
+                    b["action"].startswith("source.")
+                    and b["action"] not in allowed_actions
+                )
+                or (
+                    b["binding"].startswith("source.")
+                    and b["binding"] not in allowed_bindings
+                )
+                for b in clean
+            ):
+                raise ValueError("Élément incompatible avec ce modèle.")
         out.append(
             dict(
                 id=pid,
@@ -584,6 +640,12 @@ class Designer:
             ]
         if any(p.get("source") for c in configs for p in c["pages"]):
             self.connections.poll()
+        if any(
+            p.get("source", {}).get("module") == "mac_stats"
+            for c in configs
+            for p in c["pages"]
+        ):
+            self.connections.mac.poll()
         zones = set()
         for c in configs:
             sky = c["sky"]
@@ -780,6 +842,7 @@ class Designer:
                 "/designer/app.js",
                 "/designer/style.css",
                 "/designer/connections.js",
+                "/designer/pixels.js",
                 "/designer/fonts.json",
             ):
                 self.send(

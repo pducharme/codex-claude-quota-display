@@ -1,5 +1,7 @@
 # Designer 1.1.0 — première version
 
+Ce document décrit la première tranche de développement. Le [guide public](https://pducharme.github.io/codex-claude-quota-display/) suit maintenant le catalogue complet et les fonctionnalités ajoutées.
+
 Le Companion propose **Paramètres → Mini-écrans → Designer…**. En mode source
 distante, le Designer s'ouvre sur cette source : elle doit aussi utiliser 1.1.0.
 Le menu montre un message explicite lorsque sa version est trop ancienne.

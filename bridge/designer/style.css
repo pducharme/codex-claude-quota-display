@@ -369,3 +369,28 @@ summary {
   align-self: center;
   padding: 6px;
 }
+
+#pixel-grid {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 1px;
+  width: min(100%, 320px);
+  background: var(--line);
+  padding: 1px;
+  margin: 16px 0;
+}
+#pixel-grid button {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  min-height: 0;
+  aspect-ratio: 1;
+  background: var(--panel);
+}
+#pixel-grid button[aria-pressed="true"] {
+  background: var(--accent);
+}
+#pixel-grid button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}

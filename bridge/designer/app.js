@@ -33,6 +33,9 @@ const examples = {
   "source.start": "14:30",
   "source.remaining": "25 min",
   "source.progress": 72,
+  "source.cpu": "24 %",
+  "source.memory": "16 Go",
+  "source.network": "120 / 45 Ko/s",
 };
 const descriptions = [
   "Les quotas restants, à votre façon.",
@@ -175,7 +178,9 @@ function draw() {
     ctx.beginPath();
     ctx.rect(b.x, b.y, b.w, b.h);
     ctx.clip();
-    if (b.type === "bar") {
+    if (b.type === "pixels") {
+      drawPixels(ctx, b, p.accent);
+    } else if (b.type === "bar") {
       ctx.fillStyle = "#26364a";
       ctx.fillRect(b.x, b.y, b.w, b.h);
       ctx.fillStyle = p.accent;
@@ -296,10 +301,15 @@ function render() {
   $("blocks").replaceChildren();
   p.blocks.forEach((b, i) => {
     const item = button(
-      b.text ||
-        Array.from($("binding").options).find((o) => o.value === b.binding)
-          ?.textContent ||
-        "Jauge",
+      b.type === "pixels"
+        ? "Pixel art"
+        : b.text ||
+            (b.binding
+              ? Array.from($("binding").options).find(
+                  (o) => o.value === b.binding,
+                )?.textContent
+              : "Élément") ||
+            "Élément",
       () => {
         selected = i;
         render();
@@ -345,6 +355,7 @@ function render() {
   $("latitude").value = config.sky.lat ?? "";
   $("longitude").value = config.sky.lon ?? "";
   $("radius").value = config.sky.radius;
+  renderPixelEditor();
   draw();
 }
 for (const [id, key] of [
@@ -395,9 +406,12 @@ $("add-block").onclick = () => {
     page().blocks.push({
       type,
       x: 16 + (page().blocks.length % 2) * 312,
-      y: 16 + (Math.floor(page().blocks.length / 2) % 4) * 40,
-      w: 280,
-      h: 32,
+      y:
+        type === "pixels"
+          ? 16
+          : 16 + (Math.floor(page().blocks.length / 2) % 4) * 40,
+      w: type === "pixels" ? 128 : 280,
+      h: type === "pixels" ? 128 : 32,
       size: 1,
       text:
         type === "text"
@@ -678,4 +692,4 @@ async function init() {
     message(e.message, true);
   }
 }
-init();
+document.addEventListener("DOMContentLoaded", init);

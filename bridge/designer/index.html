@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/designer/style.css" />
     <script src="/designer/app.js" defer></script>
     <script src="/designer/connections.js" defer></script>
+    <script src="/designer/pixels.js" defer></script>
   </head>
   <body>
     <header>
@@ -69,6 +70,7 @@
               <option value="text">Texte</option>
               <option value="value">Valeur connectée</option>
               <option value="bar">Jauge</option>
+              <option value="pixels">Pixel art</option>
               <option value="button">Bouton Focus</option>
             </select></label
           ><button id="add-block">＋ Ajouter l’élément</button>
@@ -78,6 +80,28 @@
           l’aperçu.
         </p>
         <div id="blocks" aria-label="Éléments de la page"></div>
+        <section id="pixel-settings" class="sky-settings" hidden>
+          <h2>Dessiner en pixels</h2>
+          <p class="hint">
+            Cliquez pour allumer ou effacer un pixel. Au clavier : flèches pour
+            se déplacer, espace pour dessiner.
+          </p>
+          <div id="pixel-grid" aria-label="Dessin de 16 par 16 pixels"></div>
+          <div class="actions">
+            <button id="pixel-clear">Tout effacer</button
+            ><button id="pixel-invert">Inverser</button>
+          </div>
+          <label class="field"
+            >Importer une petite image<input
+              id="pixel-import"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+          /></label>
+          <p class="hint">
+            Conversion locale en 16 × 16 pixels, avec le fond et la couleur
+            d’accent de la page. Votre image originale n’est pas envoyée.
+          </p>
+        </section>
         <section id="source-settings" class="sky-settings" hidden></section>
         <section class="sky-settings" id="sky-settings" hidden>
           <h2>Quand un avion passe</h2>
