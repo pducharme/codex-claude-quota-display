@@ -18,11 +18,13 @@ SPARKLE_ROOT=$("$SCRIPT_DIR/prepare_sparkle.sh")
 mkdir -p "$APP_DIR" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" \
   "$MENU_APP/Contents/MacOS" "$MENU_APP/Contents/Resources" "$MENU_APP/Contents/Frameworks"
 install -m 700 "$SCRIPT_DIR/quota_bridge.py" "$APP_DIR/quota_bridge.py"
+install -m 600 "$SCRIPT_DIR/designer.py" "$APP_DIR/designer.py"
+/usr/bin/ditto "$SCRIPT_DIR/designer" "$APP_DIR/designer"
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" \
   -parse-as-library -swift-version 5 -O \
   -F "$SPARKLE_ROOT" -framework Sparkle \
   -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
-  -framework AppKit -framework Foundation -framework LocalAuthentication \
+  -framework WebKit -framework AppKit -framework Foundation -framework LocalAuthentication \
   -framework Security -lsqlite3 \
   "$SCRIPT_DIR/quota_menu.swift" -o "$MENU_APP/Contents/MacOS/QuotaDisplayMenu"
 install -m 600 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" \

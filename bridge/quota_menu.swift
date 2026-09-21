@@ -6,6 +6,57 @@ import LocalAuthentication
 import Security
 import SQLite3
 import Sparkle
+import WebKit
+
+private final class DesignerWindow: NSWindowController, WKNavigationDelegate {
+    private let webView: WKWebView
+    private let origin: URL
+    init(request: URLRequest) {
+        origin = request.url!
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 740),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        panel.title = "Designer — Quota Display"
+        panel.minSize = NSSize(width: 740, height: 560)
+        panel.contentView = webView
+        panel.center()
+        super.init(window: panel)
+        webView.navigationDelegate = self
+        webView.load(request)
+    }
+    required init?(coder: NSCoder) { nil }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let url = navigationAction.request.url, url.scheme == origin.scheme,
+              url.host == origin.host, url.port == origin.port, url.path.hasPrefix("/designer") else {
+            decisionHandler(.cancel); return
+        }
+        decisionHandler(.allow)
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Designer indisponible"
+        alert.informativeText = "Vérifiez que le Companion source est en ligne et dispose de la version avec Designer."
+        alert.beginSheetModal(for: window)
+    }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if let response = navigationResponse.response as? HTTPURLResponse, response.statusCode != 200 {
+            if let window {
+                let alert = NSAlert()
+                alert.messageText = "Designer indisponible sur la source"
+                alert.informativeText = response.statusCode == 401
+                    ? "Vérifiez la clé API dans les réglages de connexion."
+                    : "Installez Quota Display 1.1.0 ou une version plus récente sur le Mac source, puis rouvrez le Designer."
+                alert.beginSheetModal(for: window)
+            }
+            decisionHandler(.cancel)
+        } else { decisionHandler(.allow) }
+    }
+}
 
 private final class QuotaDiagnostics {
     static let shared = QuotaDiagnostics()
@@ -481,8 +532,7 @@ private func updateInstalledBridge(from source: URL?, to destination: URL) -> Bo
     guard
         let source,
         let bundled = try? Data(contentsOf: source),
-        let installed = try? Data(contentsOf: destination),
-        bundled != installed
+        (try? Data(contentsOf: destination)) != bundled
     else { return false }
     do {
         try bundled.write(to: destination, options: .atomic)
@@ -1788,6 +1838,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private let refreshItem = NSMenuItem(title: "Actualiser les quotas", action: nil, keyEquivalent: "r")
     private let sourceItem = NSMenuItem(title: "Source des quotas…", action: nil, keyEquivalent: "")
     private let sleepItem = NSMenuItem(title: "Veille des mini-écrans…", action: nil, keyEquivalent: "")
+    private var designerWindow: DesignerWindow?
     private let copyAPIItem = NSMenuItem(title: "Copier la configuration API", action: nil, keyEquivalent: "")
     private let serverKeyItem = NSMenuItem(title: "Clé API de ce Mac…", action: nil, keyEquivalent: "")
     private let autoLaunchItem = NSMenuItem(title: "Démarrer l’API avec la session", action: nil, keyEquivalent: "")
@@ -2006,6 +2057,9 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         api.addItem(connectionsItem)
         options.addItem(withTitle: "API et connexions", action: nil, keyEquivalent: "").submenu = api
         let screens = NSMenu(title: "Mini-écrans")
+        let designerItem = NSMenuItem(title: "Designer…", action: #selector(openDesigner), keyEquivalent: "")
+        designerItem.target = self
+        screens.addItem(designerItem)
         sleepItem.target = self
         sleepItem.action = #selector(chooseDisplaySleep)
         screens.addItem(sleepItem)
@@ -2451,6 +2505,20 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         return request
     }
 
+    @objc private func openDesigner() {
+        guard let request = bridgeRequest(path: "/designer/") else {
+            showSourceError("Configurez la connexion à votre source avant d’ouvrir le Designer.")
+            return
+        }
+        if let designerWindow, designerWindow.window?.isVisible == true {
+            designerWindow.showWindow(nil)
+        } else {
+            designerWindow = DesignerWindow(request: request)
+            designerWindow?.showWindow(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     private func syncDisplayPreferences() {
         guard var request = bridgeRequest(path: "/v1/display", method: "POST") else {
             NSSound.beep()
@@ -2634,7 +2702,19 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             .appendingPathComponent("Library/LaunchAgents/\(bridgeLabel).plist")
         DispatchQueue.global(qos: .utility).async { [launchDomain, bridgeLabel] in
             guard let installedBridge = installedBridgeURL(in: try? Data(contentsOf: launchAgent)) else { return }
-            let bridgeUpdated = updateInstalledBridge(from: bundledBridge, to: installedBridge)
+            var bridgeUpdated = false
+            if let resources = bundledBridge?.deletingLastPathComponent(), resources != installedBridge.deletingLastPathComponent() {
+                let names = ["designer.py"] + ((try? FileManager.default.subpathsOfDirectory(atPath: resources.appendingPathComponent("designer").path)) ?? []).map { "designer/" + $0 }
+                for name in names {
+                    let source = resources.appendingPathComponent(name)
+                    var isDirectory: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
+                    let target = installedBridge.deletingLastPathComponent().appendingPathComponent(name)
+                    try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    bridgeUpdated = updateInstalledBridge(from: source, to: target) || bridgeUpdated
+                }
+            }
+            bridgeUpdated = updateInstalledBridge(from: bundledBridge, to: installedBridge) || bridgeUpdated
             guard versionChanged || bridgeUpdated else { return }
             _ = run("/bin/launchctl", ["kickstart", "-k", "\(launchDomain)/\(bridgeLabel)"])
         }

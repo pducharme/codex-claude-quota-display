@@ -8,6 +8,10 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <sys/time.h>
+#include <LittleFS.h>
+#include <vector>
+#include <string>
+#include <algorithm>
 #include "DisplaySleep.h"
 #include "ConfigurationValidation.h"
 #include "Arduino_GFX_Library.h"
@@ -111,7 +115,7 @@ uint32_t lastTouchMillis = 0;
 uint32_t touchStarted = 0;
 bool longPressHandled = false;
 
-enum class Page { Dashboard, CodexDetail, Weather, Settings };
+enum class Page { Dashboard, CodexDetail, Weather, Settings, Designed };
 Page currentPage = Page::Dashboard;
 
 struct Window {
@@ -668,11 +672,15 @@ void drawWeatherPage(int pull = 0, bool refreshing = false, int frame = 0) {
   present();
 }
 
+#include "DesignerRuntime.h"
+
 void drawCurrentPage(int pull = 0, bool refreshing = false, int frame = 0) {
   updateDisplaySleep();
   if (displaySleeping) return;
   if (currentPage == Page::Settings) {
     drawSettings();
+  } else if (currentPage == Page::Designed) {
+    drawDesigner();
   } else if (currentPage == Page::CodexDetail) {
     drawCodexDetail(pull, refreshing, frame);
   } else if (currentPage == Page::Weather) {
@@ -876,7 +884,7 @@ void openSettings() {
 void closeSettings() {
   settingsPassword = "";
   formNonce = "";
-  currentPage = Page::Dashboard;
+  currentPage = designerDocument["pages"].size() ? Page::Designed : Page::Dashboard;
   drawCurrentPage();
 }
 
@@ -1415,10 +1423,18 @@ void handleTouch() {
   } else if (shouldRefresh) {
     animateGestureRefresh();
   } else if (horizontal) {
-    Page nextPage = deltaX < 0 ? Page::Weather : Page::Dashboard;
-    animatePageTransition(nextPage, deltaX < 0);
+    if (designerDocument["pages"].size()) {
+      designerNavigate(deltaX < 0 ? 1 : -1);
+      drawCurrentPage();
+    } else {
+      Page nextPage = deltaX < 0 ? Page::Weather : Page::Dashboard;
+      animatePageTransition(nextPage, deltaX < 0);
+    }
   } else if (tap) {
-    if (currentPage == Page::Dashboard && swipeStartY >= CONTENT_TOP) {
+    if (currentPage == Page::Designed) {
+      designerTap(swipeStartX, swipeStartY);
+      drawCurrentPage();
+    } else if (currentPage == Page::Dashboard && swipeStartY >= CONTENT_TOP) {
       bool showCodex;
       bool showClaude;
       displayedProviders(showCodex, showClaude);
@@ -1426,7 +1442,7 @@ void handleTouch() {
         animatePageTransition(Page::CodexDetail, true);
       }
     } else if (currentPage == Page::CodexDetail) {
-      animatePageTransition(Page::Dashboard, false);
+      animatePageTransition(designerDocument["pages"].size()?Page::Designed:Page::Dashboard, false);
     } else {
       drawCurrentPage();
     }
@@ -1533,6 +1549,7 @@ void setup() {
   configTzTime(sleepTimezone.c_str(), "pool.ntp.org", "time.nist.gov");
   if (!connectWifi()) startSetupPortal();
   startWebServer();
+  startDesigner();
 
   drawMessage("SYNCHRONISATION", "Lecture des quotas...");
   bool fetched = fetchAll();
@@ -1547,6 +1564,8 @@ void loop() {
     closeSettings();
   }
   updateDisplaySleep();
+  updateDesigner();
+  rotateDesigner();
   if (WiFi.status() != WL_CONNECTED) {
     online = false;
     WiFi.reconnect();

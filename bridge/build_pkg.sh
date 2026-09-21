@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.0.28}
+VERSION=${1:-1.1.0}
 if ! printf '%s\n' "$VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "Version invalide: $VERSION" >&2
   exit 2
@@ -26,7 +26,7 @@ for arch in arm64 x86_64; do
     -parse-as-library -swift-version 5 -O \
     -F "$SPARKLE_ROOT" -framework Sparkle \
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
-    -framework AppKit -framework Foundation -framework LocalAuthentication \
+    -framework WebKit -framework AppKit -framework Foundation -framework LocalAuthentication \
     -framework Security -lsqlite3 \
     "$SCRIPT_DIR/quota_menu.swift" -o "$WORK_DIR/QuotaDisplayMenu-$arch"
 done
@@ -43,6 +43,8 @@ done
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/bin/install -m 755 "$SCRIPT_DIR/quota_bridge.py" "$RESOURCES/quota_bridge.py"
+/usr/bin/install -m 644 "$SCRIPT_DIR/designer.py" "$RESOURCES/designer.py"
+/usr/bin/ditto "$SCRIPT_DIR/designer" "$RESOURCES/designer"
 /usr/bin/install -m 600 \
   "$SCRIPT_DIR/com.pducharme.quota-display.plist.template" \
   "$RESOURCES/com.pducharme.quota-display.plist.template"

@@ -1,0 +1,355 @@
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f2f4f7, #161b22);
+  --panel: light-dark(#fff, #202730);
+  --ink: light-dark(#172a3d, #eef3f8);
+  --muted: light-dark(#506476, #adbbc9);
+  --line: light-dark(#d7dfe6, #3a4652);
+  --accent: light-dark(#15608c, #85c8ef);
+  --selected: light-dark(#e1f0f9, #253f51);
+  --error: light-dark(#a22634, #ffacb5);
+  font:
+    14px/1.5 -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  padding: 24px 28px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+h1 {
+  font-size: 25px;
+  letter-spacing: -0.6px;
+  margin: 0;
+  font-weight: 650;
+}
+h2 {
+  font-size: 14px;
+  margin: 0 0 12px;
+  font-weight: 650;
+}
+p {
+  margin: 4px 0;
+  color: var(--muted);
+}
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 7px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  background: var(--selected);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.primary {
+  color: light-dark(#fff, #142632);
+  background: var(--accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+input,
+select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 7px 8px;
+}
+input[type="color"] {
+  height: 34px;
+  padding: 3px;
+}
+input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--accent);
+}
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+#message {
+  padding: 6px 28px 15px;
+  margin: 0;
+  min-height: 44px;
+}
+#message.error {
+  color: var(--error);
+}
+main {
+  display: grid;
+  grid-template-columns: 210px minmax(350px, 1fr) 240px;
+  min-height: 560px;
+  border-top: 1px solid var(--line);
+}
+nav,
+aside {
+  padding: 22px 18px;
+  background: var(--panel);
+}
+nav {
+  border-right: 1px solid var(--line);
+}
+aside {
+  border-left: 1px solid var(--line);
+}
+.workspace {
+  padding: 40px 28px;
+}
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.section-title button {
+  white-space: nowrap;
+  padding: 4px 7px;
+}
+.page {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 7px;
+  padding: 11px 12px;
+}
+.page[aria-pressed="true"],
+.block[aria-pressed="true"] {
+  background: var(--selected);
+  border-color: var(--accent);
+}
+.field {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 15px 0;
+}
+.field input,
+.field select {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 14px;
+}
+.columns {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.columns > .field {
+  flex: 1;
+  min-width: 55px;
+}
+.preview-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.device-shell {
+  padding: 10px;
+  border-radius: 18px;
+  background: #090c11;
+  box-shadow: 0 9px 20px #0002;
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+.tools {
+  margin-top: 26px;
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tools label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.tools select {
+  display: block;
+  margin-top: 5px;
+}
+.hint {
+  font-size: 12px;
+  margin: 12px 0;
+}
+.block {
+  font-size: 13px;
+  margin: 5px 6px 0 0;
+}
+hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 22px 0;
+}
+.quiet {
+  font-size: 12px;
+  margin-top: 15px;
+  background: transparent;
+}
+.danger {
+  color: var(--error);
+}
+.check {
+  display: flex;
+  gap: 9px;
+  align-items: start;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.sky-settings {
+  margin-top: 30px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+.place-search {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+}
+#devices {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 18px;
+}
+.device-status {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+dialog {
+  max-width: 820px;
+  width: 90%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 24px;
+}
+dialog::backdrop {
+  background: #0006;
+}
+#templates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+.template {
+  text-align: left;
+  padding: 16px;
+}
+.template strong {
+  display: block;
+  margin-bottom: 5px;
+}
+.template span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 15px 0;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 950px) {
+  main {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+  aside {
+    grid-column: 1/-1;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+  aside > .field {
+    width: 160px;
+  }
+  aside hr {
+    display: none;
+  }
+  aside section {
+    width: 100%;
+  }
+  .workspace {
+    padding: 28px 18px;
+  }
+}
+@media (max-width: 560px) {
+  header {
+    padding: 18px;
+    align-items: start;
+    flex-direction: column;
+  }
+  #message {
+    padding-left: 18px;
+  }
+  main {
+    display: block;
+  }
+  nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  #pages {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .page {
+    width: auto;
+  }
+  #templates {
+    grid-template-columns: 1fr;
+  }
+  .workspace {
+    padding: 24px 12px;
+  }
+  button,
+  input,
+  select {
+    min-height: 40px;
+  }
+}

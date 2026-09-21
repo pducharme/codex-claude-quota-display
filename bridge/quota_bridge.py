@@ -24,8 +24,9 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 from urllib.error import HTTPError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
+from designer import Designer
 
-APP_VERSION = "1.0.28"
+APP_VERSION = "1.1.0"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -755,6 +756,7 @@ class QuotaState:
 
 
 class QuotaHandler(BaseHTTPRequestHandler):
+    designer = None
     state = None
     weather = None
     token_path = None
@@ -778,6 +780,8 @@ class QuotaHandler(BaseHTTPRequestHandler):
         return hmac.compare_digest(supplied.encode(), expected.encode())
 
     def do_GET(self):
+        if self.designer and self.designer.handle(self, "GET"):
+            return
         parsed = urlparse(self.path)
         if parsed.path == "/health":
             self._json(200, {"ok": True})
@@ -798,6 +802,8 @@ class QuotaHandler(BaseHTTPRequestHandler):
         self._json(200, {"version": 1, "weather": self.weather.get(city)})
 
     def do_POST(self):
+        if self.designer and self.designer.handle(self, "POST"):
+            return
         parsed = urlparse(self.path)
         if parsed.path not in ("/v1/refresh", "/v1/display"):
             self._json(404, {"error": "not_found"})
@@ -904,6 +910,8 @@ def main():
     QuotaHandler.state = state
     QuotaHandler.weather = WeatherCache()
     QuotaHandler.token_path = Path(args.token_file).expanduser()
+    QuotaHandler.designer = Designer(QuotaHandler.token_path.with_name("designer.json"), state, QuotaHandler.weather)
+    QuotaHandler.designer.start()
     threading.Thread(
         target=refresh_loop, args=(state, state.interval), daemon=True
     ).start()

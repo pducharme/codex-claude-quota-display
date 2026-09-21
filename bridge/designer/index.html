@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="designer-csrf" content="__CSRF__" />
+    <title>Designer — Quota Display</title>
+    <link rel="stylesheet" href="/designer/style.css" />
+    <script src="/designer/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Designer</h1>
+        <p>Composez votre mini-écran.</p>
+      </div>
+      <div class="actions">
+        <button id="undo" disabled>Annuler</button
+        ><button id="redo" disabled>Rétablir</button
+        ><button id="publish" class="primary" disabled>
+          Envoyer aux écrans
+        </button>
+      </div>
+    </header>
+    <p id="message" role="status">Ouverture du Designer…</p>
+    <main>
+      <nav aria-label="Pages">
+        <div class="section-title">
+          <h2>Vos pages</h2>
+          <button id="add-page">＋ Ajouter</button>
+        </div>
+        <div id="pages"></div>
+        <label class="field"
+          >Changer de page automatiquement<select id="rotation">
+            <option value="0">Jamais</option>
+            <option value="15">Toutes les 15 secondes</option>
+            <option value="30">Toutes les 30 secondes</option>
+            <option value="60">Chaque minute</option>
+          </select></label
+        >
+        <div id="devices"><h2>Écrans</h2></div>
+        <button id="rollback" class="quiet" disabled>
+          Revenir à la publication précédente
+        </button>
+      </nav>
+      <section class="workspace" aria-label="Aperçu et composition">
+        <div class="preview-title">
+          <span id="preview-name">Votre page</span
+          ><span>Données d’exemple</span>
+        </div>
+        <div class="device-shell">
+          <canvas
+            id="preview"
+            width="640"
+            height="180"
+            aria-label="Aperçu 640 par 180. Sélectionnez un élément dans la liste pour le modifier."
+          ></canvas>
+        </div>
+        <div class="tools">
+          <label
+            >Ajouter<select id="new-type">
+              <option value="text">Texte</option>
+              <option value="value">Valeur connectée</option>
+              <option value="bar">Jauge</option>
+              <option value="button">Bouton Focus</option>
+            </select></label
+          ><button id="add-block">＋ Ajouter l’élément</button>
+        </div>
+        <p class="hint" id="hint">
+          Cliquez sur un élément pour le modifier. Déplacez-le directement dans
+          l’aperçu.
+        </p>
+        <div id="blocks" aria-label="Éléments de la page"></div>
+        <section class="sky-settings" id="sky-settings" hidden>
+          <h2>Quand un avion passe</h2>
+          <label class="check"
+            ><input id="sky-enabled" type="checkbox" />Rechercher les avions
+            dans cette zone</label
+          >
+          <div class="place-search">
+            <input
+              id="place-query"
+              placeholder="Ville ou municipalité"
+              aria-label="Ville à rechercher"
+            /><button id="find-place">Rechercher</button>
+          </div>
+          <select
+            id="places"
+            aria-label="Résultats de recherche"
+            hidden
+          ></select>
+          <div class="columns">
+            <label class="field"
+              >Latitude<input
+                id="latitude"
+                type="number"
+                min="-90"
+                max="90"
+                step="0.00001" /></label
+            ><label class="field"
+              >Longitude<input
+                id="longitude"
+                type="number"
+                min="-180"
+                max="180"
+                step="0.00001" /></label
+            ><label class="field"
+              >Rayon (km)<input
+                id="radius"
+                type="number"
+                min="1"
+                max="100"
+                value="10"
+            /></label>
+          </div>
+          <label class="check"
+            ><input id="auto-sky" type="checkbox" />Afficher le vol
+            automatiquement pendant son passage</label
+          >
+          <p class="hint">
+            Revient à votre page après le passage. Respecte la veille et vos
+            interactions. La zone choisie est envoyée à ADSB.lol; les
+            renseignements du vol proviennent d’ADSBDB.
+          </p>
+          <p id="flight-state" class="hint"></p>
+        </section>
+      </section>
+      <aside aria-label="Personnalisation">
+        <h2>Personnaliser</h2>
+        <label class="field"
+          >Nom de la page<input id="page-name" maxlength="32" /></label
+        ><label class="field"
+          >Police<select id="font">
+            <option value="pixel">Pixel original</option>
+            <option value="silkscreen">Pixel compact — Silkscreen</option>
+            <option value="pixelify">Pixel doux — Pixelify</option>
+            <option value="terminal">Terminal — VT323</option>
+            <option value="modern">Moderne — Space Grotesk</option>
+            <option value="mono">Technique — JetBrains Mono</option>
+          </select></label
+        >
+        <div class="columns">
+          <label class="field">Accent<input type="color" id="accent" /></label
+          ><label class="field"
+            >Fond<input type="color" id="background"
+          /></label>
+        </div>
+        <label class="field"
+          >Ville météo<input id="weather-city" maxlength="80"
+        /></label>
+        <hr />
+        <section id="element-settings" hidden>
+          <h2>Élément sélectionné</h2>
+          <label class="field">Texte<input id="text" maxlength="80" /></label
+          ><label class="field"
+            >Donnée<select id="binding">
+              <option value="">Aucune</option>
+              <option value="clock">Heure</option>
+              <option value="date">Date</option>
+              <option value="codex.5h">Codex — reste sur 5 h</option>
+              <option value="codex.week">Codex — reste semaine</option>
+              <option value="claude.5h">Claude — reste sur 5 h</option>
+              <option value="claude.week">Claude — reste semaine</option>
+              <option value="weather.temperature">Météo — température</option>
+              <option value="weather.condition">Météo — conditions</option>
+              <option value="focus.remaining">Focus — temps restant</option>
+            </select></label
+          ><label class="field"
+            >Taille<select id="size">
+              <option value="1">Petite</option>
+              <option value="2">Moyenne</option>
+              <option value="3">Grande</option>
+              <option value="4">Très grande</option>
+            </select></label
+          >
+          <details>
+            <summary>Position et dimensions</summary>
+            <div class="columns">
+              <label class="field"
+                >Gauche<input type="number" id="x" min="0" max="632" /></label
+              ><label class="field"
+                >Haut<input type="number" id="y" min="0" max="172" /></label
+              ><label class="field"
+                >Largeur<input type="number" id="w" min="8" max="640" /></label
+              ><label class="field"
+                >Hauteur<input type="number" id="h" min="8" max="180"
+              /></label>
+            </div>
+          </details>
+          <button id="remove-block" class="danger">Supprimer l’élément</button>
+        </section>
+        <button id="remove-page" class="quiet danger">Supprimer la page</button>
+      </aside>
+    </main>
+    <dialog id="gallery">
+      <div class="section-title">
+        <div>
+          <h2>Une page pour chaque moment</h2>
+          <p>Choisissez un point de départ.</p>
+        </div>
+        <button id="close-gallery" aria-label="Fermer">✕</button>
+      </div>
+      <div id="templates"></div>
+    </dialog>
+  </body>
+</html>

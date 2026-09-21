@@ -121,6 +121,17 @@ lectures locales des fournisseurs tant qu’une source distante est configurée.
 L’action **Actualiser les quotas** du client demande une nouvelle lecture à cette source. Le choix des fournisseurs affichés est aussi enregistré
 sur la source : tous les Companions et mini-écrans adoptent le même affichage.
 
+## Designer (version 1.1.0 en validation)
+
+**Paramètres → Mini-écrans → Designer…** ouvre l'éditeur de pages : six polices,
+modèles Quotas/Météo/Horloge/Focus, composition libre et suivi des avions à
+proximité avec bascule automatique. Une première mise à jour du firmware est
+requise; les publications de pages suivantes passent par HTTP.
+
+Consultez le [guide du Designer et son état de validation](docs/designer-v1.md).
+Le nouveau firmware doit encore être vérifié sur les deux écrans physiques;
+la release firmware stable du 20 septembre décrite ci-dessous reste distincte.
+
 ## Installer le mini-écran
 
 Matériel pris en charge : **LILYGO T-Display S3 Long**, écran 180×640 utilisé en

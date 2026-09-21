@@ -27,3 +27,20 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Designer fonts
+
+Silkscreen, Pixelify Sans, VT323, Space Grotesk and JetBrains Mono are
+redistributed under the SIL Open Font License. Original font files and their
+individual notices are in `bridge/designer/fonts` (and `designer/fonts` in the
+Companion resources). The shared bitmap atlases are generated from these fonts.
+The classic pixel glyphs come from Adafruit GFX; its notice is included as
+`designer/fonts/pixel-LICENSE.txt`.
+
+## Flight data attribution
+
+Nearby positions: ADSB.lol (https://www.adsb.lol), ODbL 1.0.
+Aircraft and route lookup: ADSBDB (https://www.adsbdb.com).
+ADSBDB credits PlaneBase for aircraft data and David Taylor and Jim Mason for
+route data. The Companion only queries selected nearby flights and keeps brief
+in-memory lookups; no bulk route database is included in this distribution.
