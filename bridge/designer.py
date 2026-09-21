@@ -44,7 +44,7 @@ BINDINGS = {
     "focus.phase",
 }
 FOCUS_ACTIONS = {"focus.toggle", "focus.reset"}
-KINDS = {"text", "value", "bar", "button", "pixels"}
+KINDS = {"text", "value", "bar", "button", "pixels", "artwork"}
 DEVICE = re.compile(r"^[a-f0-9]{12}$")
 
 
@@ -245,6 +245,14 @@ def validate(config):
                     raise ValueError("Dessin invalide.")
                 clean[-1]["pixels"] = pixels
         source = validate_source(p.get("source"))
+        artworks = [b for b in clean if b["type"] == "artwork"]
+        if artworks and (
+            len(artworks) > 1
+            or not source
+            or source["module"] not in ("spotify", "sonos")
+            or any(b["binding"] or b["action"] for b in artworks)
+        ):
+            raise ValueError("Une pochette au maximum, dans une page Spotify ou Sonos.")
         if (
             any(
                 b["binding"].startswith("source.") or b["action"].startswith("source.")
@@ -648,6 +656,7 @@ class Designer:
         sources = [p["source"] for c in configs for p in c["pages"] if p.get("source")]
         if any(MODULES[s["module"]]["provider"] == "home_assistant" for s in sources):
             self.connections.poll()
+        self.connections.poll_artwork(sources)
         self.connections.services.poll(sources)
         if any(
             p.get("source", {}).get("module") == "mac_stats"
@@ -808,6 +817,9 @@ class Designer:
                     )
                 resolved.pop("source", None)
                 for b in resolved["blocks"]:
+                    if b["type"] == "artwork":
+                        b["pixels"] = self.connections.artwork_value(p["source"])
+                        continue
                     v = page_values.get(b["binding"])
                     b["value"] = v if type(v) in (int, float) else None
                     if b["binding"]:
@@ -938,6 +950,7 @@ class Designer:
                         raise ValueError("Source requise.")
                     if MODULES[source["module"]]["provider"] == "home_assistant":
                         self.connections.poll()
+                        self.connections.poll_artwork([source])
                     elif source["module"] == "mac_stats":
                         self.connections.mac.poll()
                     else:

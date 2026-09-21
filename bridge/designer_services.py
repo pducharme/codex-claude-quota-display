@@ -94,11 +94,17 @@ MODULES = {
     "currency": dict(
         name="Cours et devises",
         category="Bureau",
-        description="Taux de change quotidien et variation depuis la cotation précédente.",
-        requires="Données quotidiennes Frankfurter. Aucun compte; ne correspond pas à un cours intrajournalier.",
+        description="Devises quotidiennes ou Bitcoin, Ether et Solana avec variation.",
+        requires="Frankfurter pour les devises; CoinGecko pour les cryptoactifs. Accès CoinGecko Demo configurable dans Connexions.",
         provider="public",
-        fields=[("rate", "Taux"), ("change", "Variation"), ("date", "Date du taux")],
+        fields=[("rate", "Valeur"), ("change", "Variation"), ("date", "Publication")],
         options=[
+            dict(
+                key="asset",
+                label="À suivre",
+                default="Devises",
+                choices=["Devises", "Bitcoin", "Ether", "Solana"],
+            ),
             dict(
                 key="base",
                 label="Devise de départ",
@@ -141,6 +147,11 @@ for spec in MODULES.values():
     spec.update(slots=[], actions=[])
 
 CREDENTIALS = {
+    "currency": dict(
+        name="CoinGecko",
+        note="Clé Demo pour Bitcoin, Ether et Solana. Les devises n’en ont pas besoin. Sans clé, la lecture utilise l’accès public lorsqu’il est disponible.",
+        fields=[dict(key="key", label="Clé CoinGecko Demo", secret=True)],
+    ),
     "github": dict(
         name="GitHub",
         note="Facultatif pour un dépôt public. Pour un dépôt privé, choisissez un jeton limité au dépôt avec la permission Actions en lecture.",
@@ -206,7 +217,11 @@ def validate_options(module, value, definitions=None):
         and not re.fullmatch(r"[A-Za-z0-9_]{1,25}", out["channel"])
     ):
         raise ValueError("Chaîne Twitch invalide.")
-    if module == "currency" and out["base"] == out["quote"]:
+    if (
+        module == "currency"
+        and out["asset"] == "Devises"
+        and out["base"] == out["quote"]
+    ):
         raise ValueError("Choisissez deux devises différentes.")
     return out
 
@@ -348,7 +363,22 @@ class WebServices:
 
     @staticmethod
     def key(source):
-        return json.dumps([source["module"], source.get("options", {})], sort_keys=True)
+        return json.dumps(
+            [
+                source["module"],
+                validate_options(source["module"], source.get("options", {})),
+            ],
+            sort_keys=True,
+        )
+
+    @staticmethod
+    def interval(source):
+        return (
+            60
+            if source["module"] == "currency"
+            and source.get("options", {}).get("asset", "Devises") != "Devises"
+            else MODULES[source["module"]]["interval"]
+        )
 
     def poll(self, sources, now=None):
         now = time.time() if now is None else now
@@ -366,7 +396,7 @@ class WebServices:
         for key, source in active.items():
             module = source["module"]
             options = validate_options(module, source.get("options", {}))
-            interval = MODULES[module]["interval"]
+            interval = self.interval(source)
             with self.lock:
                 old = self.cache.get(key, {})
                 if now < old.get("retry", 0):
@@ -390,7 +420,11 @@ class WebServices:
                 elif module == "twitch":
                     values = self.twitch(options, credentials, now)
                 else:
-                    values = self.currency(options, now)
+                    values = (
+                        self.crypto(options, credentials, now)
+                        if options["asset"] != "Devises"
+                        else self.currency(options, now)
+                    )
             except HTTPError as e:
                 if e.code in (401, 403):
                     message = "Accès refusé ou quota atteint : vérifiez Connexions"
@@ -428,7 +462,7 @@ class WebServices:
             entry = self.cache.get(self.key(source))
             if not entry:
                 return {"source.status": "Première lecture après publication"}
-            if now - entry["at"] > MODULES[source["module"]]["interval"] * 2 + 30:
+            if now - entry["at"] > self.interval(source) * 2 + 30:
                 return {"source.status": "Données périmées : service indisponible"}
             return copy.deepcopy(entry["values"])
 
@@ -595,6 +629,52 @@ class WebServices:
             "source.viewers": compact(stream.get("viewer_count")),
             "source.duration": f"{minutes//60} h {minutes%60:02d}",
             "source.status": "En direct · " + options["channel"],
+        }
+
+    def crypto(self, options, credentials, now):
+        coin = {"Bitcoin": "bitcoin", "Ether": "ethereum", "Solana": "solana"}[
+            options["asset"]
+        ]
+        quote = options["quote"].lower()
+        headers = (
+            {"x-cg-demo-api-key": credentials["key"]} if credentials.get("key") else {}
+        )
+        data = self.reader(
+            "https://api.coingecko.com/api/v3/simple/price?"
+            + urlencode(
+                dict(
+                    ids=coin,
+                    vs_currencies=quote,
+                    include_24hr_change="true",
+                    include_last_updated_at="true",
+                )
+            ),
+            headers,
+        )[coin]
+        price, stamp, change = (
+            data.get(quote),
+            data.get("last_updated_at"),
+            data.get(quote + "_24h_change"),
+        )
+        if (
+            type(stamp) not in (int, float)
+            or not math.isfinite(stamp)
+            or not -60 <= now - stamp <= 600
+        ):
+            return {"source.status": "Cotation périmée ou sans horodatage"}
+        if type(price) not in (int, float) or not math.isfinite(price) or price <= 0:
+            return {"source.status": "Cotation indisponible"}
+        return {
+            "source.rate": f"{price:,.2f}".replace(",", " ") + " " + options["quote"],
+            "source.change": (
+                f"{change:+.2f} %"
+                if type(change) in (int, float) and math.isfinite(change)
+                else "--"
+            ),
+            "source.date": datetime.fromtimestamp(stamp, timezone.utc).strftime(
+                "%H:%M UTC"
+            ),
+            "source.status": options["asset"] + " · variation 24 h · CoinGecko",
         }
 
     def currency(self, options, now):

@@ -184,6 +184,40 @@ class ServiceTests(unittest.TestCase):
             "clé YouTube", self.services.values(yt, self.now)["source.status"]
         )
 
+    def test_crypto_selection_secret_header_freshness_and_cache_interval(self):
+        s = self.source("currency", asset="Bitcoin", base="CAD", quote="CAD")
+        data = dict(
+            bitcoin=dict(cad=120000, cad_24h_change=-2.3, last_updated_at=self.now - 20)
+        )
+        calls = []
+
+        def reader(url, headers=None):
+            calls.append((url, headers))
+            return copy.deepcopy(data)
+
+        self.services.reader = reader
+        self.services.configure("currency", dict(key="private-demo-key"))
+        self.services.poll([s], self.now)
+        self.assertEqual(
+            self.services.values(s, self.now)["source.rate"], "120 000.00 CAD"
+        )
+        self.assertEqual(self.services.values(s, self.now)["source.change"], "-2.30 %")
+        self.assertEqual(calls[0][1], {"x-cg-demo-api-key": "private-demo-key"})
+        self.assertNotIn("private-demo-key", calls[0][0])
+        self.services.poll([s], self.now + 30)
+        self.assertEqual(len(calls), 1)
+        data["bitcoin"]["last_updated_at"] = self.now - 1000
+        self.services.poll([s], self.now + 61)
+        self.assertNotIn("source.rate", self.services.values(s, self.now + 61))
+        data["bitcoin"].update(last_updated_at=self.now + 122, cad=float("nan"))
+        self.services.poll([s], self.now + 122)
+        self.assertNotIn("source.rate", self.services.values(s, self.now + 122))
+        legacy = dict(module="currency", options=dict(base="CAD", quote="USD"))
+        self.assertEqual(
+            self.services.key(legacy),
+            self.services.key(self.source("currency", base="CAD", quote="USD")),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

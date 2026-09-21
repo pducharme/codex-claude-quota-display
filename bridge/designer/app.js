@@ -198,7 +198,30 @@ function draw() {
     ctx.beginPath();
     ctx.rect(b.x, b.y, b.w, b.h);
     ctx.clip();
-    if (b.type === "pixels") {
+    if (b.type === "artwork") {
+      ctx.fillStyle = "#26364a";
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = p.accent;
+      ctx.beginPath();
+      ctx.arc(
+        b.x + b.w / 2,
+        b.y + b.h / 2,
+        Math.min(b.w, b.h) * 0.3,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+      ctx.fillStyle = "#26364a";
+      ctx.beginPath();
+      ctx.arc(
+        b.x + b.w / 2,
+        b.y + b.h / 2,
+        Math.min(b.w, b.h) * 0.06,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    } else if (b.type === "pixels") {
       drawPixels(ctx, b, p.accent);
     } else if (b.type === "bar") {
       ctx.fillStyle = "#26364a";

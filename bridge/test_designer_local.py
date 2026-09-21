@@ -1,11 +1,67 @@
 import copy
 import unittest
 from unittest.mock import patch
-from designer_local import MacStats, MacControls, AudioOutput, parse_stats, CAT
+from designer_local import (
+    MacStats,
+    MacControls,
+    AudioOutput,
+    parse_stats,
+    CAT,
+    bmp_pixels,
+    artwork_pixels,
+)
 from designer import templates, default_config, validate
 
 
 class LocalTests(unittest.TestCase):
+    def test_artwork_pixel_order_rgb565_and_malformed_bmp(self):
+        import struct
+
+        header = b"BM" + struct.pack("<IHHI", 54 + 3072, 0, 0, 54)
+        header += struct.pack("<IiiHHIIiiII", 40, 32, 32, 1, 24, 0, 3072, 0, 0, 0, 0)
+        # BMP starts with its bottom row: blue bottom half, red top half.
+        data = header + bytes([255, 0, 0]) * 512 + bytes([0, 0, 255]) * 512
+        self.assertEqual(bmp_pixels(data), "f800" * 512 + "001f" * 512)
+        for bad in (data[:-1], b"bad", data[:10] + struct.pack("<I", 0) + data[14:]):
+            with self.assertRaises(ValueError):
+                bmp_pixels(bad)
+
+    @unittest.skipUnless(
+        __import__("sys").platform == "darwin", "Native macOS image conversion"
+    )
+    def test_native_artwork_conversion_preserves_orientation_and_colours(self):
+        import struct, zlib
+
+        def chunk(name, data):
+            return (
+                struct.pack(">I", len(data))
+                + name
+                + data
+                + struct.pack(">I", zlib.crc32(name + data))
+            )
+
+        scanlines = (b"\0" + bytes([255, 0, 0]) * 32) * 16 + (
+            b"\0" + bytes([0, 0, 255]) * 32
+        ) * 16
+        png = (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(scanlines))
+            + chunk(b"IEND", b"")
+        )
+        self.assertEqual(artwork_pixels(png), "f800" * 512 + "001f" * 512)
+        wide = (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 32, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress((b"\0" + bytes([255, 0, 0]) * 64) * 32))
+            + chunk(b"IEND", b"")
+        )
+        self.assertEqual(
+            artwork_pixels(wide), "0000" * 256 + "f800" * 512 + "0000" * 256
+        )
+        with self.assertRaises(ValueError):
+            artwork_pixels(b"x" * 2_000_001)
+
     def test_mac_commands_use_only_selected_shortcuts_and_report_failures(self):
         import subprocess
         from types import SimpleNamespace

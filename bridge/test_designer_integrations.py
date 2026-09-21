@@ -11,6 +11,7 @@ from designer_integrations import (
     base_url,
     validate_source,
     request_json,
+    request_artwork,
 )
 from quota_bridge import QuotaState, WeatherCache
 
@@ -201,6 +202,86 @@ class IntegrationTests(unittest.TestCase):
             c.action(spotify, "source.select_output", "device", "page")
         self.assertEqual(len(self.calls), count)
 
+    def test_artwork_is_cached_bound_to_current_track_and_never_exposes_urls(self):
+        from unittest.mock import patch
+
+        c = self.connections
+        source = dict(module="spotify", entities=dict(player="media_player.bureau"))
+        attrs = c.entities["media_player.bureau"]["attributes"]
+        attrs.update(
+            entity_picture="https://example.test/cover?token=private-image-token",
+            media_content_id="track1",
+        )
+        pixels = "f800" * 1024
+
+        def run_thread(**kwargs):
+            class Thread:
+                def start(self):
+                    kwargs["target"]()
+
+            return Thread()
+
+        with patch(
+            "designer_integrations.threading.Thread", side_effect=run_thread
+        ), patch(
+            "designer_integrations.request_artwork", return_value=pixels
+        ) as reader:
+            c.poll_artwork([source])
+            self.assertEqual(
+                reader.call_args.args[0],
+                "http://homeassistant.local:8123/api/media_player_proxy/media_player.bureau",
+            )
+            self.assertEqual(c.artwork_value(source), pixels)
+            c.poll_artwork([source])
+            self.assertEqual(reader.call_count, 1)
+            attrs["media_content_id"] = "track2"
+            self.assertEqual(c.artwork_value(source), "")
+            c.poll_artwork([source])
+            self.assertEqual(reader.call_count, 2)
+            d = Designer(self.path / "art-pages.json", QuotaState(), WeatherCache())
+            d.connections = c
+            config = default_config()
+            config["pages"] = [
+                next(
+                    p
+                    for p in templates()
+                    if p.get("source", {}).get("module") == "spotify"
+                )
+            ]
+            config["pages"][0]["source"] = source
+            d.publish(dict(config=config, targets=["000000000001"], base_revision=0))
+            frame = d.frame("000000000001")
+            self.assertEqual(frame["pages"][0]["blocks"][0]["pixels"], pixels)
+            self.assertNotIn("private-image-token", json.dumps(frame))
+            self.assertNotIn("example.test", json.dumps(frame))
+            self.assertNotIn("media_player.bureau", json.dumps(frame))
+            compact = copy.deepcopy(config["pages"][0])
+            compact["blocks"] = compact["blocks"][:5] + compact["blocks"][-1:]
+            many = default_config()
+            many["pages"] = [
+                dict(copy.deepcopy(compact), id=f"music-{i}") for i in range(8)
+            ]
+            d.publish(dict(config=many, targets=["000000000001"], base_revision=1))
+            size = len(json.dumps(d.frame("000000000001")).encode())
+            self.assertGreater(size, 32768)
+            self.assertLess(size, 65536)
+            config["pages"][0]["blocks"].append(
+                copy.deepcopy(config["pages"][0]["blocks"][0])
+            )
+            with self.assertRaises(ValueError):
+                validate(config)
+            c.at -= 40
+            self.assertEqual(c.artwork_value(source), "")
+            c.at = time.time()
+            attrs["media_content_id"] = "track3"
+            reader.side_effect = OSError()
+            c.poll_artwork([source])
+            self.assertEqual(c.artwork_value(source), "")
+            c.poll_artwork([source])
+            self.assertEqual(
+                reader.call_count, 3
+            )  # Missing image retries later, not every tick.
+
     def test_sports_freshness_ev_reminder_and_acknowledgement_reset(self):
         from datetime import datetime, timezone
 
@@ -277,7 +358,13 @@ class IntegrationTests(unittest.TestCase):
                     self.end_headers()
                     return
                 body = json.dumps(entities).encode()
+                if self.path == "/image":
+                    body = b"synthetic-image"
                 self.send_response(200)
+                self.send_header(
+                    "Content-Type",
+                    "image/png" if self.path == "/image" else "application/json",
+                )
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
@@ -292,6 +379,21 @@ class IntegrationTests(unittest.TestCase):
                 request_json(root + "/redirect", "isolated-transport-test")
             self.assertEqual([path for path, _ in seen], ["/api/states", "/redirect"])
             self.assertEqual(seen[0][1], "Bearer isolated-transport-test")
+            from unittest.mock import patch
+
+            with patch(
+                "designer_integrations.artwork_pixels", return_value="f800" * 1024
+            ) as decode:
+                self.assertEqual(
+                    request_artwork(root + "/image", "isolated-transport-test"),
+                    "f800" * 1024,
+                )
+                decode.assert_called_once_with(b"synthetic-image")
+                with self.assertRaises(ValueError):
+                    request_artwork(root + "/api/states", "isolated-transport-test")
+                with self.assertRaises(ValueError):
+                    request_artwork(root + "/redirect", "isolated-transport-test")
+                self.assertNotIn("/leak", [p for p, _ in seen])
         finally:
             server.shutdown()
             server.server_close()

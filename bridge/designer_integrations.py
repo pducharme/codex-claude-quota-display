@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from designer_local import MacStats, MacControls
+from designer_local import MacStats, MacControls, artwork_pixels
 from designer_services import WebServices, MODULES as WEB_MODULES, validate_options
 from urllib.parse import urlsplit
 from urllib.request import Request, HTTPRedirectHandler, build_opener
@@ -357,6 +357,16 @@ def templates(page, block):
                 block("value", 16, 110, 608, 28, binding="source.period"),
                 block("value", 16, 156, 608, 20, binding="source.status"),
             ]
+        if key in ("spotify", "sonos"):
+            blocks = [
+                block("artwork", 16, 10, 96, 96, "Pochette"),
+                block("text", 128, 10, 496, 20, m["name"]),
+                block("value", 128, 38, 496, 26, binding="source.title"),
+                block("value", 128, 70, 350, 26, binding="source.artist"),
+                block("value", 496, 70, 128, 26, binding="source.volume"),
+                *[b for b in blocks if b["type"] == "button"],
+                block("value", 16, 156, 608, 20, binding="source.status"),
+            ]
         p = page(m["name"], blocks, font="modern")
         p.update(
             source=dict(module=key, entities={}),
@@ -392,6 +402,25 @@ def request_json(url, token, data=None):
     if len(raw) > 2_000_000:
         raise ValueError("Réponse trop volumineuse.")
     return json.loads(raw)
+
+
+def request_artwork(url, token):
+    request = Request(
+        url,
+        headers={
+            "Authorization": "Bearer " + token,
+            "User-Agent": "QuotaDisplay-Designer",
+        },
+    )
+    with build_opener(NoRedirect).open(request, timeout=6) as response:
+        if response.headers.get_content_type() not in (
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+        ):
+            raise ValueError("Pochette incompatible.")
+        raw = response.read(2_000_001)
+    return artwork_pixels(raw)
 
 
 class Keychain:
@@ -501,6 +530,8 @@ class Connections:
         self.attempt = 0
         self.status = "not_connected"
         self.acknowledged = {}
+        self.artwork = {}
+        self.artwork_busy = False
         self.mac = MacStats()
         self.controls = MacControls()
         self.services = WebServices(
@@ -549,6 +580,7 @@ class Connections:
                 if os.path.exists(temp):
                     os.unlink(temp)
             self.url, self.token, self.entities = url, token, entities
+            self.artwork.clear()
             self.status, self.at, self.attempt = "ok", time.time(), time.time()
         return self.info()
 
@@ -575,6 +607,98 @@ class Connections:
                     )
                     for k, e in sorted(self.entities.items())
                 ],
+            )
+
+    def artwork_key(self, entity):
+        e = self.entities.get(entity, {})
+        a = e.get("attributes", {})
+        if e.get("state") in (None, "unknown", "unavailable", "off") or not (
+            a.get("entity_picture") or a.get("entity_picture_local")
+        ):
+            return None
+        return json.dumps(
+            [
+                a.get(k)
+                for k in (
+                    "entity_picture",
+                    "entity_picture_local",
+                    "media_content_id",
+                    "media_title",
+                    "media_album_name",
+                )
+            ],
+            sort_keys=True,
+        )
+
+    def poll_artwork(self, sources):
+        with self.lock:
+            if self.artwork_busy or self.status != "ok" or time.time() - self.at > 35:
+                return
+            selected = {
+                s.get("entities", {}).get("player")
+                for s in sources
+                if s["module"] in ("spotify", "sonos")
+            }
+            self.artwork = {
+                k: v
+                for k, v in self.artwork.items()
+                if k in selected or time.time() < v.get("retry", 0) + 60
+            }
+            # ponytail: 64 recent player images; replace with an LRU if a larger installation needs it.
+            while len(self.artwork) > 64:
+                self.artwork.pop(next(iter(self.artwork)))
+            jobs = []
+            for entity in sorted(selected - {None, ""})[:32]:
+                key, previous = self.artwork_key(entity), self.artwork.get(entity, {})
+                if key and (
+                    key != previous.get("key")
+                    or time.time() >= previous.get("retry", 0)
+                ):
+                    jobs.append((entity, key))
+            if not jobs:
+                return
+            url, token = self.url, self.token
+            self.artwork_busy = True
+
+        def load():
+            try:
+                for entity, key in jobs:
+                    try:
+                        pixels = request_artwork(
+                            url + "/api/media_player_proxy/" + entity, token
+                        )
+                    except Exception:
+                        pixels = ""
+                    with self.lock:
+                        if (url, token) == (
+                            self.url,
+                            self.token,
+                        ) and key == self.artwork_key(entity):
+                            self.artwork[entity] = dict(
+                                key=key,
+                                pixels=pixels,
+                                retry=time.time() + (3600 if pixels else 60),
+                            )
+            finally:
+                with self.lock:
+                    self.artwork_busy = False
+
+        threading.Thread(target=load, daemon=True).start()
+
+    def artwork_value(self, source):
+        with self.lock:
+            if (
+                source["module"] not in ("spotify", "sonos")
+                or self.status != "ok"
+                or time.time() - self.at > 35
+            ):
+                return ""
+            entity = source["entities"].get("player")
+            entry = self.artwork.get(entity, {})
+            return (
+                entry.get("pixels", "")
+                if entry.get("key") == self.artwork_key(entity)
+                else ""
             )
 
     def poll(self):

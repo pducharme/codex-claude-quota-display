@@ -50,6 +50,12 @@ function renderSource() {
     box.append(label);
   }
   for (const definition of spec.options || []) {
+    if (
+      p.source.module === "currency" &&
+      definition.key === "base" &&
+      (p.source.options?.asset || "Devises") !== "Devises"
+    )
+      continue;
     const label = document.createElement("label");
     label.className = "field";
     label.textContent = definition.label;
@@ -115,6 +121,8 @@ function renderSource() {
       p.source.options ||= {};
       p.source.options[definition.key] = value;
       message("Modifications non envoyées.");
+      if (p.source.module === "currency" && definition.key === "asset")
+        renderSource();
     };
     label.append(input);
     box.append(label);
@@ -177,7 +185,11 @@ function renderSource() {
     }),
     preview,
   );
-  if (!["local", "public"].includes(spec.provider))
+  if (
+    !["local", "public"].includes(spec.provider) ||
+    (p.source.module === "currency" &&
+      (p.source.options?.asset || "Devises") !== "Devises")
+  )
     box.append(button("Gérer les connexions", openConnections));
   const select = $("binding");
   select.querySelectorAll("[data-source]").forEach((el) => el.remove());

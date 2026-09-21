@@ -3,7 +3,96 @@
 import os
 import re
 import subprocess
+import struct
+import tempfile
 import time
+from pathlib import Path
+
+
+def artwork_pixels(raw):
+    """Use macOS ImageIO through sips; return a bounded 32x32 RGB565 image."""
+    if not raw or len(raw) > 2_000_000:
+        raise ValueError("Pochette trop volumineuse.")
+    with tempfile.TemporaryDirectory(prefix="quota-artwork-") as folder:
+        source, output = Path(folder) / "source", Path(folder) / "small.bmp"
+        source.write_bytes(raw)
+        probe = subprocess.run(
+            ["/usr/bin/sips", "-g", "pixelWidth", "-g", "pixelHeight", str(source)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout
+        dimensions = [
+            int(n) for n in re.findall(r"pixel(?:Width|Height): (\d+)", probe)
+        ]
+        if len(dimensions) != 2 or any(not 0 < n <= 4096 for n in dimensions):
+            raise ValueError("Dimensions de pochette incompatibles.")
+        subprocess.run(
+            [
+                "/usr/bin/sips",
+                "-s",
+                "format",
+                "bmp",
+                "-z",
+                str(max(1, round(dimensions[1] * 32 / max(dimensions)))),
+                str(max(1, round(dimensions[0] * 32 / max(dimensions)))),
+                "-p",
+                "32",
+                "32",
+                "--padColor",
+                "000000",
+                str(source),
+                "--out",
+                str(output),
+            ],
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        return bmp_pixels(output.read_bytes())
+
+
+def bmp_pixels(data):
+    if len(data) < 54 or data[:2] != b"BM":
+        raise ValueError("Pochette invalide.")
+    offset = struct.unpack_from("<I", data, 10)[0]
+    header, width, height, planes, bits, compression = struct.unpack_from(
+        "<IiiHHI", data, 14
+    )
+    if (
+        width != 32
+        or abs(height) != 32
+        or planes != 1
+        or bits not in (24, 32)
+        or compression not in (0, 3)
+        or offset < 14 + header
+    ):
+        raise ValueError("Format de pochette incompatible.")
+    alpha = False
+    if compression == 3:
+        if (
+            bits != 32
+            or header < 108
+            or len(data) < 70
+            or struct.unpack_from("<III", data, 54) != (0xFF0000, 0xFF00, 0xFF)
+        ):
+            raise ValueError("Couleurs de pochette incompatibles.")
+        alpha = struct.unpack_from("<I", data, 66)[0] == 0xFF000000
+    stride = ((width * bits + 31) // 32) * 4
+    if offset + stride * 32 > len(data):
+        raise ValueError("Pochette tronquée.")
+    pixels = []
+    for row in range(32):
+        start = offset + (row if height < 0 else 31 - row) * stride
+        for col in range(32):
+            index = start + col * (bits // 8)
+            b, g, r = data[index : index + 3]
+            if alpha:
+                a = data[index + 3]
+                r, g, b = (v * a // 255 for v in (r, g, b))
+            pixels.append(f"{((r>>3)<<11)|((g>>2)<<5)|(b>>3):04x}")
+    return "".join(pixels)
 
 
 def parse_stats(top, interfaces, previous=None, now=None):

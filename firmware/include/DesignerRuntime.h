@@ -48,11 +48,12 @@ bool designerValid(JsonDocument &doc) {
     if(!p["blocks"].is<JsonArray>() || p["blocks"].size()>16) return false;
     for(JsonObject b:p["blocks"].as<JsonArray>()) {
       String type=b["type"]|"";
-      if(type!="text"&&type!="value"&&type!="bar"&&type!="button"&&type!="pixels") return false;
+      if(type!="text"&&type!="value"&&type!="bar"&&type!="button"&&type!="pixels"&&type!="artwork") return false;
       int x=b["x"]|-1,y=b["y"]|-1,w=b["w"]|0,h=b["h"]|0,s=b["size"]|0;
       if(x<0||y<0||w<8||h<8||x+w>640||y+h>180||s<1||s>4) return false;
       if(String(b["text"]|"").length()>400) return false;
       if(type=="pixels") {String bits=b["pixels"]|"";if(bits.length()!=256)return false;for(size_t i=0;i<bits.length();i++)if(bits[i]!='0'&&bits[i]!='1')return false;}
+      if(type=="artwork") {String pixels=b["pixels"]|"";if(pixels.length()!=0&&pixels.length()!=4096)return false;for(size_t i=0;i<pixels.length();i++)if(!isxdigit((unsigned char)pixels[i]))return false;}
     }
   }
   return true;
@@ -139,7 +140,16 @@ void drawDesigner() {
     for(JsonObject b:p["blocks"].as<JsonArray>()) {
       int x=b["x"],y=b["y"],w=b["w"],h=b["h"],scale=b["size"];
       String type=b["type"]|"";
-      if(type=="pixels") {
+      if(type=="artwork") {
+        const char *pixels=b["pixels"]|"";
+        int side=min(w,h),imageX=x+(w-side)/2,imageY=y+(h-side)/2;
+        if(strlen(pixels)==4096)for(int row=0;row<32;row++)for(int col=0;col<32;col++) {
+          char cell[5];memcpy(cell,pixels+(row*32+col)*4,4);cell[4]=0;
+          int left=imageX+col*side/32,top=imageY+row*side/32;
+          view->fillRect(left,top,(col+1)*side/32-col*side/32,(row+1)*side/32-row*side/32,(uint16_t)strtoul(cell,nullptr,16));
+        }
+        else {view->fillRect(x,y,w,h,COLOR_TRACK);designerText(x+3,y+h/2-8,w-6,16,"Sans image",font,1,COLOR_MUTED);}
+      } else if(type=="pixels") {
         const char *bits=b["pixels"]|"";
         for(int row=0;row<16;row++)for(int col=0;col<16;col++)if(bits[row*16+col]=='1') {
           int left=x+col*w/16,top=y+row*h/16;
@@ -185,7 +195,7 @@ void designerNetwork(void *) {
       if(http.begin("http://"+bridgeHost+"/v1/designer/frame?device="+id+"&applied="+String(designerReportedRevision)+"&sleeping="+(designerReportedSleep?"1":"0"))) {
         http.addHeader("Authorization","Bearer "+bridgeToken);
         int status=http.GET();int length=http.getSize();
-        if(status==200&&length>0&&length<=32768) {
+        if(status==200&&length>0&&length<=65536) {
           String body=http.getString();
           if(body.length()==(size_t)length&&xSemaphoreTake(designerMutex,pdMS_TO_TICKS(20))){designerPending=body;xSemaphoreGive(designerMutex);}
         }
@@ -211,7 +221,7 @@ void startDesigner() {
   designerFS=LittleFS.begin(true);
   if(designerFS)for(const char *name:{"/designer.json","/designer.prev"}) {
     File f=LittleFS.open(name,"r");if(!f)continue;
-    if(f.size()>32800||f.readStringUntil('\n')!=designerSourceID()){f.close();continue;}
+    if(f.size()>65568||f.readStringUntil('\n')!=designerSourceID()){f.close();continue;}
     JsonDocument cached;auto error=deserializeJson(cached,f);f.close();
     if(error==DeserializationError::Ok&&designerValid(cached)){
       designerDocument=cached;designerRevision=cached["revision"]|0;
