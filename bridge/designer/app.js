@@ -331,6 +331,11 @@ function render() {
   $("weather-city").value = config.city;
   $("rotation").value = String(config.rotation);
   const custom = p.kind === "custom";
+  $("add-artwork-option").disabled =
+    !["spotify", "sonos"].includes(p.source?.module) ||
+    p.blocks.some((b) => b.type === "artwork");
+  if ($("new-type").value === "artwork" && $("add-artwork-option").disabled)
+    $("new-type").value = "text";
   for (const id of ["add-block", "new-type"]) $(id).disabled = !custom;
   $("font").disabled = p.kind.startsWith("native-");
   $("accent").disabled = p.kind.startsWith("native-");
@@ -384,6 +389,8 @@ function render() {
     $("blocks").append(item);
   });
   const b = element();
+  for (const id of ["text", "binding", "size"])
+    $(id).disabled = b?.type === "artwork";
   $("element-settings").hidden = !b;
   if (b)
     for (const key of ["text", "binding", "size", "x", "y", "w", "h"])
@@ -449,19 +456,20 @@ $("add-block").onclick = () => {
     page().blocks.push({
       type,
       x: 16 + (page().blocks.length % 2) * 312,
-      y:
-        type === "pixels"
-          ? 16
-          : 16 + (Math.floor(page().blocks.length / 2) % 4) * 40,
-      w: type === "pixels" ? 128 : 280,
-      h: type === "pixels" ? 128 : 32,
+      y: ["pixels", "artwork"].includes(type)
+        ? 16
+        : 16 + (Math.floor(page().blocks.length / 2) % 4) * 40,
+      w: ["pixels", "artwork"].includes(type) ? 128 : 280,
+      h: ["pixels", "artwork"].includes(type) ? 128 : 32,
       size: 1,
       text:
         type === "text"
           ? "Votre texte"
           : type === "button"
             ? "Démarrer / pause"
-            : "",
+            : type === "artwork"
+              ? "Pochette"
+              : "",
       binding: type === "value" ? "clock" : type === "bar" ? "codex.week" : "",
       action: type === "button" ? "focus.toggle" : "",
     });
