@@ -1593,7 +1593,7 @@ void loop() {
 
   static uint32_t lastAnimation = 0;
   static int animationFrame = 0;
-  if (!displaySleeping && !swipeTracking && millis() - lastAnimation >= 900) {
+  if (!displaySleeping && !swipeTracking && millis() - lastAnimation >= (currentPage == Page::Designed ? 250UL : 900UL)) {
     lastAnimation = millis();
     drawCurrentPage(0, false, ++animationFrame);
   }

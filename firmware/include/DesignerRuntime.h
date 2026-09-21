@@ -55,6 +55,10 @@ bool designerValid(JsonDocument &doc) {
       int x=b["x"]|-1,y=b["y"]|-1,w=b["w"]|0,h=b["h"]|0,s=b["size"]|0;
       if(x<0||y<0||w<8||h<8||x+w>640||y+h>180||s<1||s>4) return false;
       if(String(b["text"]|"").length()>400) return false;
+      if(!b["countdown"].isNull()) {
+        JsonObject timer=b["countdown"];
+        if(timer.isNull()||String(b["binding"]|"")!="focus.remaining"||!timer["milliseconds"].is<uint32_t>()||timer["milliseconds"].as<uint32_t>()>1500000||!timer["running"].is<bool>()||!timer["label"].is<const char*>()||String(timer["label"].as<const char*>()).length()>320)return false;
+      }
       if(type=="pixels") {String bits=b["pixels"]|"";if(bits.length()!=256)return false;for(size_t i=0;i<bits.length();i++)if(bits[i]!='0'&&bits[i]!='1')return false;}
       if(type=="artwork") {String pixels=b["pixels"]|"";if(pixels.length()!=0&&pixels.length()!=4096)return false;for(size_t i=0;i<pixels.length();i++)if(!isxdigit((unsigned char)pixels[i]))return false;}
     }
@@ -170,7 +174,17 @@ void drawDesigner() {
         else designerText(x+3,y,w-6,h,"--",font,1,COLOR_MUTED);
       } else {
         if(type=="button"){view->fillRect(x,y,w,h,COLOR_TRACK);x+=8;w-=16;y+=max(0,(h-16*scale)/2);}
-        designerText(x,y,w,h,String(b["text"]|""),font,scale,type=="value"?accent:COLOR_TEXT);
+        String text=b["text"]|"";
+        if(b["countdown"].is<JsonObject>()) {
+          JsonObject timer=b["countdown"];
+          text=String(timer["label"]|"");if(text.length())text+=" ";
+          if(!designerReceived||millis()-designerReceived>30000)text+="--:--";
+          else {
+            uint32_t seconds=designerCountdownSeconds(timer["milliseconds"],designerReceived,millis(),timer["running"]);
+            char value[8];snprintf(value,sizeof(value),"%02lu:%02lu",(unsigned long)(seconds/60),(unsigned long)(seconds%60));text+=value;
+          }
+        }
+        designerText(x,y,w,h,text,font,scale,type=="value"?accent:COLOR_TEXT);
       }
     }
   }

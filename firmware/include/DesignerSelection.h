@@ -4,6 +4,11 @@
 #include <vector>
 #include <algorithm>
 
+inline uint32_t designerCountdownSeconds(uint32_t remainingMs,uint32_t received,uint32_t now,bool running){
+  uint32_t elapsed=running?now-received:0;
+  return remainingMs>elapsed?(remainingMs-elapsed+999)/1000:0;
+}
+
 // The start page and timed rotation share the same eligibility rule. Manual
 // swipes still visit every page, including a flight page reserved for alerts.
 inline int designerNextRotation(const std::vector<bool>& included,int current){

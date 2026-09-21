@@ -1,6 +1,12 @@
 #include <cassert>
 #include "include/DesignerSelection.h"
 int main(){
+  assert(designerCountdownSeconds(2500,100,100,true)==3);
+  assert(designerCountdownSeconds(2500,100,600,true)==2);
+  assert(designerCountdownSeconds(2500,100,1600,true)==1); // advances without another network frame
+  assert(designerCountdownSeconds(2500,100,2600,true)==0);
+  assert(designerCountdownSeconds(2500,100,9000,false)==3); // paused
+  assert(designerCountdownSeconds(2500,0xffffff00UL,0x2e8UL,true)==2); // millis rollover
   assert(designerNextRotation({false,true,true},-1)==1); // excluded first page is not shown on boot/publication
   assert(designerNextRotation({true,false,true},0)==2); // skip flight page in ordinary rotation
   assert(designerNextRotation({true,false,true},2)==0); // wrap around

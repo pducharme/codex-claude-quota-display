@@ -779,11 +779,20 @@ class Designer:
                 )
         tick = time.monotonic()
         focus = self.focus_state(device, tick)
-        remaining = (
-            max(0, math.ceil(focus["until"] - tick))
-            if focus["until"] is not None
-            else int(focus["remaining"])
+        remaining_ms = max(
+            0,
+            round(
+                1000
+                * (
+                    focus["until"] - tick
+                    if focus["until"] is not None
+                    else focus["remaining"]
+                )
+            ),
         )
+        remaining = math.ceil(remaining_ms / 1000)
+        values["focus.remaining_ms"] = remaining_ms
+        values["focus.running"] = focus["until"] is not None
         values["focus.remaining"] = f"{remaining//60:02d}:{remaining%60:02d}"
         values["focus.phase"] = f'{focus["phase"]} · {focus["completed"]} terminé(s)'
         return values
@@ -826,6 +835,12 @@ class Designer:
                         b["pixels"] = self.connections.artwork_value(p["source"])
                         continue
                     v = page_values.get(b["binding"])
+                    if b["binding"] == "focus.remaining":
+                        b["countdown"] = dict(
+                            milliseconds=values["focus.remaining_ms"],
+                            running=values["focus.running"],
+                            label=b["text"],
+                        )
                     b["value"] = v if type(v) in (int, float) else None
                     if b["binding"]:
                         formatted = ("--" if v is None else str(v)) + (

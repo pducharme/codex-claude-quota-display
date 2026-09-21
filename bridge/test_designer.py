@@ -172,10 +172,31 @@ class DesignerTests(unittest.TestCase):
         d.publish(dict(config=config, targets=[device], base_revision=0))
         with patch("designer.time.monotonic", return_value=100):
             d.action(device, "focus.toggle")
+        with patch("designer.time.monotonic", return_value=100.25):
+            timer = next(
+                b
+                for b in d.frame(device)["pages"][0]["blocks"]
+                if b["binding"] == "focus.remaining"
+            )
+        self.assertEqual(
+            timer["countdown"], dict(milliseconds=1499750, running=True, label="")
+        )
+        self.assertEqual(
+            timer["text"], "25:00"
+        )  # Older firmware still has a readable value.
         with patch("designer.time.monotonic", return_value=150):
             d.action(device, "focus.toggle")
         self.assertEqual(d.focus[device]["remaining"], 1450)
         self.assertIsNone(d.focus[device]["until"])
+        with patch("designer.time.monotonic", return_value=190):
+            timer = next(
+                b
+                for b in d.frame(device)["pages"][0]["blocks"]
+                if b["binding"] == "focus.remaining"
+            )
+        self.assertEqual(
+            timer["countdown"], dict(milliseconds=1450000, running=False, label="")
+        )
         with patch("designer.time.monotonic", return_value=200):
             d.action(device, "focus.toggle")
         with patch("designer.time.monotonic", return_value=1650):
