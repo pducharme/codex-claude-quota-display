@@ -142,6 +142,33 @@ class DesignerTests(unittest.TestCase):
         flights.reader = lambda url: (_ for _ in ()).throw(OSError())
         self.assertEqual(flights.poll(sky, stamp + 65)["status"], "unavailable")
 
+    def test_focus_cycles_pause_long_break_and_reset(self):
+        d, device = self.designer, "000000000001"
+        config = default_config()
+        config["pages"] = [next(p for p in templates() if p["name"] == "Focus")]
+        d.publish(dict(config=config, targets=[device], base_revision=0))
+        with patch("designer.time.monotonic", return_value=100):
+            d.action(device, "focus.toggle")
+        with patch("designer.time.monotonic", return_value=150):
+            d.action(device, "focus.toggle")
+        self.assertEqual(d.focus[device]["remaining"], 1450)
+        self.assertIsNone(d.focus[device]["until"])
+        with patch("designer.time.monotonic", return_value=200):
+            d.action(device, "focus.toggle")
+        with patch("designer.time.monotonic", return_value=1650):
+            values = d.bindings(config, device)
+        self.assertEqual(values["focus.remaining"], "05:00")
+        self.assertEqual(d.focus[device]["completed"], 1)
+        self.assertIsNone(d.focus[device]["until"])  # Next phase waits for touch.
+        with patch("designer.time.monotonic", return_value=1700):
+            d.action(device, "focus.toggle")
+        self.assertEqual(d.focus_state(device, 2000)["phase"], "Focus")
+        d.focus[device].update(completed=3, until=2100)
+        focus = d.focus_state(device, 2100)
+        self.assertEqual((focus["phase"], focus["remaining"]), ("Pause longue", 900))
+        d.action(device, "focus.reset")
+        self.assertEqual(d.focus_state(device, 3000)["completed"], 0)
+
     def test_corrupt_file_does_not_break_quota_bridge(self):
         self.designer.path.write_text("{bad")
         d = Designer(self.designer.path, self.state, WeatherCache())

@@ -17,7 +17,7 @@ import threading
 import time
 import traceback
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -469,6 +469,29 @@ def _read_json(url, timeout=10):
         return json.load(response)
 
 
+def rain_summary(forecast):
+    unavailable = "Prévision pluie indisponible"
+    try:
+        now = datetime.fromisoformat(forecast["current"]["time"])
+        hourly = forecast["hourly"]
+        upcoming = []
+        for stamp, rain, showers in zip(hourly["time"], hourly["rain"], hourly["showers"]):
+            end = datetime.fromisoformat(stamp)
+            if not 0 < (end - now).total_seconds() <= 6 * 3600:
+                continue
+            if any(type(n) not in (int, float) or not math.isfinite(n) or n < 0 for n in (rain, showers)):
+                return unavailable
+            upcoming.append((end, rain + showers))
+        if len(upcoming) != 6 or any((b[0] - a[0]).total_seconds() != 3600 for a, b in zip(upcoming, upcoming[1:])):
+            return unavailable
+        for end, amount in upcoming:
+            if amount >= 0.1:
+                return f"Pluie prévue · {(end - timedelta(hours=1)):%H} h–{end:%H} h"
+        return "Pas de pluie prévue · 6 h"
+    except (KeyError, ValueError, TypeError):
+        return unavailable
+
+
 def read_weather(city):
     city = city.strip()
     if not 1 <= len(city) <= 80:
@@ -490,6 +513,7 @@ def read_weather(city):
                 "latitude": place["latitude"],
                 "longitude": place["longitude"],
                 "current": "temperature_2m,apparent_temperature,weather_code",
+                "hourly": "rain,showers",
                 "daily": (
                     "temperature_2m_max,temperature_2m_min,weather_code"
                 ),
@@ -531,6 +555,7 @@ def read_weather(city):
         "weather_code": code,
         "condition": _weather_label(code),
         "forecast": days,
+        "rain_summary": rain_summary(forecast),
         "updated_at": int(time.time()),
     }
 

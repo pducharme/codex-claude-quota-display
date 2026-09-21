@@ -291,9 +291,10 @@ void updateDesigner() {
   if(designerInterrupted&&!allowed)designerRestore();
   if(!allowed||swipeTracking||now-lastTouchMillis<5000){return;}
   std::vector<DesignerAircraft> aircraft;
-  if(designerReceived&&now-designerReceived<45000&&String(designerDocument["flight"]["status"]|"")=="ok")
+  bool fresh=designerReceived&&now-designerReceived<45000&&String(designerDocument["flight"]["status"]|"")=="ok";
+  if(fresh)
     for(JsonObject f:designerDocument["flight"]["flights"].as<JsonArray>()) aircraft.push_back({std::string(f["id"]|""),f["inside"]|false});
-  std::string selected=designerSelection.update(aircraft,now,designerPinned&&!designerInterrupted);
+  std::string selected=designerSelection.update(aircraft,now,designerPinned&&!designerInterrupted,fresh);
   if(!selected.empty()) {
     if(!designerInterrupted){designerPreviousPage=currentPage;designerPreviousIndex=designerIndex;designerPreviousElapsed=now-designerPageStarted;designerInterrupted=true;}
     designerFlightID=selected.c_str();currentPage=Page::Designed;designerIndex=skyIndex;

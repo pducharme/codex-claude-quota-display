@@ -27,11 +27,25 @@ from quota_bridge import (
     read_claude_desktop_cache,
     read_claude_plan,
     read_weather,
+    rain_summary,
     token_from,
 )
 
 
 class QuotaParsingTest(unittest.TestCase):
+    def test_rain_forecast_never_treats_missing_or_invalid_values_as_dry(self):
+        data = dict(current=dict(time="2026-09-21T23:15"), hourly=dict(
+            time=[f"2026-09-22T{h:02}:00" for h in range(6)], rain=[0]*6, showers=[0]*6))
+        self.assertEqual(rain_summary(data), "Pas de pluie prévue · 6 h")
+        data["hourly"]["showers"][0] = 0.3
+        self.assertEqual(rain_summary(data), "Pluie prévue · 23 h–00 h")
+        for bad in (None, -1, float("nan")):
+            data["hourly"]["rain"][3] = bad
+            self.assertEqual(rain_summary(data), "Prévision pluie indisponible")
+        data["hourly"]["rain"] = [0]*5
+        self.assertEqual(rain_summary(data), "Prévision pluie indisponible")
+        self.assertEqual(rain_summary({}), "Prévision pluie indisponible")
+
     def test_codex_partial_lines_time_out_and_buffered_messages_are_consumed(self):
         popen = subprocess.Popen
         # A real pipe verifies both a partial line and several JSON lines in one OS read.

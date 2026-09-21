@@ -39,8 +39,11 @@ BINDINGS = {
     "claude.week",
     "weather.temperature",
     "weather.condition",
+    "weather.rain",
     "focus.remaining",
+    "focus.phase",
 }
+FOCUS_ACTIONS = {"focus.toggle", "focus.reset"}
 KINDS = {"text", "value", "bar", "button", "pixels"}
 DEVICE = re.compile(r"^[a-f0-9]{12}$")
 
@@ -119,7 +122,7 @@ def templates():
                         "value", 20, 52, 280, 50, binding="weather.temperature", size=3
                     ),
                     block("value", 320, 62, 296, 32, binding="weather.condition"),
-                    block("value", 20, 140, 596, 28, binding="date"),
+                    block("value", 20, 140, 596, 28, binding="weather.rain"),
                 ],
                 font="modern",
             ),
@@ -136,6 +139,7 @@ def templates():
                 [
                     block("text", 20, 12, 596, 24, "Un moment pour se concentrer"),
                     block("value", 20, 50, 350, 64, binding="focus.remaining", size=3),
+                    block("value", 20, 138, 350, 24, binding="focus.phase"),
                     block(
                         "button",
                         410,
@@ -144,6 +148,9 @@ def templates():
                         60,
                         "Démarrer / pause",
                         action="focus.toggle",
+                    ),
+                    block(
+                        "button", 410, 132, 200, 36, "Recommencer", action="focus.reset"
                     ),
                 ],
                 font="mono",
@@ -217,7 +224,7 @@ def validate(config):
             h = int(number(b.get("h"), 8, 180 - y))
             size = int(number(b.get("size", 1), 1, 4))
             action = b.get("action", "")
-            if action not in {"", "focus.toggle"} | SOURCE_ACTIONS:
+            if action not in {""} | FOCUS_ACTIONS | SOURCE_ACTIONS:
                 raise ValueError("Action inconnue.")
             clean.append(
                 block(
@@ -674,10 +681,7 @@ class Designer:
         threading.Thread(target=loop, daemon=True).start()
 
     def action(self, device, action, page_id=""):
-        if (
-            not DEVICE.fullmatch(device)
-            or action not in {"focus.toggle"} | SOURCE_ACTIONS
-        ):
+        if not DEVICE.fullmatch(device) or action not in FOCUS_ACTIONS | SOURCE_ACTIONS:
             raise ValueError("Action invalide.")
         with self.lock:
             target = self.data["targets"].get(device)
@@ -699,13 +703,33 @@ class Designer:
         if source:
             return self.connections.action(source, action, device, page_id)
         with self.lock:
-            now = time.time()
-            focus = self.focus.setdefault(device, {"remaining": 1500, "until": None})
+            now = time.monotonic()
+            if action == "focus.reset":
+                self.focus.pop(device, None)
+                return {"ok": True}
+            focus = self.focus_state(device, now)
             if focus["until"] is not None:
                 focus.update(remaining=max(0, focus["until"] - now), until=None)
             else:
-                focus["until"] = now + (focus["remaining"] or 1500)
+                focus["until"] = now + focus["remaining"]
             return {"ok": True}
+
+    def focus_state(self, device, now):
+        focus = self.focus.setdefault(
+            device, dict(remaining=1500, until=None, phase="Focus", completed=0)
+        )
+        if focus["until"] is not None and now >= focus["until"]:
+            if focus["phase"] == "Focus":
+                focus["completed"] += 1
+                long_break = focus["completed"] % 4 == 0
+                focus.update(
+                    phase="Pause longue" if long_break else "Pause",
+                    remaining=900 if long_break else 300,
+                    until=None,
+                )
+            else:
+                focus.update(phase="Focus", remaining=1500, until=None)
+        return focus
 
     def bindings(self, config, device):
         now = datetime.now()
@@ -725,6 +749,11 @@ class Designer:
                 if weather.get("status") == "ok"
                 else "Météo indisponible"
             ),
+            "weather.rain": (
+                weather.get("rain_summary", "Prévision pluie indisponible")
+                if weather.get("status") == "ok"
+                else "Prévision pluie indisponible"
+            ),
         }
         for provider in ("codex", "claude"):
             for name, key in [("5h", "five_hour"), ("week", "weekly")]:
@@ -734,13 +763,15 @@ class Designer:
                 values[f"{provider}.{name}"] = (
                     round(100 - used) if type(used) in (int, float) else None
                 )
-        focus = self.focus.get(device, {"remaining": 1500, "until": None})
+        tick = time.monotonic()
+        focus = self.focus_state(device, tick)
         remaining = (
-            max(0, int(focus["until"] - time.time()))
-            if focus["until"]
+            max(0, math.ceil(focus["until"] - tick))
+            if focus["until"] is not None
             else int(focus["remaining"])
         )
         values["focus.remaining"] = f"{remaining//60:02d}:{remaining%60:02d}"
+        values["focus.phase"] = f'{focus["phase"]} · {focus["completed"]} terminé(s)'
         return values
 
     def frame(self, device, applied=0, page="", sleeping=False):
