@@ -235,13 +235,29 @@ class QuotaParsingTest(unittest.TestCase):
     def test_claude_api_fallback_and_expired_credentials(self, opener, oauth, _cache):
         oauth.return_value = {"accessToken": "test-token", "expiresAt": (time.time() + 3600) * 1000,
                               "subscriptionType": "max", "rateLimitTier": "default_claude_max_5x"}
-        opener.return_value.open.return_value = io.BytesIO(b'{"five_hour":{"utilization":12}}')
-        self.assertEqual(read_claude()["five_hour"]["used_percent"], 12)
-        request = opener.return_value.open.call_args.args[0]
+        for tier, expected in (("20x", "Max 20X"), ("5x", "Max 5X")):
+            opener.return_value.open.side_effect = [
+                io.BytesIO(b'{"five_hour":{"utilization":12}}'),
+                io.BytesIO(json.dumps({"organization": {
+                    "organization_type": "claude_max", "rate_limit_tier": "default_claude_max_" + tier,
+                }}).encode()),
+            ]
+            usage = read_claude()
+            self.assertEqual(usage["five_hour"]["used_percent"], 12)
+            self.assertEqual(usage["plan"], expected)
+        request = opener.return_value.open.call_args_list[-2].args[0]
         self.assertEqual(request.full_url, "https://api.anthropic.com/api/oauth/usage")
         self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
+        profile_request = opener.return_value.open.call_args.args[0]
+        self.assertEqual(profile_request.full_url, "https://api.anthropic.com/api/oauth/profile")
+        self.assertEqual(profile_request.get_header("Authorization"), "Bearer test-token")
         opener.assert_called_with(NoCredentialRedirect)
         self.assertIsNone(NoCredentialRedirect().redirect_request(None, None, 302, "", {}, "https://other.test"))
+        for unavailable in [HTTPError(profile_request.full_url, 503, "", {}, None), io.BytesIO(b'[]')]:
+            opener.return_value.open.side_effect = [io.BytesIO(b'{"five_hour":{"utilization":12}}'), unavailable]
+            usage = read_claude()
+            self.assertEqual(usage["five_hour"]["used_percent"], 12)
+            self.assertIsNone(usage["plan"])
         opener.return_value.open.side_effect = HTTPError(request.full_url, 401, "", {}, None)
         with self.assertRaises(ClaudeAuthenticationRequired):
             read_claude()

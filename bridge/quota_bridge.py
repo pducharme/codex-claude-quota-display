@@ -202,11 +202,15 @@ def read_claude_oauth():
 
 def read_claude_plan(oauth=None):
     oauth = read_claude_oauth() if oauth is None else oauth
-    subscription = str(oauth.get("subscriptionType") or "").lower()
-    tier = str(oauth.get("rateLimitTier") or "").lower()
-    if subscription == "max":
+    organization = oauth.get("organization") or {}
+    tier = str(organization.get("rate_limit_tier") or oauth.get("rate_limit_tier")
+               or oauth.get("rateLimitTier") or "").lower()
+    subscription = str(organization.get("subscription_type") or oauth.get("subscription_type")
+                       or organization.get("organization_type") or oauth.get("subscriptionType")
+                       or tier).lower()
+    if "max" in subscription:
         return "Max 20X" if "20x" in tier else "Max 5X" if "5x" in tier else "Max"
-    return "Pro" if subscription == "pro" else None
+    return "Pro" if "pro" in subscription else None
 
 
 class NoCredentialRedirect(HTTPRedirectHandler):
@@ -419,12 +423,22 @@ def read_claude(timeout=20):
     })
     try:
         with build_opener(NoCredentialRedirect).open(request, timeout=timeout) as response:
-            usage = parse_claude_api_usage(json.load(response))
+            source = json.load(response)
+            usage = parse_claude_api_usage(source)
     except HTTPError as error:
         if error.code in (401, 403):
             raise ClaudeAuthenticationRequired("Claude session must be renewed") from None
         raise
-    usage["plan"] = read_claude_plan(oauth)
+    # Login metadata can outlive a plan change; read the current account profile.
+    usage["plan"] = read_claude_plan(source)
+    if usage["plan"] is None:
+        profile_request = Request("https://api.anthropic.com/api/oauth/profile", headers=request.headers)
+        profile_request.add_header("User-Agent", "claude-cli (external, cli)")
+        try:
+            with build_opener(NoCredentialRedirect).open(profile_request, timeout=timeout) as response:
+                usage["plan"] = read_claude_plan(json.load(response))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass  # Keep usage available without displaying an unverified cached plan.
     return usage
 
 

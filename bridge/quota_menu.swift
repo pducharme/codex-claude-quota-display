@@ -2884,14 +2884,14 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         quotaSession.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self else { return }
-                defer { self.refreshingClaudeDesktop = false }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 guard
                     error == nil,
                     200...299 ~= status,
                     let data,
-                    let initialValue = claudeDesktopQuotaSnapshot(from: data, plan: self.snapshot?.claude.plan)
+                    let initialValue = claudeDesktopQuotaSnapshot(from: data)
                 else {
+                    self.refreshingClaudeDesktop = false
                     QuotaDiagnostics.shared.capture("claude_usage",
                         failure: QuotaDiagnostics.failure(error, status: (200...299 ~= status) || status == 0 ? nil : status), remote: false)
                     if status == 401 || status == 403 { self.claudeDesktopCredential = nil }
@@ -2906,6 +2906,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 }
 
                 let finish: ([String: Any]) -> Void = { value in
+                    self.refreshingClaudeDesktop = false
                     do {
                         let output = try JSONSerialization.data(withJSONObject: value)
                         try FileManager.default.createDirectory(
@@ -3067,6 +3068,10 @@ private struct QuotaMenu {
             let desktopQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopSample.utf8))
             let desktopLimitsSample = #"{"limits":[{"kind":"weekly_scoped","percent":65,"resets_at":"2026-09-08T16:00:00Z","scope":{"model":{"display_name":"Fable"}}}]}"#
             let desktopLimitsQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopLimitsSample.utf8))
+            let upgradedPlan = claudePlanName(from: ["organization": [
+                "organization_type": "claude_max", "rate_limit_tier": "default_claude_max_20x",
+            ]])
+            let upgradedQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopLimitsSample.utf8), plan: upgradedPlan)
             let bridgeTestRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             let bridgeTestSource = bridgeTestRoot.appendingPathComponent("source.py")
             let bridgeTestDestination = bridgeTestRoot.appendingPathComponent("destination.py")
@@ -3218,6 +3223,8 @@ private struct QuotaMenu {
                 (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,
                 (desktopLimitsQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 65,
                 desktopQuotas?["plan"] as? String == "Max 5X",
+                desktopLimitsQuotas?["plan"] == nil,
+                upgradedQuotas?["plan"] as? String == "Max 20X",
                 bridgeUpdated, installedBridgePathsFound,
                 installedBridgeURL(in: nil) == nil,
                 installedBridgeURL(in: Data("invalid plist".utf8)) == nil,
