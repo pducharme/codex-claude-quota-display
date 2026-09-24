@@ -3,6 +3,25 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.0.29</title>
+            <pubDate>Wed, 23 Sep 2026 17:53:46 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.0.29</sparkle:version>
+            <sparkle:shortVersionString>1.0.29</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.0.29</h2>
+<ul>
+  <li>Le forfait Claude est revérifié à chaque actualisation. Un passage de Max 5X à Max 20X est désormais reflété dans le Companion et sur les mini-écrans.</li>
+  <li>La correction couvre les connexions Claude Desktop et Claude Code. Si le forfait ne peut pas être vérifié, les quotas restent disponibles sans afficher un ancien forfait.</li>
+</ul>
+<p>En mode distant, mettez à jour le Mac source. Les connexions et les réglages sont conservés. Aucun reflash du mini-écran n’est nécessaire.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.29/Quota-Display-1.0.29.zip" length="2332158" type="application/octet-stream" sparkle:edSignature="tJnfdF+vbCFWcvTQ+3r54Ivt6OwBE0JG74Echnx5mYU6W6A2mNTY/ilgVzCDv4x5PRy/yVXmU+EkMw/5kaZuAw=="/>
+        </item>
+        <item>
             <title>1.0.28</title>
             <pubDate>Tue, 15 Sep 2026 20:07:21 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -40,26 +59,6 @@
 <p>Disponible dans le menu et la fenêtre permanente du Companion. Aucun reflash du mini-écran n’est nécessaire.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.27/Quota-Display-1.0.27.zip" length="2313603" type="application/octet-stream" sparkle:edSignature="8+AMDlkLMFeREMdbzAZ+uu48X4+scNknbDZNPmFJ2ZlUMAC4THPwEAq+XDa5Xd9r6yh0KsnYMFym+IeF5swUAw=="/>
-        </item>
-        <item>
-            <title>1.0.25</title>
-            <pubDate>Sun, 13 Sep 2026 14:36:42 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.25</sparkle:version>
-            <sparkle:shortVersionString>1.0.25</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.25</h2>
-<ul>
-  <li>Les mises à jour conservent désormais la même identité de signature pour que macOS reconnaisse l’autorisation d’accès au trousseau.</li>
-  <li>Au passage depuis une ancienne version, autorisez une dernière fois l’accès à « Claude Safe Storage » avec « Toujours autoriser ».</li>
-  <li>L’option « Partager les erreurs techniques » se trouve maintenant dans Paramètres → Mises à jour.</li>
-</ul>
-<p>La source configurée et les réglages sont conservés. Aucun reflash du mini-écran n’est nécessaire.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.25/Quota-Display-1.0.25.zip" length="2291244" type="application/octet-stream" sparkle:edSignature="1+iaac+Y/VXFfShVMbT/x7rjZUKQtkp5ApF3hZx6b1/l6qYjufdWsL41L3jmDB5Gq9q+lTceYO1njNPX5UTqAQ=="/>
         </item>
     </channel>
 </rss>
