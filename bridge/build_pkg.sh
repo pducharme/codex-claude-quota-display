@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.1.8}
+VERSION=${1:-1.1.9}
 if ! printf '%s\n' "$VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "Version invalide: $VERSION" >&2
   exit 2
@@ -45,7 +45,8 @@ done
 /usr/bin/install -m 644 "$SPARKLE_ROOT/LICENSE" "$RESOURCES/Sparkle-LICENSE.txt"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
-/usr/bin/install -m 755 "$SCRIPT_DIR/quota_bridge.py" "$RESOURCES/quota_bridge.py"
+/usr/bin/sed "s/^APP_VERSION = .*/APP_VERSION = \"$VERSION\"/" "$SCRIPT_DIR/quota_bridge.py" > "$RESOURCES/quota_bridge.py"
+/bin/chmod 755 "$RESOURCES/quota_bridge.py"
 /usr/bin/install -m 644 "$SCRIPT_DIR/designer.py" "$RESOURCES/designer.py"
 /usr/bin/install -m 644 "$SCRIPT_DIR/designer_integrations.py" "$RESOURCES/designer_integrations.py"
 /usr/bin/install -m 644 "$SCRIPT_DIR/designer_local.py" "$RESOURCES/designer_local.py"
