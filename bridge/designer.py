@@ -632,11 +632,12 @@ class Designer:
             value["previous"] = {
                 k: copy.deepcopy(self.data[k]) for k in ("config", "targets")
             }
-            value["config"] = old["config"]
-            value["targets"] = old["targets"]
+            value["config"] = validate(old["config"])
+            value["targets"] = copy.deepcopy(old["targets"])
             # Targets newly assigned by the reverted publication also receive a default layout.
             for d in self.data["targets"]:
                 value["targets"].setdefault(d, {"config": default_config()})
+                value["targets"][d]["config"] = validate(value["targets"][d]["config"])
                 value["targets"][d]["revision"] = value["revision"]
             self.save(value)
             return self.info()

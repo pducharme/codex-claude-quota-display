@@ -140,6 +140,15 @@ class DesignerTests(unittest.TestCase):
         result = validate(c)
         self.assertEqual([p["kind"] for p in result["pages"] if p["in_rotation"]], ["native-quotas"])
         self.assertEqual([p["id"] for p in result["pages"]], [p["id"] for p in c["pages"]])
+        device = "000000000001"
+        self.designer.publish(dict(config=c, targets=[device], base_revision=0))
+        self.designer.publish(dict(config=default_config(), targets=[device], base_revision=1))
+        previous = self.designer.data["previous"]
+        previous["config"] = c
+        previous["targets"][device]["config"] = c
+        self.designer.rollback(2)
+        restored = self.designer.frame(device)
+        self.assertEqual([p["kind"] for p in restored["pages"] if p["in_rotation"]], ["native-quotas"])
 
     def test_flight_freshness_radius_unknown_route_and_failures(self):
         stamp = time.time()
