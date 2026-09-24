@@ -1074,11 +1074,10 @@ private final class CompactStatusView: NSView {
     private var iconWidth: CGFloat { showIcons ? statusIconSize : 0 }
     private var textInset: CGFloat { showIcons ? statusIconSize + 2 : 0 }
     private var dividerInset: CGFloat { showIcons ? 6 : 0 }
-    private var textFont: NSFont {
-        showCodex != showClaude
-            ? .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .semibold)
-            : .monospacedSystemFont(ofSize: 9, weight: .bold)
-    }
+    // Keep system-font feature dictionaries alive across AppKit's status-item snapshots.
+    private let singleTextFont = NSFont.menuBarFont(ofSize: 0)
+    private let stackedTextFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+    private var textFont: NSFont { showCodex != showClaude ? singleTextFont : stackedTextFont }
     private var textHeight: CGFloat {
         showCodex != showClaude ? ceil(textFont.ascender - textFont.descender + textFont.leading) : 12
     }
@@ -3357,6 +3356,9 @@ private struct QuotaMenu {
             }
             statusView.codexLimits = [.fiveHour, .weekly]
             statusView.claudeLimits = [.fiveHour, .weekly]
+            let renderingItem = NSStatusBar.system.statusItem(withLength: statusView.contentWidth)
+            renderingItem.button?.addSubview(statusView)
+            defer { NSStatusBar.system.removeStatusItem(renderingItem) }
             var statusSnapshots: [Data] = []
             let snapshotDirectory = CommandLine.arguments.firstIndex(of: "--status-snapshots")
                 .flatMap { CommandLine.arguments.indices.contains($0 + 1) ? CommandLine.arguments[$0 + 1] : nil }
@@ -3368,7 +3370,7 @@ private struct QuotaMenu {
                     statusView.showClaude = claude
                     statusView.showIcons = true
                     if codex != claude {
-                        let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .semibold)
+                        let font = NSFont.menuBarFont(ofSize: 0)
                         let width = (statusView.percentageText(codex: codex) as NSString).size(withAttributes: [.font: font]).width
                         precondition(statusView.contentWidth == ceil(width) + statusIconSize + 2)
                     }
@@ -3377,7 +3379,14 @@ private struct QuotaMenu {
                         statusView.showIcons = icons
                         precondition(statusView.contentWidth > 0 && statusView.contentWidth < 120)
                         precondition(icons || iconsWidth - statusView.contentWidth == (codex && claude ? 2 * (statusIconSize + 2) + 6 : statusIconSize + 2))
+                        renderingItem.length = statusView.contentWidth
                         statusView.setFrameSize(NSSize(width: statusView.contentWidth, height: 22))
+                        // Exercise AppKit's live status-item replicas as well as offscreen bitmaps.
+                        for _ in 0..<(CommandLine.arguments.contains("--status-stress-test") ? 100 : 1) {
+                            statusView.needsDisplay = true
+                            statusView.displayIfNeeded()
+                            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+                        }
                         guard let bitmap = statusView.bitmapImageRepForCachingDisplay(in: statusView.bounds) else { exit(1) }
                         statusView.cacheDisplay(in: statusView.bounds, to: bitmap)
                         for y in 0..<bitmap.pixelsHigh {

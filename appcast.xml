@@ -3,6 +3,26 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.1.7</title>
+            <pubDate>Thu, 24 Sep 2026 11:49:34 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.1.7</sparkle:version>
+            <sparkle:shortVersionString>1.1.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.1.7</h2>
+<ul>
+  <li>Stabilisation du rendu de la barre de menus : les polices sont conservées et réutilisées au lieu d’être redemandées pendant chaque redessin, afin d’éviter le plantage CoreText observé.</li>
+  <li>Avec un seul fournisseur, les pourcentages utilisent la police standard de la barre de menus, en graisse normale, à 13 points.</li>
+  <li>Les icônes de 16 points, l’espace de 2 points et le mode compact à deux fournisseurs sont conservés.</li>
+</ul>
+<p>Les préférences et connexions existantes sont conservées.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.7/Quota-Display-1.1.7.zip" length="3441942" type="application/octet-stream" sparkle:edSignature="04ZcYlKMZSh0ydclbI48GwyUowQEfDe6XNxZ/iO+bEJd5xtvM7cDK5Q2t2maocOoFrUMDvxjkG+JNFgLSDwkBw=="/>
+        </item>
+        <item>
             <title>1.1.6</title>
             <pubDate>Thu, 24 Sep 2026 11:33:03 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -44,25 +64,6 @@
 <p>Le problème d’écran noir observé sur un mini-écran reste à résoudre. Le firmware stable du 20 septembre reste disponible séparément.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.5/Quota-Display-1.1.5.zip" length="3439758" type="application/octet-stream" sparkle:edSignature="KJBOwRQD5J4ggNJtqXe9gZn80HX52ckvWORyshhQAMNFug7yfZgR++EHxjWkaR1s+UsfqTUX4Zsc9xO0RqHFAA=="/>
-        </item>
-        <item>
-            <title>1.0.29</title>
-            <pubDate>Wed, 23 Sep 2026 17:53:46 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.29</sparkle:version>
-            <sparkle:shortVersionString>1.0.29</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.29</h2>
-<ul>
-  <li>Le forfait Claude est revérifié à chaque actualisation. Un passage de Max 5X à Max 20X est désormais reflété dans le Companion et sur les mini-écrans.</li>
-  <li>La correction couvre les connexions Claude Desktop et Claude Code. Si le forfait ne peut pas être vérifié, les quotas restent disponibles sans afficher un ancien forfait.</li>
-</ul>
-<p>En mode distant, mettez à jour le Mac source. Les connexions et les réglages sont conservés. Aucun reflash du mini-écran n’est nécessaire.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.29/Quota-Display-1.0.29.zip" length="2332158" type="application/octet-stream" sparkle:edSignature="tJnfdF+vbCFWcvTQ+3r54Ivt6OwBE0JG74Echnx5mYU6W6A2mNTY/ilgVzCDv4x5PRy/yVXmU+EkMw/5kaZuAw=="/>
         </item>
     </channel>
 </rss>
