@@ -1074,8 +1074,16 @@ private final class CompactStatusView: NSView {
     private var iconWidth: CGFloat { showIcons ? statusIconSize : 0 }
     private var textInset: CGFloat { showIcons ? statusIconSize + 2 : 0 }
     private var dividerInset: CGFloat { showIcons ? 6 : 0 }
+    private var textFont: NSFont {
+        showCodex != showClaude
+            ? .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .semibold)
+            : .monospacedSystemFont(ofSize: 9, weight: .bold)
+    }
+    private var textHeight: CGFloat {
+        showCodex != showClaude ? ceil(textFont.ascender - textFont.descender + textFont.leading) : 12
+    }
     private var textAttributes: [NSAttributedString.Key: Any] {
-        [.font: NSFont.monospacedSystemFont(ofSize: 9, weight: .bold),
+        [.font: textFont,
          .foregroundColor: bridgeOnline ? NSColor.labelColor : NSColor.secondaryLabelColor]
     }
 
@@ -1109,7 +1117,7 @@ private final class CompactStatusView: NSView {
         super.draw(dirtyRect)
         if showCodex != showClaude {
             drawProviderIcon(codex: showCodex, x: 0)
-            drawPercentage(codex: showCodex, x: textInset, y: (bounds.height - 12) / 2,
+            drawPercentage(codex: showCodex, x: textInset, y: (bounds.height - textHeight) / 2,
                            width: bounds.width - textInset, alignment: .left)
             return
         }
@@ -1127,7 +1135,7 @@ private final class CompactStatusView: NSView {
         var attributes = textAttributes
         attributes[.paragraphStyle] = paragraph
         (percentageText(codex: codex) as NSString).draw(
-            in: NSRect(x: x, y: y, width: width, height: 12), withAttributes: attributes
+            in: NSRect(x: x, y: y, width: width, height: textHeight), withAttributes: attributes
         )
     }
 
@@ -3354,11 +3362,16 @@ private struct QuotaMenu {
                 .flatMap { CommandLine.arguments.indices.contains($0 + 1) ? CommandLine.arguments[$0 + 1] : nil }
             for dark in [false, true] {
                 statusView.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-                for (name, codex, claude) in [("both", true, true), ("codex", true, false), ("claude", false, true), ("fable", false, true), ("all", true, true)] {
-                    statusView.claudeLimits = name == "fable" ? [.fableWeekly] : name == "all" ? StatusLimit.allCases : [.fiveHour, .weekly]
+                for (name, codex, claude) in [("both", true, true), ("codex", true, false), ("claude", false, true), ("fable", false, true), ("all", true, true), ("claude-all", false, true)] {
+                    statusView.claudeLimits = name == "fable" ? [.fableWeekly] : (name == "all" || name == "claude-all") ? StatusLimit.allCases : [.fiveHour, .weekly]
                     statusView.showCodex = codex
                     statusView.showClaude = claude
                     statusView.showIcons = true
+                    if codex != claude {
+                        let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .semibold)
+                        let width = (statusView.percentageText(codex: codex) as NSString).size(withAttributes: [.font: font]).width
+                        precondition(statusView.contentWidth == ceil(width) + statusIconSize + 2)
+                    }
                     let iconsWidth = statusView.contentWidth
                     for icons in [true, false] {
                         statusView.showIcons = icons
@@ -3507,7 +3520,7 @@ private struct QuotaMenu {
                 bridgeBaseURL(from: "http://192.168.1.20:8788/extra") == nil,
                 singleProvider.codex?.width == 608, singleProvider.claude == nil,
                 bothProviders.codex?.width == 300, bothProviders.claude?.minX == 316,
-                statusSnapshots.count == 20, Set(statusSnapshots.prefix(10)).count >= 8,
+                statusSnapshots.count == 24, Set(statusSnapshots.prefix(12)).count >= 10,
                 bundledStatusIcons,
                 dashboardView.refreshButton.image != nil,
                 providerGlyphsPresent, footerGlyphsPresent, providerIconsAnimate,

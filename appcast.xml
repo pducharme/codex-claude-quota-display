@@ -3,6 +3,26 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.1.6</title>
+            <pubDate>Thu, 24 Sep 2026 11:33:03 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.1.6</sparkle:version>
+            <sparkle:shortVersionString>1.1.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.1.6</h2>
+<ul>
+  <li>Lorsqu’un seul fournisseur est affiché dans la barre de menus, les pourcentages adoptent la taille native du texte macOS et sont centrés verticalement.</li>
+  <li>Ce rendu s’applique à Codex et Claude, avec ou sans icône, et aux différentes limites sélectionnées.</li>
+  <li>Le mode à deux fournisseurs conserve ses deux lignes compactes et son séparateur. Le rendu reste monochrome, avec les icônes de 16 points et l’espace de 2 points.</li>
+</ul>
+<p>Les préférences existantes sont conservées. Aucun reflash du mini-écran n’est nécessaire.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.6/Quota-Display-1.1.6.zip" length="3440900" type="application/octet-stream" sparkle:edSignature="+yENly/wvq60rDj5oZy8CHGWrDEo5lFtgZ3avpfUFqKOAgepv7M8oM62+cGj3ZKkS0ymrPUzwh07HudMAPrZDg=="/>
+        </item>
+        <item>
             <title>1.1.5</title>
             <pubDate>Thu, 24 Sep 2026 09:57:53 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -43,26 +63,6 @@
 <p>En mode distant, mettez à jour le Mac source. Les connexions et les réglages sont conservés. Aucun reflash du mini-écran n’est nécessaire.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.29/Quota-Display-1.0.29.zip" length="2332158" type="application/octet-stream" sparkle:edSignature="tJnfdF+vbCFWcvTQ+3r54Ivt6OwBE0JG74Echnx5mYU6W6A2mNTY/ilgVzCDv4x5PRy/yVXmU+EkMw/5kaZuAw=="/>
-        </item>
-        <item>
-            <title>1.0.28</title>
-            <pubDate>Tue, 15 Sep 2026 20:07:21 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.28</sparkle:version>
-            <sparkle:shortVersionString>1.0.28</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.28</h2>
-<ul>
-  <li>Modifiez ou restaurez la clé API du Mac source dans Paramètres → API et connexions → Clé API de ce Mac… Le changement prend effet immédiatement.</li>
-  <li>La configuration API peut être copiée depuis un Companion client même si la source est hors ligne ou refuse sa clé.</li>
-  <li>L’installateur vérifie Python avant de modifier les fichiers. Si Python ou les outils de ligne de commande Apple ne sont pas prêts, il explique comment terminer leur installation.</li>
-</ul>
-<p>En mode distant, mettez à jour le Mac source et les Companions clients. La source configurée, les clés et les réglages sont conservés. Aucun reflash du mini-écran n’est nécessaire.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.28/Quota-Display-1.0.28.zip" length="2321230" type="application/octet-stream" sparkle:edSignature="VhLvmytuLYJK1zgzVAens9DYzr4432xNFcYByhYsQ0sELkTkN67cGcB9RyyORgnAgddeV++Nd5IMtn7zoeC/Cg=="/>
         </item>
     </channel>
 </rss>
