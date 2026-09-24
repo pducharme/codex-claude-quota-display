@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.1.0}
+VERSION=${1:-1.1.5}
 if ! printf '%s\n' "$VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "Version invalide: $VERSION" >&2
   exit 2
@@ -37,6 +37,9 @@ done
 /usr/bin/install -m 644 "$SCRIPT_DIR/QuotaDisplayMenu-Info.plist" "$APP/Contents/Info.plist"
 /usr/bin/ditto "$SPARKLE_ROOT/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 /usr/bin/install -m 644 "$SCRIPT_DIR/Assets/CodexIcon.png" "$RESOURCES/CodexIcon.png"
+for icon in CodexStatusIcon ClaudeStatusIcon; do
+  /usr/bin/install -m 644 "$SCRIPT_DIR/Assets/$icon.png" "$RESOURCES/$icon.png"
+done
 /usr/bin/install -m 644 "$SCRIPT_DIR/Assets/QuotaDisplay.icns" "$RESOURCES/QuotaDisplay.icns"
 /usr/bin/install -m 644 "$REPO_DIR/THIRD_PARTY_NOTICES.md" "$RESOURCES/THIRD_PARTY_NOTICES.md"
 /usr/bin/install -m 644 "$SPARKLE_ROOT/LICENSE" "$RESOURCES/Sparkle-LICENSE.txt"

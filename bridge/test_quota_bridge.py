@@ -19,6 +19,7 @@ from quota_bridge import (
     QuotaHandler,
     command_path,
     parse_claude_api_usage,
+    parse_claude_banked_resets,
     ClaudeAuthenticationRequired,
     NoCredentialRedirect,
     parse_codex_limits,
@@ -33,6 +34,30 @@ from quota_bridge import (
 
 
 class QuotaParsingTest(unittest.TestCase):
+    def test_claude_reset_bank_counts_available_grants_and_cache_keeps_them(self):
+        grant = {"id": "offer", "resets_total": 2, "resets_left": 2,
+                 "ends_at": "2026-10-22T16:00:00Z", "paused": False}
+        bank = {"eligible": True, "grants": [grant, grant.copy(),
+            dict(grant, id="used", resets_left=0), dict(grant, id="paused", paused=True),
+            dict(grant, id="expired", ends_at="1970-01-01T00:00:01Z")]}
+        parsed = parse_claude_banked_resets(bank, now=1000)
+        self.assertEqual(parsed["available_count"], 2)
+        self.assertEqual([x["expires_at"] for x in parsed["expirations"]], [1792684800]*2)
+        self.assertEqual(parse_claude_banked_resets({"eligible": True, "grants": []})["available_count"], 0)
+        for invalid in [None, {}, {"eligible": False, "grants": []},
+                        {"eligible": True, "grants": [dict(grant, resets_left=True)]},
+                        {"eligible": True, "grants": [dict(grant, resets_left=3)]},
+                        {"eligible": True, "grants": [dict(grant, ends_at="2026-10-22T16:00:00")]}]:
+            self.assertIsNone(parse_claude_banked_resets(invalid))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.json"
+            cache = {"updated_at": 1000, "five_hour": {"used_percent": 4}, "cedar_ember": bank}
+            path.write_text(json.dumps(cache))
+            self.assertEqual(read_claude_desktop_cache(path, now=1000)["banked_resets"], parsed)
+            del cache["cedar_ember"]
+            path.write_text(json.dumps(cache))
+            self.assertIsNone(read_claude_desktop_cache(path, now=1000)["banked_resets"])
+
     def test_rain_forecast_never_treats_missing_or_invalid_values_as_dry(self):
         data = dict(current=dict(time="2026-09-21T23:15"), hourly=dict(
             time=[f"2026-09-22T{h:02}:00" for h in range(6)], rain=[0]*6, showers=[0]*6))

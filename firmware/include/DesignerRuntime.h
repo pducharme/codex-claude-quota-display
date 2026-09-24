@@ -293,6 +293,7 @@ void designerTap(int x,int y) {
   if(String(p["kind"]|"")=="native-quotas"){
     bool c,a;displayedProviders(c,a);
     if(c&&(!a||x<317)){currentPage=Page::CodexDetail;return;}
+    if(a){currentPage=Page::ClaudeDetail;return;}
   }
   for(JsonObject b:p["blocks"].as<JsonArray>()) {
     if(String(b["type"]|"")=="button"&&String(b["action"]|"").length()>0&&x>=b["x"].as<int>()&&y>=b["y"].as<int>()&&x<b["x"].as<int>()+b["w"].as<int>()&&y<b["y"].as<int>()+b["h"].as<int>()) {

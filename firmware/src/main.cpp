@@ -115,7 +115,7 @@ uint32_t lastTouchMillis = 0;
 uint32_t touchStarted = 0;
 bool longPressHandled = false;
 
-enum class Page { Dashboard, CodexDetail, Weather, Settings, Designed };
+enum class Page { Dashboard, CodexDetail, ClaudeDetail, Weather, Settings, Designed };
 Page currentPage = Page::Dashboard;
 
 struct Window {
@@ -133,7 +133,7 @@ struct Provider {
 };
 
 struct BankedResets {
-  int availableCount = 0;
+  int availableCount = -1;
   int expirationCount = 0;
   uint32_t expiresAt[4] = {};
   String expiresLocal[4];
@@ -162,6 +162,7 @@ struct Weather {
 Provider codex;
 Provider claude;
 BankedResets bankedResets;
+BankedResets claudeBankedResets;
 Weather weather;
 
 uint16_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
@@ -357,7 +358,8 @@ void drawCompactQuota(int x, int y, int width, const char *label,
 
 void drawCompactResets(int x, int y) {
   char count[8];
-  snprintf(count, sizeof(count), "%d", bankedResets.availableCount);
+  if (bankedResets.availableCount < 0) snprintf(count, sizeof(count), "--");
+  else snprintf(count, sizeof(count), "%d", bankedResets.availableCount);
   text(x, y, "RESETS:", COLOR_MUTED, 1);
   text(x + 43, y, count, COLOR_CODEX, 1);
 
@@ -455,8 +457,10 @@ void drawProviderCard(int x, int width, const char *name,
   if (codexLogo) {
     drawCompactResets(x + 12, y + 151);
   } else {
-    drawCompactQuota(x + 12, y + 151, width - 24, "FABLE:",
+    drawCompactQuota(x + 12, y + 151, width - 124, "FABLE:",
                      provider.fableWeekly, accent);
+    text(x + width - 104, y + 151, "RESETS: " +
+         (claudeBankedResets.availableCount < 0 ? String("--") : String(claudeBankedResets.availableCount)), accent, 1);
   }
 }
 
@@ -510,30 +514,37 @@ void drawPageDots(int active) {
   }
 }
 
-void drawCodexDetail(int pull = 0, bool refreshing = false, int frame = 0) {
+void drawResetDetail(int pull = 0, bool refreshing = false, int frame = 0) {
+  const bool isClaude = currentPage == Page::ClaudeDetail;
+  const BankedResets &resets = isClaude ? claudeBankedResets : bankedResets;
+  const uint16_t accent = isClaude ? COLOR_CLAUDE : COLOR_CODEX;
   constexpr int top = CONTENT_TOP;
   view->fillScreen(COLOR_BG);
-  view->fillRoundRect(7, top, 626, PANEL_HEIGHT, 11, COLOR_CODEX_PANEL);
-  view->fillRoundRect(7, top, 626, 4, 2, COLOR_CODEX);
-  drawCodexLogo(31, top + 23, frame & 1);
+  view->fillRoundRect(7, top, 626, PANEL_HEIGHT, 11, isClaude ? COLOR_CLAUDE_PANEL : COLOR_CODEX_PANEL);
+  view->fillRoundRect(7, top, 626, 4, 2, accent);
+  if (isClaude) drawClaudeMascot(31, top + 23, frame);
+  else drawCodexLogo(31, top + 23, frame & 1);
   text(53, top + 13, "BANKED RESETS", COLOR_TEXT, 2);
   text(500, top + 15, "TOUCHER: RETOUR", COLOR_MUTED, 1);
 
   char count[8];
-  snprintf(count, sizeof(count), "%d", bankedResets.availableCount);
-  text(34, top + 53, count, COLOR_CODEX, 5);
+  if (resets.availableCount < 0) snprintf(count, sizeof(count), "--");
+  else snprintf(count, sizeof(count), "%d", resets.availableCount);
+  text(34, top + 53, count, accent, 5);
   text(35, top + 104, "DISPONIBLES", COLOR_MUTED, 1);
 
-  if (!bankedResets.availableCount) {
+  if (resets.availableCount < 0) {
+    text(172, top + 68, "RESETS NON DISPONIBLES", COLOR_MUTED, 2);
+  } else if (!resets.availableCount) {
     text(172, top + 68, "AUCUN RESET EN BANQUE", COLOR_MUTED, 2);
   } else {
-    for (int index = 0; index < bankedResets.expirationCount; ++index) {
+    for (int index = 0; index < resets.expirationCount; ++index) {
       int y = top + 46 + index * 24;
       char label[8];
       snprintf(label, sizeof(label), "#%d", index + 1);
-      text(172, y, label, COLOR_CODEX, 2);
-      text(208, y + 1, bankedResets.expiresLocal[index], COLOR_TEXT, 1);
-      text(355, y + 1, "DANS " + countdown(bankedResets.expiresAt[index]),
+      text(172, y, label, accent, 2);
+      text(208, y + 1, resets.expiresLocal[index], COLOR_TEXT, 1);
+      text(355, y + 1, "DANS " + countdown(resets.expiresAt[index]),
            COLOR_MUTED, 1);
     }
   }
@@ -681,8 +692,8 @@ void drawCurrentPage(int pull = 0, bool refreshing = false, int frame = 0) {
     drawSettings();
   } else if (currentPage == Page::Designed) {
     drawDesigner();
-  } else if (currentPage == Page::CodexDetail) {
-    drawCodexDetail(pull, refreshing, frame);
+  } else if (currentPage == Page::CodexDetail || currentPage == Page::ClaudeDetail) {
+    drawResetDetail(pull, refreshing, frame);
   } else if (currentPage == Page::Weather) {
     drawWeatherPage(pull, refreshing, frame);
   } else {
@@ -1034,9 +1045,9 @@ void readProvider(JsonObjectConst providers, const char *name,
   provider.fableWeekly = jsonWindow(source["fable_weekly"]);
 }
 
-void readBankedResets(JsonObjectConst codexSource) {
+void readBankedResets(JsonObjectConst providerSource, BankedResets &bankedResets) {
   JsonObjectConst source =
-      codexSource["banked_resets"].as<JsonObjectConst>();
+      providerSource["banked_resets"].as<JsonObjectConst>();
   bankedResets = BankedResets{};
   if (source.isNull()) return;
   bankedResets.availableCount = source["available_count"] | 0;
@@ -1108,14 +1119,15 @@ bool fetchQuotas() {
     if (nextCodex || nextClaude) {
       displayCodex = nextCodex;
       displayClaude = nextClaude;
-      if (!displayCodex && currentPage == Page::CodexDetail) {
+      if ((!displayCodex && currentPage == Page::CodexDetail) || (!displayClaude && currentPage == Page::ClaudeDetail)) {
         currentPage = Page::Dashboard;
       }
     }
   }
   readProvider(providers, "codex", codex);
   readProvider(providers, "claude", claude);
-  readBankedResets(providers["codex"].as<JsonObjectConst>());
+  readBankedResets(providers["codex"].as<JsonObjectConst>(), bankedResets);
+  readBankedResets(providers["claude"].as<JsonObjectConst>(), claudeBankedResets);
   serverEpochAtFetch = document["server_time"].as<uint32_t>();
   if (serverEpochAtFetch >= 1700000000) {
     struct timeval now {static_cast<time_t>(serverEpochAtFetch), 0};
@@ -1440,8 +1452,10 @@ void handleTouch() {
       displayedProviders(showCodex, showClaude);
       if (showCodex && (!showClaude || swipeStartX < 317)) {
         animatePageTransition(Page::CodexDetail, true);
+      } else if (showClaude) {
+        animatePageTransition(Page::ClaudeDetail, true);
       }
-    } else if (currentPage == Page::CodexDetail) {
+    } else if (currentPage == Page::CodexDetail || currentPage == Page::ClaudeDetail) {
       animatePageTransition(designerDocument["pages"].size()?Page::Designed:Page::Dashboard, false);
     } else {
       drawCurrentPage();

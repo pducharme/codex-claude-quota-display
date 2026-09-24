@@ -26,7 +26,7 @@ from urllib.error import HTTPError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 from designer import Designer
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.5"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -256,6 +256,44 @@ def parse_claude_api_usage(source):
     return windows
 
 
+def parse_claude_banked_resets(source, now=None):
+    """Normalize the read-only Claude settings bank; unsupported is not zero."""
+    if not isinstance(source, dict) or source.get("eligible") is not True:
+        return None
+    grants = source.get("grants")
+    if not isinstance(grants, list):
+        return None
+    now = time.time() if now is None else now
+    expirations, seen = [], set()
+    for grant in grants:
+        if not isinstance(grant, dict):
+            return None
+        identifier = grant.get("id")
+        if not isinstance(identifier, str) or not identifier:
+            return None
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+        left, total = grant.get("resets_left"), grant.get("resets_total")
+        if type(left) is not int or type(total) is not int or not 0 <= left <= total <= 1000:
+            return None
+        if not left or grant.get("paused") is True:
+            continue
+        try:
+            date = datetime.fromisoformat(grant["ends_at"].replace("Z", "+00:00"))
+            if date.tzinfo is None:
+                return None
+            expires_at = int(date.timestamp())
+        except (KeyError, AttributeError, ValueError, OverflowError):
+            return None
+        if expires_at > now:
+            expirations.extend({"expires_at": expires_at,
+                                "expires_local": date.astimezone().strftime("%Y-%m-%d %H:%M")}
+                               for _ in range(left))
+    expirations.sort(key=lambda value: value["expires_at"])
+    return {"available_count": len(expirations), "expirations": expirations}
+
+
 def read_claude_desktop_cache(
     path=None, now=None, max_age=900
 ):
@@ -281,6 +319,7 @@ def read_claude_desktop_cache(
     windows["plan"] = (
         value.get("plan") if isinstance(value.get("plan"), str) else None
     )
+    windows["banked_resets"] = parse_claude_banked_resets(value.get("cedar_ember"), now)
     return windows
 
 

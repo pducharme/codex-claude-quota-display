@@ -16,7 +16,7 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
 ## Fonctionnalités
 
 - Quotas restants sur 5 heures et sur la semaine.
-- Forfaits Codex et Claude, quotas Fable et resets Codex en banque lorsque les
+- Forfaits Codex et Claude, quotas Fable et resets Codex/Claude en banque lorsque les
   fournisseurs les rendent disponibles.
 - Jauges réelles accompagnées de segments indiquant où la consommation devrait
   théoriquement se situer dans la période.
@@ -95,9 +95,14 @@ comptes), **Mini-écrans** (veille) et **Mises à jour**. L’actualisation des
 quotas, les informations de l’application et la commande pour quitter restent
 directement accessibles dans **Paramètres**.
 
-Les cases **Afficher Codex** et **Afficher Claude** contrôlent aussi la barre
-des menus : les deux cochées affichent la vue compacte des deux fournisseurs;
-une seule cochée affiche son icône et son quota hebdomadaire restant.
+Dans **Paramètres → Barre de menus**, choisissez les fournisseurs, les icônes
+et les limites à afficher pour chacun : **5 h**, **hebdomadaire** et, pour Claude,
+**Fable uniquement**. Plusieurs limites peuvent être cochées; elles apparaissent
+dans cet ordre et leur nom est précisé au survol. Ces choix sont propres à ce Mac
+et indépendants de l’affichage des cartes et des mini-écrans.
+
+La barre reste monochrome, avec des icônes de 16 points et une largeur ajustée au
+contenu. Le séparateur reste visible lorsque les deux fournisseurs sont affichés.
 
 ## Utiliser une source distante
 
@@ -123,7 +128,7 @@ lectures locales des fournisseurs tant qu’une source distante est configurée.
 L’action **Actualiser les quotas** du client demande une nouvelle lecture à cette source. Le choix des fournisseurs affichés est aussi enregistré
 sur la source : tous les Companions et mini-écrans adoptent le même affichage.
 
-## Designer (version 1.1.0 en validation)
+## Designer (inclus dans le Companion; firmware en validation)
 
 **Paramètres → Mini-écrans → Designer…** ouvre l'éditeur de pages : six polices,
 modèles Quotas/Météo/Horloge/Focus, composition libre et suivi des avions à
@@ -131,8 +136,10 @@ proximité avec bascule automatique. Une première mise à jour du firmware est
 requise; les publications de pages suivantes passent par HTTP.
 
 Consultez le [guide du Designer et son état de validation](docs/designer-v1.md).
-Le nouveau firmware doit encore être vérifié sur les deux écrans physiques;
-la release firmware stable du 20 septembre décrite ci-dessous reste distincte.
+Le nouveau firmware doit encore être vérifié sur les deux écrans physiques.
+Un écran reste noir avec son rétroéclairage allumé; ce problème n’est pas corrigé
+par la mise à jour du Companion. La release firmware stable du 20 septembre
+décrite ci-dessous reste distincte.
 
 ## Installer le mini-écran
 
@@ -229,7 +236,10 @@ portail, sans effacement préalable.
 
 ## Utilisation du mini-écran
 
-- Touchez la carte Codex pour consulter les resets en banque et leur expiration.
+- Touchez la carte Codex ou Claude pour consulter les resets en banque et leur expiration.
+  Le Companion offre la même vue au clic. Les resets Claude sont lus depuis le
+  compte Claude Desktop autorisé sur le Mac source; une lecture indisponible
+  affiche `—`, jamais un faux zéro. Cette vue ne consomme aucun reset.
 - Glissez vers la gauche pour afficher la météo; glissez vers la droite pour
   revenir aux quotas.
 - Tirez brièvement depuis le bord supérieur pour forcer une actualisation
