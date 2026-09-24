@@ -14,29 +14,36 @@ int main(){
   assert(designerNextRotation({false,true,false},0)==1); // leave a manually selected excluded page
   assert(designerNextRotation({},0)==-1);
   assert(designerNextRotation({false,false},0)==-1);
+  assert(!designerInRotation(true,true)); // even legacy sky pages never rotate
+  assert(designerInRotation(true,false));
+  assert(!designerInRotation(false,false));
   DesignerSelection s;
-  assert(s.update({{"A",true}},100,false)=="A");
-  assert(s.update({{"A",false},{"B",true}},1000,false)=="A"); // outer margin retains current flight
-  assert(s.update({{"B",true}},2000,false)=="A");
-  assert(s.update({{"B",true}},18000,false)=="B");
-  s.dismiss();assert(s.update({{"B",true}},19000,false).empty());
-  assert(s.update({{"C",true}},20000,true).empty()); // pinned page
-  assert(s.update({{"C",true}},21000,false)=="C");
-  assert(s.update({},22000,false)=="C");
-  assert(s.update({},38000,false).empty()); // lost data releases screen
-  s.reset();assert(s.update({{"D",false}},39000,false).empty());
-  assert(s.update({{"A",true}},40000,false)=="A");
-  s.dismiss();
-  for(uint32_t t=41000;t<300000;t+=10000)assert(s.update({},t,false,false).empty());
-  assert(s.update({{"A",true}},300000,false).empty()); // outage did not re-arm
-  for(uint32_t t=310000;t<=430000;t+=10000)s.update({},t,false,true);
-  assert(s.update({{"A",true}},431000,false)=="A"); // a later pass may interrupt
-  s.dismiss();
-  s.update({},440000,false,true);
-  s.update({},700000,false,true); // long sleep is not confirmed absence
-  assert(s.update({{"A",true}},701000,false).empty());
-  s.reset();
-  s.update({{"W",true}},0xffff0000UL,false);s.dismiss();
-  for(uint32_t elapsed=0;elapsed<=120000;elapsed+=10000)s.update({},0xffff0000UL+elapsed,false);
-  assert(s.update({{"W",true}},uint32_t(0xffff0000UL+121000),false)=="W"); // millis rollover
+  assert(s.update({},0,false).empty());
+  assert(s.update({{"A",false,"ACA123"}},90,false).empty());
+  assert(s.update({{"A",true,"ACA123"}},100,false)=="A");
+  assert(s.update({{"A",true,"ACA123"},{"B",true,"BAW42"}},3099,false)=="A");
+  assert(s.update({{"A",true,"ACA123"},{"B",true,"BAW42"}},3100,false).empty());
+  assert(s.update({{"B",true,"BAW42"}},3101,false).empty()); // restored page remains visible
+  assert(s.update({{"B",true,"BAW42"}},6100,false)=="B");
+  s.dismiss(6200);
+  assert(s.update({{"B",true,"BAW42"}},20000,false).empty());
+  assert(s.update({{"A",true,"CHANGED"}},300000,false).empty()); // same aircraft, new callsign
+  assert(s.update({{"C",true,"ACA123"}},300001,false).empty()); // same flight, different aircraft ID
+  assert(s.update({{"C",true,""}},300002,false).empty()); // alias remains remembered
+  assert(s.update({{"D",true,""}},300003,true).empty()); // pinned / sleeping / manual page
+  assert(s.update({{"D",true,""}},300004,false)=="D"); // empty callsigns do not collapse unrelated aircraft
+  assert(s.update({{"D",false,""}},300005,false).empty()); // exit radius: immediate, no outer margin
+  assert(s.update({{"E",true,"NEW"}},304000,false)=="E");
+  assert(s.update({},304001,false).empty()); // no empty notification page or stale grace period
+  assert(s.update({{"F",true,"FRESH"}},308000,false,false).empty());
+  assert(s.update({{"F",true,"FRESH"}},308001,false)=="F");
+  assert(s.update({{"F",true,"FRESH"}},308002,false,false).empty()); // outage releases immediately
+  assert(s.update({{"F",true,"FRESH"}},500000,false).empty()); // outage/absence never re-arms
+  s.dismiss(500001); // publication also preserves previously shown identities
+  assert(s.update({{"A",true,"ACA123"}},600000,false).empty());
+  DesignerSelection rollover;
+  assert(rollover.update({{"W",true,""}},0xffffff00UL,false)=="W");
+  assert(rollover.update({{"W",true,""}},uint32_t(0xffffff00UL+2999),false)=="W");
+  assert(rollover.update({{"W",true,""}},uint32_t(0xffffff00UL+3000),false).empty());
+  assert(rollover.update({{"X",true,""}},uint32_t(0xffffff00UL+6000),false)=="X");
 }

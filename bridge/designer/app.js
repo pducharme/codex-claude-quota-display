@@ -113,6 +113,18 @@ function text(value, x, y, w, h, size, font, color) {
     .replace(/[—–]/g, "-")) {
     let c = original.codePointAt(0);
     if (c < 32 || c > 255) c = 63;
+    if (page().kind === "sky" && fonts.smooth?.[font]) {
+      const [advance, gx, gy, gw, gh, pixels] = fonts.smooth[font][size - 1][c - 32];
+      if (cursor + advance > x + w) break;
+      for (let row = 0; row < gh && gy + row < h; row++)
+        for (let col = 0; col < gw; col++) {
+          const alpha = parseInt(pixels[row * gw + col], 16);
+          if (alpha) { ctx.globalAlpha = alpha / 15; ctx.fillRect(cursor + gx + col, y + gy + row, 1, 1); }
+        }
+      ctx.globalAlpha = 1;
+      cursor += advance;
+      continue;
+    }
     const glyph = fonts[font][c - 32],
       advance = glyph[0] * size;
     if (cursor + advance > x + w) break;
@@ -133,40 +145,58 @@ function draw() {
   ctx.fillStyle = p.background;
   ctx.fillRect(0, 0, 640, 180);
   if (p.kind === "sky") {
-    text("Vol d’exemple", 18, 12, 370, 20, 1, p.font, muted);
-    text("À proximité · 8 km", 408, 12, 218, 20, 1, p.font, muted);
-    text("YUL", 18, 55, 130, 40, 2, p.font, fg);
-    text("Montréal", 18, 101, 145, 20, 1, p.font, muted);
-    text("CDG", 520, 55, 114, 40, 2, p.font, fg);
-    text("Paris", 520, 101, 114, 20, 1, p.font, muted);
-    ctx.strokeStyle = p.accent;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(165, 111);
-    ctx.quadraticCurveTo(320, 14, 475, 111);
-    ctx.stroke();
-    const x = 295,
-      y = 64;
-    ctx.fillStyle = p.accent;
-    ctx.fillRect(x - 12, y - 2, 24, 4);
-    ctx.beginPath();
-    ctx.moveTo(x + 5, y);
-    ctx.lineTo(x - 5, y - 12);
-    ctx.lineTo(x - 1, y);
-    ctx.lineTo(x - 5, y + 12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(x - 8, y);
-    ctx.lineTo(x - 14, y - 6);
-    ctx.lineTo(x - 12, y);
-    ctx.lineTo(x - 14, y + 6);
-    ctx.closePath();
-    ctx.fill();
-    text("Trajet estimé", 231, 111, 232, 20, 1, p.font, muted);
-    text("Airbus A330", 18, 150, 228, 22, 1, p.font, fg);
-    text("870 km/h", 280, 150, 150, 22, 1, p.font, fg);
-    text("10 700 m", 493, 150, 143, 22, 1, p.font, fg);
+    const elapsed = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 1500 : performance.now() % 3000;
+    const blend = (a, b, t) => "#" + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, "0")).join("");
+    const white = "#f0f7ff", muted = blend(p.background, white, .66), line = blend(p.background, p.accent, .22);
+    const segment = (x1, y1, x2, y2, color) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    };
+    const circle = (x, y, radius, color, fill = false) => {
+      ctx.fillStyle = ctx.strokeStyle = color;
+      ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); fill ? ctx.fill() : ctx.stroke();
+    };
+    for (let y = 0; y < 180; y++) {
+      ctx.fillStyle = blend(p.background, p.accent, .075 * Math.sin(y * Math.PI / 180)); ctx.fillRect(0, y, 640, 1);
+    }
+    segment(20, 36, 620, 36, line);
+    text("ACA870", 20, 9, 150, 22, 1, p.font, white);
+    text("Air Canada", 174, 9, 312, 22, 1, p.font, muted);
+    circle(508, 19, 3, blend(p.background, p.accent, .65 + .35 * Math.sin(elapsed * .006)), true);
+    text("À 4,2 km", 521, 9, 112, 22, 1, p.font, white);
+    text("YUL", 20, 51, 151, 54, 3, p.font, white);
+    text("Montréal", 20, 105, 146, 22, 1, p.font, muted);
+    text("CDG", 497, 51, 139, 54, 3, p.font, white);
+    text("Paris", 497, 105, 139, 22, 1, p.font, muted);
+    let lastX = 172, lastY = 107;
+    const progress = .46;
+    for (let i = 1; i <= 148; i++) {
+      const t = i / 148, x = Math.floor(172 + 296 * t), y = Math.floor(107 - 164 * t * (1 - t));
+      segment(lastX, lastY + 1, x, y + 1, line);
+      if (t <= progress || ((i + Math.floor(elapsed / 65)) % 12) < 5)
+        segment(lastX, lastY, x, y, t <= progress ? p.accent : blend(p.background, p.accent, .45));
+      lastX = x; lastY = y;
+    }
+    circle(172, 107, 3, p.accent, true); circle(468, 107, 3, muted);
+    const x = 172 + 296 * progress, y = 107 - 164 * progress * (1 - progress);
+    circle(x, y, 25 + Math.floor(elapsed / 80) % 8, line);
+    const shape = [[40,0],[31,-4],[5,-5],[-14,-32],[-23,-32],[-14,-5],[-28,-4],[-36,-14],[-42,-14],[-36,0],[-42,14],[-36,14],[-28,4],[-14,5],[-23,32],[-14,32],[5,5],[31,4]];
+    ctx.save(); ctx.translate(x, y); ctx.rotate(Math.atan((-164 + 328 * progress) / 296));
+    for (let i = 0; i < shape.length; i++) {
+      const next = shape[(i + 1) % shape.length];
+      ctx.fillStyle = i < 9 ? white : blend(white, p.accent, .32);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(...shape[i]); ctx.lineTo(...next); ctx.closePath(); ctx.fill();
+    }
+    segment(26, -3, 29, 0, p.background); segment(29, 0, 26, 3, p.background);
+    segment(-28, 0, 18, 0, white);
+    for (const side of [-1, 1]) segment(-4, side * 12, 5, side * 12, blend(white, p.accent, .32));
+    ctx.restore();
+    text("Trajet estimé", 239, 118, 230, 20, 1, p.font, muted);
+    segment(20, 143, 620, 143, line);
+    text("Airbus A330-300", 20, 151, 267, 22, 1, p.font, muted);
+    text("870 km/h", 305, 151, 180, 22, 1, p.font, white);
+    text("10 700 m", 501, 151, 136, 22, 1, p.font, white);
+    ctx.fillStyle = p.accent; ctx.fillRect(0, 178, 640 * (3000 - elapsed) / 3000, 2);
     return;
   }
   if (p.kind.startsWith("native-")) {
@@ -313,7 +343,7 @@ function render() {
   config.pages.forEach((p, i) => {
     let b = button(
       (p.name || "Sans titre") +
-        (p.in_rotation === false ? " · hors rotation" : ""),
+        (p.kind === "sky" || p.in_rotation === false ? " · hors rotation" : ""),
       () => {
         pageIndex = i;
         selected = -1;
@@ -326,7 +356,8 @@ function render() {
   });
   $("preview-name").textContent = p.name;
   $("page-name").value = p.name;
-  $("in-rotation").checked = p.in_rotation !== false;
+  $("in-rotation").checked = p.kind !== "sky" && p.in_rotation !== false;
+  $("in-rotation").disabled = p.kind === "sky";
   $("font").value = p.font;
   $("accent").value = p.accent;
   $("background").value = p.background;
@@ -551,7 +582,7 @@ $("publish").onclick = async () => {
   const button = $("publish");
   button.disabled = true;
   try {
-    if (!config.pages.some((p) => p.in_rotation !== false))
+    if (!config.pages.some((p) => p.kind !== "sky" && p.in_rotation !== false))
       throw new Error("Gardez au moins une page dans la rotation.");
     state = await api("publish", {
       config,
@@ -750,3 +781,13 @@ async function init() {
   }
 }
 document.addEventListener("DOMContentLoaded", init);
+
+let skyPreviewFrame = 0;
+function animateSkyPreview(now) {
+  if (!document.hidden && config && page().kind === "sky" && now - skyPreviewFrame >= 50) {
+    skyPreviewFrame = now;
+    draw();
+  }
+  window.requestAnimationFrame(animateSkyPreview);
+}
+window.requestAnimationFrame(animateSkyPreview);

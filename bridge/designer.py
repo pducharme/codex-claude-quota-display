@@ -68,6 +68,7 @@ def templates():
             id=secrets.token_hex(4),
             name=name,
             kind=kind,
+            in_rotation=kind != "sky",
             font=font,
             accent="#38bdf8",
             background="#081322",
@@ -155,7 +156,7 @@ def templates():
                 ],
                 font="mono",
             ),
-            page("Dans le ciel", kind="sky", font="mono"),
+            page("Dans le ciel", kind="sky", font="modern"),
             page("Page libre"),
         ]
         + source_templates(page, block)
@@ -287,7 +288,7 @@ def validate(config):
                 id=pid,
                 name=label(p.get("name", ""), 32),
                 kind=kind,
-                in_rotation=p.get("in_rotation", True),
+                in_rotation=kind != "sky" and p.get("in_rotation", True),
                 font=font,
                 accent=color(p.get("accent")),
                 background=color(p.get("background")),
@@ -296,6 +297,16 @@ def validate(config):
         )
         if source:
             out[-1]["source"] = source
+    # Older compositions could rotate only through Sky. Keep their quota page as
+    # the ordinary page when migrating, instead of rejecting the saved design.
+    if not any(p["in_rotation"] for p in out) and any(
+        p.get("kind") == "sky" and p.get("in_rotation", True) for p in pages
+    ):
+        fallback = next((p for p in out if p["kind"] == "native-quotas"), None)
+        if fallback is None:
+            fallback = next((p for p in out if p["kind"] != "sky"), None)
+        if fallback is not None:
+            fallback["in_rotation"] = True
     if not any(p["in_rotation"] for p in out):
         raise ValueError("Gardez au moins une page dans la rotation.")
     sky = config.get("sky", {})
@@ -561,10 +572,10 @@ class Designer:
         if self.path.exists():
             try:
                 value = json.loads(self.path.read_text())
-                validate(value["config"])
+                value["config"] = validate(value["config"])
                 number(value["revision"], 0, 2147483647)
                 for target in value.get("targets", {}).values():
-                    validate(target["config"])
+                    target["config"] = validate(target["config"])
                 self.data = value
             except (OSError, ValueError, TypeError, KeyError):
                 self.load_error = (
@@ -824,6 +835,8 @@ class Designer:
             pages = []
             for p in c["pages"]:
                 resolved = copy.deepcopy(p)
+                if p["kind"] == "sky":
+                    resolved["in_rotation"] = False
                 page_values = dict(values)
                 if p.get("source"):
                     page_values.update(

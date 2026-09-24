@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <set>
 
 inline uint32_t designerCountdownSeconds(uint32_t remainingMs,uint32_t received,uint32_t now,bool running){
   uint32_t elapsed=running?now-received:0;
@@ -20,40 +21,42 @@ inline int designerNextRotation(const std::vector<bool>& included,int current){
   return -1;
 }
 
-struct DesignerAircraft { std::string id; bool inside; };
-struct DesignerDismissal { std::string id; uint32_t absentAt; bool absent; };
+inline bool designerInRotation(bool included,bool sky){return included&&!sky;}
+
+struct DesignerAircraft { std::string id; bool inside; std::string callsign; };
 // Pure selection policy shared with a host-side check. All time is monotonic milliseconds.
 class DesignerSelection {
  public:
+  static constexpr uint32_t duration=3000;
   std::string active;
-  std::vector<DesignerDismissal> dismissed;
-  uint32_t missingAt=0;
-  uint32_t lastUpdate=0;
-  bool missing=false;
-  void reset(){active.clear();dismissed.clear();missing=false;}
-  void dismiss(){if(!active.empty())dismissed.push_back({active,0,false});active.clear();missing=false;}
+  uint32_t started=0;
+  // Remember both identities for this boot, including across publications/outages.
+  std::set<std::string> seenAircraft,seenFlights;
+  uint32_t ended=0;
+  bool cooling=false;
+  void dismiss(uint32_t now){active.clear();ended=now;cooling=true;}
   std::string update(const std::vector<DesignerAircraft>& aircraft,uint32_t now,bool blocked,bool fresh=true){
-    // Re-arm the same aircraft only after two minutes of confirmed absence, outside
-    // the exit margin. A provider outage or sleep interval cannot prove its departure.
-    for(auto it=dismissed.begin();it!=dismissed.end();){
-      bool present=std::any_of(aircraft.begin(),aircraft.end(),[&](const DesignerAircraft &a){return a.id==it->id;});
-      if(!fresh||present||now-lastUpdate>45000)it->absent=false;
-      if(fresh&&!present){
-        if(!it->absent){it->absentAt=now;it->absent=true;}
-        if(now-it->absentAt>=120000){it=dismissed.erase(it);continue;}
-      }
-      ++it;
-    }
-    lastUpdate=now;
-    if(dismissed.size()>64)dismissed.erase(dismissed.begin());
-    if(blocked)return "";
     if(!active.empty()){
-      for(const auto &a:aircraft)if(a.id==active){missing=false;return active;}
-      if(!missing){missingAt=now;missing=true;}
-      if(now-missingAt<15000)return active;
-      active.clear();missing=false;
+      auto current=std::find_if(aircraft.begin(),aircraft.end(),[&](const DesignerAircraft &a){return a.id==active&&a.inside;});
+      if(blocked||!fresh||now-started>=duration||current==aircraft.end()){
+        dismiss(now);return "";
+      }
+      if(!current->callsign.empty())seenFlights.insert(current->callsign);
+      return active;
     }
-    for(const auto &a:aircraft)if(a.inside&&std::none_of(dismissed.begin(),dismissed.end(),[&](const DesignerDismissal &d){return d.id==a.id;})){active=a.id;break;}
+    // Leave the restored page visible between separate arrivals.
+    if(blocked||!fresh||(cooling&&now-ended<duration))return "";
+    for(const auto &a:aircraft){
+      bool seen=seenAircraft.count(a.id)||(!a.callsign.empty()&&seenFlights.count(a.callsign));
+      if(seen){
+        seenAircraft.insert(a.id);
+        if(!a.callsign.empty())seenFlights.insert(a.callsign);
+      } else if(a.inside&&!a.id.empty()){
+        active=a.id;started=now;seenAircraft.insert(a.id);
+        if(!a.callsign.empty())seenFlights.insert(a.callsign);
+        break;
+      }
+    }
     return active;
   }
 };

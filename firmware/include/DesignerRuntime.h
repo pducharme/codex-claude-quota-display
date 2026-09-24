@@ -12,7 +12,6 @@ bool designerPinned = false;
 bool designerInterrupted = false;
 Page designerPreviousPage = Page::Dashboard;
 int designerPreviousIndex = 0;
-uint32_t designerPreviousElapsed = 0;
 String designerFlightID;
 DesignerSelection designerSelection;
 SemaphoreHandle_t designerMutex = nullptr;
@@ -43,11 +42,15 @@ bool designerValid(JsonDocument &doc) {
   if(pages.size()>8 || ((doc["revision"]|0)>0 && pages.size()==0)) return false;
   if ((doc["rotation"]|0)<0 || (doc["rotation"]|0)>600) return false;
   bool hasRotationPage=false;
+  bool legacySkyRotation=false;
+  JsonObject fallback;
   for(JsonObject p:pages) {
     if(!p["in_rotation"].isNull()&&!p["in_rotation"].is<bool>())return false;
-    if(p["in_rotation"]|true)hasRotationPage=true;
+    if(designerInRotation(p["in_rotation"]|true,String(p["kind"]|"")=="sky"))hasRotationPage=true;
     String kind=p["kind"]|"";
     if(kind!="custom"&&kind!="sky"&&kind!="native-quotas"&&kind!="native-weather") return false;
+    if(kind=="sky"){legacySkyRotation|=p["in_rotation"]|true;p["in_rotation"]=false;}
+    else if(fallback.isNull()||kind=="native-quotas")fallback=p;
     if(!p["blocks"].is<JsonArray>() || p["blocks"].size()>16) return false;
     for(JsonObject b:p["blocks"].as<JsonArray>()) {
       String type=b["type"]|"";
@@ -63,12 +66,13 @@ bool designerValid(JsonDocument &doc) {
       if(type=="artwork") {String pixels=b["pixels"]|"";if(pixels.length()!=0&&pixels.length()!=4096)return false;for(size_t i=0;i<pixels.length();i++)if(!isxdigit((unsigned char)pixels[i]))return false;}
     }
   }
+  if(!hasRotationPage&&legacySkyRotation&&!fallback.isNull()){fallback["in_rotation"]=true;hasRotationPage=true;}
   return pages.size()==0||hasRotationPage;
 }
 
 int designerRotationIndex(int current) {
   std::vector<bool> included;
-  for(JsonObject p:designerDocument["pages"].as<JsonArray>())included.push_back(p["in_rotation"]|true);
+  for(JsonObject p:designerDocument["pages"].as<JsonArray>())included.push_back(designerInRotation(p["in_rotation"]|true,String(p["kind"]|"")=="sky"));
   return designerNextRotation(included,current);
 }
 
@@ -104,9 +108,12 @@ void designerText(int x,int y,int w,int h,const String &s,int font,int scale,uin
   }
 }
 
+#include "DesignerSky.h"
+
 JsonObject designerFlight() {
+  if(!designerReceived||millis()-designerReceived>=45000||String(designerDocument["flight"]["status"]|"")!="ok")return JsonObject();
   JsonArray flights=designerDocument["flight"]["flights"].as<JsonArray>();
-  for(JsonObject f:flights) if(String(f["id"]|"")==designerFlightID) return f;
+  for(JsonObject f:flights) if((f["inside"]|false)&&String(f["id"]|"")==designerFlightID) return f;
   if(designerInterrupted)return JsonObject();
   for(JsonObject f:flights) if(f["inside"]|false) return f;
   return JsonObject();
@@ -125,30 +132,23 @@ void drawDesigner() {
   view->fillScreen(bg);
   if(kind=="sky") {
     JsonObject f=designerFlight();
-    if(f.isNull()||millis()-designerReceived>45000) {
+    DesignerSkyData data;
+    if(f.isNull()) {
       String status=designerDocument["flight"]["status"]|"unavailable";
-      designerText(20,24,600,32,"Dans le ciel",font,2,accent);
-      designerText(20,90,600,24,status=="disabled"?"Choisissez votre zone dans Companion":status=="ok"?"Aucun avion detecte dans la zone":"Donnees de vol indisponibles",font,1,COLOR_TEXT);
+      data.message=status=="disabled"?"Choisissez une zone dans Companion":status=="ok"?"Aucun avion détecté dans la zone":"Données de vol indisponibles";
+      data.aircraft="Balayez pour revenir aux autres pages";
     } else {
-      designerText(18,12,360,20,String(f["callsign"]|"Vol")+" "+String(f["airline"]|""),font,1,COLOR_MUTED);
-      String distance=String(f["distance"].as<float>(),1)+" km";
-      designerText(490,12,135,20,distance,font,1,COLOR_MUTED);
-      if(!f["progress"].isNull()) {
-        designerText(18,55,140,40,String(f["origin_code"]|""),font,2,COLOR_TEXT);
-        designerText(18,101,145,20,String(f["origin"]|""),font,1,COLOR_MUTED);
-        designerText(520,55,115,40,String(f["destination_code"]|""),font,2,COLOR_TEXT);
-        designerText(520,101,115,20,String(f["destination"]|""),font,1,COLOR_MUTED);
-        int px=165,py=111;
-        for(int i=1;i<=60;i++){float t=i/60.0f;int x=165+310*t,y=111-194*t*(1-t);view->drawLine(px,py,x,y,accent);px=x;py=y;}
-        float t=constrain(f["progress"].as<float>(),0,100)/100.0f;
-        int x=165+310*t,y=111-194*t*(1-t);
-        view->fillRect(x-12,y-2,24,4,accent);view->fillTriangle(x+5,y,x-5,y-12,x-1,y,accent);view->fillTriangle(x+5,y,x-5,y+12,x-1,y,accent);view->fillTriangle(x-8,y,x-14,y-6,x-12,y,accent);view->fillTriangle(x-8,y,x-14,y+6,x-12,y,accent);
-        designerText(222,112,275,20,"Trajet estime",font,1,COLOR_MUTED);
-      } else designerText(20,70,600,32,"Trajet indisponible",font,2,COLOR_TEXT);
-      designerText(18,150,235,22,String(f["aircraft"]|"Appareil inconnu"),font,1,COLOR_TEXT);
-      designerText(280,150,160,22,f["speed"].isNull()?"--":String(f["speed"].as<int>())+" km/h",font,1,COLOR_TEXT);
-      designerText(493,150,143,22,f["altitude"].isNull()?"--":String(f["altitude"].as<int>())+" m",font,1,COLOR_TEXT);
+      data.callsign=f["callsign"]|"";if(!data.callsign.length())data.callsign="Vol à proximité";
+      data.airline=f["airline"]|"";
+      data.distance="À "+String(f["distance"].as<float>(),1)+" km";data.distance.replace(".",",");
+      data.originCode=f["origin_code"]|"";data.destinationCode=f["destination_code"]|"";
+      data.origin=f["origin"]|"";data.destination=f["destination"]|"";
+      if(!f["progress"].isNull()&&data.originCode.length()&&data.destinationCode.length())data.progress=constrain(f["progress"].as<float>(),0,100);
+      data.aircraft=f["aircraft"]|"Appareil inconnu";
+      data.speed=f["speed"].isNull()?"Vitesse --":String(f["speed"].as<int>())+" km/h";
+      data.altitude=f["altitude"].isNull()?"Altitude --":String(f["altitude"].as<int>())+" m";
     }
+    drawDesignerSky(data,font,bg,accent,millis()-(designerInterrupted?designerSelection.started:designerPageStarted),designerInterrupted);
   } else {
     for(JsonObject b:p["blocks"].as<JsonArray>()) {
       int x=b["x"],y=b["y"],w=b["w"],h=b["h"],scale=b["size"];
@@ -261,27 +261,20 @@ void startDesigner() {
 }
 
 void designerRestore() {
-  currentPage=designerPreviousPage;designerIndex=designerPreviousIndex;
-  designerPageStarted=millis()-designerPreviousElapsed;
+  Serial.printf("Flight alert: restored page %d/%d after %lu ms\n",int(designerPreviousPage),designerPreviousIndex,(unsigned long)(millis()-designerSelection.started));
+  if(currentPage!=Page::Settings)currentPage=designerPreviousPage;
+  designerIndex=designerPreviousIndex;
+  // Restart the rotation interval so the restored page is actually visible.
+  designerPageStarted=millis();
   designerInterrupted=false;designerFlightID="";designerPinned=false;
 }
 
 void designerManualExit() {
-  if(designerInterrupted){designerSelection.dismiss();designerRestore();}
+  if(designerInterrupted){designerSelection.dismiss(millis());designerRestore();}
 }
 
 void designerNavigate(int direction) {
-  if(designerInterrupted){
-    if(direction>0){
-      JsonArray flights=designerDocument["flight"]["flights"].as<JsonArray>();
-      int found=-1;for(size_t i=0;i<flights.size();i++)if(String(flights[i]["id"]|"")==designerFlightID)found=i;
-      for(size_t step=1;step<flights.size();step++){
-        JsonObject next=flights[(found+step)%flights.size()];
-        if(next["inside"]|false){designerFlightID=next["id"].as<String>();designerSelection.active=designerFlightID.c_str();return;}
-      }
-    }
-    designerManualExit();return;
-  }
+  if(designerInterrupted){designerManualExit();return;}
   int count=designerDocument["pages"].size();
   if(!count)return;
   currentPage=Page::Designed;designerPinned=false;
@@ -318,20 +311,24 @@ void updateDesigner() {
       uint32_t revision=next["revision"]|0;
       bool changed=revision!=designerRevision;
       designerDocument=next;designerReceived=now;
-      if(changed){designerRevision=revision;designerCache(body);designerIndex=std::max(0,designerRotationIndex(-1));designerPinned=false;designerInterrupted=false;designerSelection.reset();designerPageStarted=now;if(currentPage!=Page::Settings)currentPage=designerDocument["pages"].size()?Page::Designed:Page::Dashboard;Serial.printf("Designer revision applied: %u\n",revision);}
+      if(changed){designerRevision=revision;designerCache(body);designerIndex=std::max(0,designerRotationIndex(-1));designerPinned=false;designerInterrupted=false;designerSelection.dismiss(now);designerPageStarted=now;if(currentPage!=Page::Settings)currentPage=designerDocument["pages"].size()?Page::Designed:Page::Dashboard;Serial.printf("Designer revision applied: %u\n",revision);}
     }
   }
   int skyIndex=-1;int i=0;for(JsonObject p:designerDocument["pages"].as<JsonArray>()){if(String(p["kind"]|"")=="sky")skyIndex=i;i++;}
   bool allowed=(designerDocument["auto_sky"]|false)&&skyIndex>=0&&!displaySleeping&&currentPage!=Page::Settings;
-  if(designerInterrupted&&!allowed)designerRestore();
-  if(!allowed||swipeTracking||now-lastTouchMillis<5000){return;}
   std::vector<DesignerAircraft> aircraft;
   bool fresh=designerReceived&&now-designerReceived<45000&&String(designerDocument["flight"]["status"]|"")=="ok";
   if(fresh)
-    for(JsonObject f:designerDocument["flight"]["flights"].as<JsonArray>()) aircraft.push_back({std::string(f["id"]|""),f["inside"]|false});
-  std::string selected=designerSelection.update(aircraft,now,designerPinned&&!designerInterrupted,fresh);
+    for(JsonObject f:designerDocument["flight"]["flights"].as<JsonArray>()) {
+      String callsign=f["callsign"]|"";callsign.trim();callsign.toUpperCase();
+      aircraft.push_back({std::string(f["id"]|""),f["inside"]|false,std::string(callsign.c_str())});
+    }
+  bool manualSky=currentPage==Page::Designed&&designerIndex==skyIndex&&!designerInterrupted;
+  // A touch cannot extend a notification past its deadline. Manual visits stay manual.
+  bool blocked=!allowed||(!designerInterrupted&&(designerPinned||manualSky||swipeTracking||now-lastTouchMillis<5000));
+  std::string selected=designerSelection.update(aircraft,now,blocked,fresh);
   if(!selected.empty()) {
-    if(!designerInterrupted){designerPreviousPage=currentPage;designerPreviousIndex=designerIndex;designerPreviousElapsed=now-designerPageStarted;designerInterrupted=true;}
+    if(!designerInterrupted){designerPreviousPage=currentPage;designerPreviousIndex=designerIndex;designerInterrupted=true;Serial.printf("Flight alert: %s, 3000 ms\n",selected.c_str());}
     designerFlightID=selected.c_str();currentPage=Page::Designed;designerIndex=skyIndex;
   } else if(designerInterrupted)designerRestore();
 }

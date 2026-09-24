@@ -44,14 +44,23 @@ est envoyée à ADSB.lol; ADSBDB complète les renseignements des vols proches.
 Une connexion Internet du Mac source est nécessaire. Aucun compte fournisseur
 ou jeton n'est transmis aux mini-écrans.
 
-Le suivi filtre les positions anciennes et les appareils au sol. Un avion
-entrant dans le rayon peut interrompre la page active; un avion déjà choisi
-reste affiché dans une petite marge extérieure pour éviter les oscillations.
-Après sa sortie ou une perte prolongée des données, l'écran reprend sa page
-et sa rotation. Le balayage vers la droite ferme l'interruption; vers la gauche,
-un autre avion présent est choisi, sinon la page précédente revient. Un même
-avion fermé manuellement ne reprend pas immédiatement l'écran. Les interactions,
-les pages épinglées et la veille priment; aucun réveil nocturne.
+Le suivi filtre les positions anciennes et les appareils au sol. Un nouvel avion
+entrant dans le rayon interrompt la page active pendant **trois secondes au
+maximum**, puis la page précédente revient. La sortie du rayon ou la perte de
+données ferme immédiatement l’alerte dès réception de cette information.
+La page Dans le ciel ne participe jamais à la rotation ordinaire; les anciennes
+compositions qui ne faisaient tourner que cette page reviennent aux quotas.
+
+Un vol ou appareil déjà montré ne déclenche plus d’alerte pendant ce démarrage,
+même après une absence, une panne de connexion ou une nouvelle publication.
+Le balayage ferme l’alerte. Hors alerte, les balayages visitent toutes les pages,
+y compris Dans le ciel : cette consultation manuelle n’a pas de limite de trois
+secondes. La veille, les réglages et les interactions conservent leur priorité.
+
+Le rendu 640 × 180 anime la trajectoire et indique la durée restante. Les
+polices Moderne et Technique utilisent des caractères lissés à leur taille
+native; les polices pixel conservent leur style. L’aperçu du Designer utilise
+les mêmes masques de caractères, avec les accents français.
 
 La vitesse est celle par rapport au sol. L'arc représente une progression
 estimée, pas la trajectoire géographique ni l'altitude. Les itinéraires manquants,

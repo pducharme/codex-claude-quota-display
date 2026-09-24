@@ -105,14 +105,20 @@ class DesignerTests(unittest.TestCase):
 
     def test_pages_outside_rotation_preserve_flight_interruptions(self):
         c = self.config()
-        self.assertTrue(all(p["in_rotation"] for p in validate(c)["pages"]))
         for p in c["pages"]:
-            p["in_rotation"] = p["kind"] != "sky"
+            p["in_rotation"] = True  # old published compositions also exclude sky
+        normalized = validate(c)
+        self.assertTrue(all(p["in_rotation"] == (p["kind"] != "sky") for p in normalized["pages"]))
         self.designer.publish(dict(config=c, targets=["000000000001"], base_revision=0))
         frame = self.designer.frame("000000000001")
         self.assertTrue(frame["auto_sky"])
         sky = next(p for p in frame["pages"] if p["kind"] == "sky")
         self.assertFalse(sky["in_rotation"])
+        saved = json.loads(self.designer.path.read_text())
+        for target in saved["targets"].values():
+            for p in target["config"]["pages"]:
+                p["in_rotation"] = True
+        self.designer.path.write_text(json.dumps(saved))
         reloaded = Designer(self.designer.path, self.state, WeatherCache())
         self.assertEqual(
             [p["in_rotation"] for p in reloaded.frame("000000000001")["pages"]],
@@ -125,6 +131,15 @@ class DesignerTests(unittest.TestCase):
             p["in_rotation"] = False
         with self.assertRaisesRegex(ValueError, "au moins une page"):
             validate(c)
+
+    def test_legacy_sky_only_rotation_returns_to_native_quotas(self):
+        c = default_config()
+        c["pages"].append(next(p for p in templates() if p["kind"] == "sky"))
+        for p in c["pages"]:
+            p["in_rotation"] = p["kind"] == "sky"
+        result = validate(c)
+        self.assertEqual([p["kind"] for p in result["pages"] if p["in_rotation"]], ["native-quotas"])
+        self.assertEqual([p["id"] for p in result["pages"]], [p["id"] for p in c["pages"]])
 
     def test_flight_freshness_radius_unknown_route_and_failures(self):
         stamp = time.time()

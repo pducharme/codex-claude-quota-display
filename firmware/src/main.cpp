@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <set>
 #include "DisplaySleep.h"
 #include "ConfigurationValidation.h"
 #include "Arduino_GFX_Library.h"
@@ -1578,8 +1579,10 @@ void loop() {
     closeSettings();
   }
   updateDisplaySleep();
+  Page previousPage=currentPage;int previousIndex=designerIndex;bool previousInterruption=designerInterrupted;
   updateDesigner();
   rotateDesigner();
+  if(currentPage!=previousPage||designerIndex!=previousIndex||designerInterrupted!=previousInterruption)drawCurrentPage();
   if (WiFi.status() != WL_CONNECTED) {
     online = false;
     WiFi.reconnect();
@@ -1592,13 +1595,13 @@ void loop() {
     return;
   }
 
-  if (!displaySleeping && !swipeTracking &&
+  if (!displaySleeping && !swipeTracking && !designerInterrupted &&
       static_cast<int32_t>(millis() - nextLcdRestartMillis) >= 0) {
     restartDisplay();
     nextLcdRestartMillis = millis() + LCD_RESTART_MS;
   }
 
-  if (!swipeTracking &&
+  if (!swipeTracking && !designerInterrupted &&
       static_cast<int32_t>(millis() - nextFetchMillis) >= 0) {
     bool fetched = fetchAll();
     nextFetchMillis = millis() + (fetched ? REFRESH_MS : RETRY_MS);
@@ -1607,7 +1610,8 @@ void loop() {
 
   static uint32_t lastAnimation = 0;
   static int animationFrame = 0;
-  if (!displaySleeping && !swipeTracking && millis() - lastAnimation >= (currentPage == Page::Designed ? 250UL : 900UL)) {
+  bool animatedSky=currentPage==Page::Designed&&String(designerDocument["pages"][designerIndex]["kind"]|"")=="sky";
+  if (!displaySleeping && !swipeTracking && millis() - lastAnimation >= (animatedSky ? 50UL : currentPage == Page::Designed ? 250UL : 900UL)) {
     lastAnimation = millis();
     drawCurrentPage(0, false, ++animationFrame);
   }
