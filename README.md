@@ -128,18 +128,21 @@ lectures locales des fournisseurs tant qu’une source distante est configurée.
 L’action **Actualiser les quotas** du client demande une nouvelle lecture à cette source. Le choix des fournisseurs affichés est aussi enregistré
 sur la source : tous les Companions et mini-écrans adoptent le même affichage.
 
-## Designer (inclus dans le Companion; firmware en validation)
+## Designer
 
 **Paramètres → Mini-écrans → Designer…** ouvre l'éditeur de pages : six polices,
 modèles Quotas/Météo/Horloge/Focus, composition libre et suivi des avions à
 proximité avec bascule automatique. Une première mise à jour du firmware est
-requise; les publications de pages suivantes passent par HTTP.
+requise; les publications de pages suivantes passent par HTTP. La version 1.1.8
+ajoute une page Avion animée et une durée d’alerte réglable, de 0,1 seconde à
+24 heures, avec 3 secondes par défaut. Après installation du firmware associé,
+ce réglage se transmet par Wi-Fi, sans nouveau flash.
 
 Consultez le [guide du Designer et son état de validation](docs/designer-v1.md).
-Le nouveau firmware doit encore être vérifié sur les deux écrans physiques.
-Un écran reste noir avec son rétroéclairage allumé; ce problème n’est pas corrigé
-par la mise à jour du Companion. La release firmware stable du 20 septembre
-décrite ci-dessous reste distincte.
+Le firmware de la [release 1.1.8](https://github.com/pducharme/codex-claude-quota-display/releases/tag/v1.1.8)
+a été installé sur un écran de référence, avec tactile, connexion et composition
+confirmés. La validation du deuxième écran et des intégrations avec les comptes
+réels reste distincte. Le rendu spécial Avion est intégré au firmware.
 
 ## Installer le mini-écran
 
@@ -148,6 +151,13 @@ mode paysage. Le firmware prend en charge le contrôleur tactile CST3530 des
 révisions actuelles.
 
 ### Firmware précompilé
+
+Pour le Designer et les nouvelles alertes Avion, téléchargez
+`quota-display-flight-2026.09.24-app.bin` et sa somme SHA-256 dans la
+[release 1.1.8](https://github.com/pducharme/codex-claude-quota-display/releases/tag/v1.1.8).
+Sur un écran déjà configuré, écrivez cette image application à **`0x10000`**
+pour conserver les réglages. Les images historiques ci-dessous ne contiennent
+pas le moteur Designer.
 
 La [version firmware du 20 septembre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.09.20)
 inclut les réglages web tactiles et désactive la DEL de charge clignotante dès
