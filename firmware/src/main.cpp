@@ -13,6 +13,7 @@
 #include <string>
 #include <algorithm>
 #include <set>
+#include <cmath>
 #include "DisplaySleep.h"
 #include "ConfigurationValidation.h"
 #include "Arduino_GFX_Library.h"

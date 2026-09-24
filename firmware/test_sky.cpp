@@ -46,4 +46,7 @@ int main(int argc,char **argv){
  // Duration strip ends at 3 seconds, including without another network frame.
  drawDesignerSky(f,4,rgb(8,19,34),rgb(56,189,248),1500,true);assert(canvas.pixels[178*640]==rgb(56,189,248));
  drawDesignerSky(f,4,rgb(8,19,34),rgb(56,189,248),3000,true);assert(canvas.pixels[178*640]!=rgb(56,189,248));
+ drawDesignerSky(f,4,rgb(8,19,34),rgb(56,189,248),43200000,true,86400000);
+ assert(canvas.pixels[178*640+319]==rgb(56,189,248));
+ assert(canvas.pixels[178*640+321]!=rgb(56,189,248)); // 24-hour durations cannot overflow the width
 }

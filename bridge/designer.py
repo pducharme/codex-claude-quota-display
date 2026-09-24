@@ -330,6 +330,7 @@ def validate(config):
         pages=out,
         rotation=int(number(config.get("rotation", 0), 0, 600)),
         auto_sky=config.get("auto_sky", False),
+        sky_duration=number(config.get("sky_duration", 3), 0.1, 86400),
         city=label(config.get("city", "Sherbrooke"), 80),
         sky=dict(
             enabled=sky.get("enabled", False),
@@ -871,6 +872,7 @@ class Designer:
                 pages=pages,
                 rotation=c["rotation"],
                 auto_sky=c["auto_sky"],
+                sky_duration=c.get("sky_duration", 3),
                 flight=self.flights.snapshot(c["sky"]),
                 server_time=int(time.time()),
             )

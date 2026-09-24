@@ -145,7 +145,8 @@ function draw() {
   ctx.fillStyle = p.background;
   ctx.fillRect(0, 0, 640, 180);
   if (p.kind === "sky") {
-    const elapsed = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 1500 : performance.now() % 3000;
+    const duration = Math.max(100, (config.sky_duration ?? 3) * 1000);
+    const elapsed = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? duration / 2 : performance.now() % duration;
     const blend = (a, b, t) => "#" + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, "0")).join("");
     const white = "#f0f7ff", muted = blend(p.background, white, .66), line = blend(p.background, p.accent, .22);
     const segment = (x1, y1, x2, y2, color) => {
@@ -196,7 +197,7 @@ function draw() {
     text("Airbus A330-300", 20, 151, 267, 22, 1, p.font, muted);
     text("870 km/h", 305, 151, 180, 22, 1, p.font, white);
     text("10 700 m", 501, 151, 136, 22, 1, p.font, white);
-    ctx.fillStyle = p.accent; ctx.fillRect(0, 178, 640 * (3000 - elapsed) / 3000, 2);
+    ctx.fillStyle = p.accent; ctx.fillRect(0, 178, 640 * (duration - elapsed) / duration, 2);
     return;
   }
   if (p.kind.startsWith("native-")) {
@@ -435,6 +436,7 @@ function render() {
   $("sky-settings").hidden = !config.pages.some((p) => p.kind === "sky");
   $("sky-enabled").checked = config.sky.enabled;
   $("auto-sky").checked = config.auto_sky;
+  $("sky-duration").value = String(config.sky_duration ?? 3);
   $("latitude").value = config.sky.lat ?? "";
   $("longitude").value = config.sky.lon ?? "";
   $("radius").value = config.sky.radius;
@@ -544,6 +546,10 @@ for (const [id, key] of [
     );
 $("sky-enabled").onchange = () =>
   changed(() => (config.sky.enabled = $("sky-enabled").checked));
+$("sky-duration").onchange = () => {
+  if (!$("sky-duration").reportValidity()) return;
+  changed(() => (config.sky_duration = Number($("sky-duration").value)));
+};
 $("auto-sky").onchange = () =>
   changed(() => {
     config.auto_sky = $("auto-sky").checked;

@@ -46,4 +46,13 @@ int main(){
   assert(rollover.update({{"W",true,""}},uint32_t(0xffffff00UL+2999),false)=="W");
   assert(rollover.update({{"W",true,""}},uint32_t(0xffffff00UL+3000),false).empty());
   assert(rollover.update({{"X",true,""}},uint32_t(0xffffff00UL+6000),false)=="X");
+  for(uint32_t duration:{100UL,500UL,1000UL,10000UL,86400000UL}){
+    DesignerSelection configured;
+    uint32_t start=0xffffff00UL;
+    assert(configured.update({{"A",true,"TEST"}},start,false,true,duration)=="A");
+    assert(configured.duration==duration);
+    assert(configured.update({{"A",true,"TEST"}},start+duration-1,false)=="A");
+    assert(configured.update({{"A",true,"TEST"}},start+duration,false).empty());
+    assert(configured.update({{"A",true,"TEST"}},start+duration+4000,false).empty());
+  }
 }

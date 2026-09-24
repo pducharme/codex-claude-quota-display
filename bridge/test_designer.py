@@ -132,6 +132,20 @@ class DesignerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "au moins une page"):
             validate(c)
 
+    def test_flight_duration_default_validation_publication_and_reload(self):
+        device = "000000000001"
+        config = self.config()
+        config.pop("sky_duration", None)
+        self.assertEqual(validate(config)["sky_duration"], 3)
+        for invalid in [0, -1, 86401, "3", True, float("nan"), float("inf")]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate(dict(config, sky_duration=invalid))
+        for revision, seconds in enumerate([0.1, 0.5, 3, 30, 86400]):
+            self.designer.publish(dict(config=dict(config, sky_duration=seconds), targets=[device], base_revision=revision))
+            self.assertEqual(self.designer.frame(device)["sky_duration"], seconds)
+            reloaded = Designer(self.designer.path, self.state, WeatherCache())
+            self.assertEqual(reloaded.frame(device)["sky_duration"], seconds)
+
     def test_legacy_sky_only_rotation_returns_to_native_quotas(self):
         c = default_config()
         c["pages"].append(next(p for p in templates() if p["kind"] == "sky"))

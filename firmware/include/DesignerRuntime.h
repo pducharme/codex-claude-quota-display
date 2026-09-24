@@ -41,6 +41,10 @@ bool designerValid(JsonDocument &doc) {
   JsonArray pages=doc["pages"];
   if(pages.size()>8 || ((doc["revision"]|0)>0 && pages.size()==0)) return false;
   if ((doc["rotation"]|0)<0 || (doc["rotation"]|0)>600) return false;
+  if(!doc["sky_duration"].isNull()){
+    float duration=doc["sky_duration"].as<float>();
+    if(!doc["sky_duration"].is<float>()||!std::isfinite(duration)||duration<.1f||duration>86400)return false;
+  }
   bool hasRotationPage=false;
   bool legacySkyRotation=false;
   JsonObject fallback;
@@ -148,7 +152,7 @@ void drawDesigner() {
       data.speed=f["speed"].isNull()?"Vitesse --":String(f["speed"].as<int>())+" km/h";
       data.altitude=f["altitude"].isNull()?"Altitude --":String(f["altitude"].as<int>())+" m";
     }
-    drawDesignerSky(data,font,bg,accent,millis()-(designerInterrupted?designerSelection.started:designerPageStarted),designerInterrupted);
+    drawDesignerSky(data,font,bg,accent,millis()-(designerInterrupted?designerSelection.started:designerPageStarted),designerInterrupted,designerSelection.duration);
   } else {
     for(JsonObject b:p["blocks"].as<JsonArray>()) {
       int x=b["x"],y=b["y"],w=b["w"],h=b["h"],scale=b["size"];
@@ -326,9 +330,10 @@ void updateDesigner() {
   bool manualSky=currentPage==Page::Designed&&designerIndex==skyIndex&&!designerInterrupted;
   // A touch cannot extend a notification past its deadline. Manual visits stay manual.
   bool blocked=!allowed||(!designerInterrupted&&(designerPinned||manualSky||swipeTracking||now-lastTouchMillis<5000));
-  std::string selected=designerSelection.update(aircraft,now,blocked,fresh);
+  uint32_t duration=lroundf((designerDocument["sky_duration"]|3.0f)*1000);
+  std::string selected=designerSelection.update(aircraft,now,blocked,fresh,duration);
   if(!selected.empty()) {
-    if(!designerInterrupted){designerPreviousPage=currentPage;designerPreviousIndex=designerIndex;designerInterrupted=true;Serial.printf("Flight alert: %s, 3000 ms\n",selected.c_str());}
+    if(!designerInterrupted){designerPreviousPage=currentPage;designerPreviousIndex=designerIndex;designerInterrupted=true;Serial.printf("Flight alert: %s, %lu ms\n",selected.c_str(),(unsigned long)duration);}
     designerFlightID=selected.c_str();currentPage=Page::Designed;designerIndex=skyIndex;
   } else if(designerInterrupted)designerRestore();
 }

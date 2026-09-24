@@ -48,7 +48,7 @@ void skyPlane(float x,float y,float angle,uint16_t color,uint16_t shade,uint16_t
   for(int side:{-1,1})view->drawLine(px(-4,side*12),py(-4,side*12),px(5,side*12),py(5,side*12),shade);
 }
 
-void drawDesignerSky(const DesignerSkyData &f,int font,uint16_t bg,uint16_t accent,uint32_t elapsed,bool automatic) {
+void drawDesignerSky(const DesignerSkyData &f,int font,uint16_t bg,uint16_t accent,uint32_t elapsed,bool automatic,uint32_t duration=3000) {
   const uint16_t white=rgb(240,247,255),muted=skyBlend(bg,white,.66f),line=skyBlend(bg,accent,.22f);
   for(int y=0;y<180;y++)view->drawFastHLine(0,y,640,skyBlend(bg,accent,.075f*sinf(y*3.14159f/180)));
   view->drawFastHLine(20,36,600,line);
@@ -85,5 +85,5 @@ void drawDesignerSky(const DesignerSkyData &f,int font,uint16_t bg,uint16_t acce
   skyText(20,151,f.message.length()?600:267,22,f.aircraft,font,1,muted);
   skyText(305,151,180,22,f.speed,font,1,white);
   skyText(501,151,136,22,f.altitude,font,1,white);
-  if(automatic)view->fillRect(0,178,640*(3000-std::min(elapsed,uint32_t(3000)))/3000,2,accent);
+  if(automatic&&duration)view->fillRect(0,178,640ULL*(duration-std::min(elapsed,duration))/duration,2,accent);
 }

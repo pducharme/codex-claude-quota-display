@@ -45,8 +45,10 @@ Une connexion Internet du Mac source est nécessaire. Aucun compte fournisseur
 ou jeton n'est transmis aux mini-écrans.
 
 Le suivi filtre les positions anciennes et les appareils au sol. Un nouvel avion
-entrant dans le rayon interrompt la page active pendant **trois secondes au
-maximum**, puis la page précédente revient. La sortie du rayon ou la perte de
+entrant dans le rayon interrompt la page active pendant **trois secondes par
+défaut**, puis la page précédente revient. La durée se règle dans le Designer
+en secondes, de 0,1 seconde à 24 heures; elle est transmise par Wi-Fi avec la
+composition, sans nouveau flash une fois ce moteur installé. La sortie du rayon ou la perte de
 données ferme immédiatement l’alerte dès réception de cette information.
 La page Dans le ciel ne participe jamais à la rotation ordinaire; les anciennes
 compositions qui ne faisaient tourner que cette page reviennent aux quotas.

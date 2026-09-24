@@ -27,7 +27,8 @@ struct DesignerAircraft { std::string id; bool inside; std::string callsign; };
 // Pure selection policy shared with a host-side check. All time is monotonic milliseconds.
 class DesignerSelection {
  public:
-  static constexpr uint32_t duration=3000;
+  static constexpr uint32_t defaultDuration=3000;
+  uint32_t duration=defaultDuration;
   std::string active;
   uint32_t started=0;
   // Remember both identities for this boot, including across publications/outages.
@@ -35,7 +36,7 @@ class DesignerSelection {
   uint32_t ended=0;
   bool cooling=false;
   void dismiss(uint32_t now){active.clear();ended=now;cooling=true;}
-  std::string update(const std::vector<DesignerAircraft>& aircraft,uint32_t now,bool blocked,bool fresh=true){
+  std::string update(const std::vector<DesignerAircraft>& aircraft,uint32_t now,bool blocked,bool fresh=true,uint32_t durationMs=defaultDuration){
     if(!active.empty()){
       auto current=std::find_if(aircraft.begin(),aircraft.end(),[&](const DesignerAircraft &a){return a.id==active&&a.inside;});
       if(blocked||!fresh||now-started>=duration||current==aircraft.end()){
@@ -45,14 +46,14 @@ class DesignerSelection {
       return active;
     }
     // Leave the restored page visible between separate arrivals.
-    if(blocked||!fresh||(cooling&&now-ended<duration))return "";
+    if(blocked||!fresh||(cooling&&now-ended<defaultDuration))return "";
     for(const auto &a:aircraft){
       bool seen=seenAircraft.count(a.id)||(!a.callsign.empty()&&seenFlights.count(a.callsign));
       if(seen){
         seenAircraft.insert(a.id);
         if(!a.callsign.empty())seenFlights.insert(a.callsign);
       } else if(a.inside&&!a.id.empty()){
-        active=a.id;started=now;seenAircraft.insert(a.id);
+        active=a.id;started=now;duration=durationMs;seenAircraft.insert(a.id);
         if(!a.callsign.empty())seenFlights.insert(a.callsign);
         break;
       }
