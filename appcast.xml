@@ -3,6 +3,29 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.1.5</title>
+            <pubDate>Thu, 24 Sep 2026 09:57:53 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.1.5</sparkle:version>
+            <sparkle:shortVersionString>1.1.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.1.5</h2>
+<ul>
+  <li>Consultez le nombre de resets Claude en banque et leurs dates d’expiration, comme pour Codex, lorsque votre compte les fournit. Cliquez sur la carte pour ouvrir la liste.</li>
+  <li>La barre de menus utilise de nouvelles icônes transparentes de 16 points et des pourcentages monochromes, avec un petit espace entre les deux.</li>
+  <li>Dans Paramètres → Barre de menus, choisissez Codex, Claude ou les deux, masquez les icônes et sélectionnez les limites à afficher : 5 h, hebdomadaire et Fable uniquement pour Claude. Plusieurs limites peuvent être combinées; le séparateur est conservé.</li>
+  <li>Les préférences de la barre de menus sont propres à chaque Mac, indépendamment des cartes et des mini-écrans.</li>
+  <li>Le Designer de pages est intégré au Companion, avec ses modèles, connexions et suivi des avions à proximité. Son nouveau firmware reste en validation matérielle.</li>
+</ul>
+<p>Mettez à jour le Mac source et les Companions clients. Les connexions, clés et réglages sont conservés. La mise à jour du Companion ne modifie pas le firmware des mini-écrans.</p>
+<p>Le problème d’écran noir observé sur un mini-écran reste à résoudre. Le firmware stable du 20 septembre reste disponible séparément.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.5/Quota-Display-1.1.5.zip" length="3439758" type="application/octet-stream" sparkle:edSignature="KJBOwRQD5J4ggNJtqXe9gZn80HX52ckvWORyshhQAMNFug7yfZgR++EHxjWkaR1s+UsfqTUX4Zsc9xO0RqHFAA=="/>
+        </item>
+        <item>
             <title>1.0.29</title>
             <pubDate>Wed, 23 Sep 2026 17:53:46 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -40,25 +63,6 @@
 <p>En mode distant, mettez à jour le Mac source et les Companions clients. La source configurée, les clés et les réglages sont conservés. Aucun reflash du mini-écran n’est nécessaire.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.28/Quota-Display-1.0.28.zip" length="2321230" type="application/octet-stream" sparkle:edSignature="VhLvmytuLYJK1zgzVAens9DYzr4432xNFcYByhYsQ0sELkTkN67cGcB9RyyORgnAgddeV++Nd5IMtn7zoeC/Cg=="/>
-        </item>
-        <item>
-            <title>1.0.27</title>
-            <pubDate>Tue, 15 Sep 2026 10:20:33 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.0.27</sparkle:version>
-            <sparkle:shortVersionString>1.0.27</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.0.27</h2>
-<ul>
-  <li>Cliquez sur Codex ou « Voir les dates » pour consulter les dates d’expiration des resets en banque et le temps restant.</li>
-  <li>Un clic n’importe où dans la vue des dates ramène à la page des quotas.</li>
-</ul>
-<p>Disponible dans le menu et la fenêtre permanente du Companion. Aucun reflash du mini-écran n’est nécessaire.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.0.27/Quota-Display-1.0.27.zip" length="2313603" type="application/octet-stream" sparkle:edSignature="8+AMDlkLMFeREMdbzAZ+uu48X4+scNknbDZNPmFJ2ZlUMAC4THPwEAq+XDa5Xd9r6yh0KsnYMFym+IeF5swUAw=="/>
         </item>
     </channel>
 </rss>
