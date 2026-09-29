@@ -163,9 +163,11 @@ private func quotaFreshnessFailures(_ data: Data) -> [(operation: String, age: I
     let display = root["display"] as? [String: Any] ?? [:]
     for provider in ["codex", "claude"] where display[provider] as? Bool != false {
         guard let value = providers[provider] else { continue }
+        // The bridge reports this incident once; the connection remains visibly unavailable.
+        if value["error_reason"] as? String == "authentication_required" { continue }
         let status = value["status"] as? String
         let elapsed = age(value["updated_at"]) ?? 0
-        if status == "stale" || status == "error" || elapsed > max(900, interval * 3) {
+        if status == "error" || elapsed > max(900, interval * 3) {
             failures.append(("\(provider)_quotas_stale", elapsed))
         }
     }
@@ -596,6 +598,7 @@ private struct ProviderQuotas {
     let fableWeekly: QuotaWindow
     let bankedResets: Int?
     let bankedResetExpirations: [Int]
+    var authenticationRequired = false
 }
 
 private struct DisplaySleep: Codable, Equatable {
@@ -934,7 +937,8 @@ private func providerQuotas(_ value: Any?) -> ProviderQuotas? {
         fableWeekly: quotaWindow(value["fable_weekly"]),
         bankedResets: resets?["available_count"] as? Int,
         bankedResetExpirations: (resets?["expirations"] as? [[String: Any]] ?? [])
-            .compactMap { $0["expires_at"] as? Int }.filter { $0 > 0 }.sorted()
+            .compactMap { $0["expires_at"] as? Int }.filter { $0 > 0 }.sorted(),
+        authenticationRequired: value["error_reason"] as? String == "authentication_required"
     )
 }
 
@@ -1095,6 +1099,9 @@ private final class CompactStatusView: NSView {
     var accessibilitySummary: String {
         [(true, showCodex), (false, showClaude)].filter { $0.1 }.map { codex, _ in
             let provider = codex ? snapshot?.codex : snapshot?.claude
+            if provider?.authenticationRequired == true {
+                return "\(codex ? "Codex" : "Claude") — connexion requise"
+            }
             let limits = (codex ? codexLimits : claudeLimits).map {
                 "\($0.title) : \(remainingText($0.window(in: provider))) restants"
             }.joined(separator: ", ")
@@ -1505,6 +1512,7 @@ private final class QuotaDashboardView: NSView {
         if showClaude && !showingBankedResets {
             parts.append("Claude, forfait \(snapshot.claude.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)), \(snapshot.claude.bankedResets.map(String.init) ?? "—") resets en banque.")
         }
+        if showClaude && snapshot.claude.authenticationRequired { parts.append("Claude : connexion requise.") }
         parts.append("API \(snapshot.apiAddress), \(apiOnline ? "en ligne" : "hors ligne"). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true)).")
         return parts.joined(separator: " ")
     }
@@ -1615,7 +1623,7 @@ private final class QuotaDashboardView: NSView {
             scale: 2,
             color: textColor
         )
-        let plan = provider.plan?.uppercased() ?? "—"
+        let plan = provider.authenticationRequired ? "À CONNECTER" : provider.plan?.uppercased() ?? "—"
         let planFont = NSFont.systemFont(ofSize: 9, weight: .bold)
         let planX = rect.minX + 52 + CGFloat(title.count * 12)
         let planWidth = ceil((plan as NSString).size(withAttributes: [.font: planFont]).width) + 12
@@ -1915,9 +1923,66 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var persistentPanel: NSPanel?
     private var displayRevision = 0
 
-    private var appSupportURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Quota Display")
+    private var appSupportURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Quota Display")
+
+    private var claudeVisible: Bool {
+        statusDefaults.bool(forKey: showClaudePreference) || statusDefaults.bool(forKey: statusClaudePreference)
+    }
+
+    private var claudeAuthenticationURL: URL {
+        appSupportURL.appendingPathComponent("claude-authentication-required")
+    }
+
+    private var claudeAuthenticationRequired: Bool {
+        FileManager.default.fileExists(atPath: claudeAuthenticationURL.path)
+    }
+
+    private func syncClaudeVisibility() {
+        let disabled = appSupportURL.appendingPathComponent("claude-disabled")
+        do {
+            try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
+            if claudeVisible {
+                if FileManager.default.fileExists(atPath: disabled.path) { try FileManager.default.removeItem(at: disabled) }
+            } else {
+                if !FileManager.default.fileExists(atPath: disabled.path) { try writePrivate("disabled", to: disabled) }
+                claudeDesktopCredential = nil
+            }
+        } catch {
+            QuotaDiagnostics.shared.capture("claude_visibility", failure: QuotaDiagnostics.failure(error), remote: false)
+        }
+        claudeActionItem.isEnabled = claudeVisible
+        if !claudeVisible { claudeStatus.title = "Claude : masqué" }
+    }
+
+    private func requireClaudeAuthentication(remote: Bool = false) {
+        guard claudeVisible else { return }
+        if !remote {
+            claudeDesktopCredential = nil
+            do {
+                try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
+                if !claudeAuthenticationRequired { try writePrivate("required", to: claudeAuthenticationURL) }
+            } catch {
+                QuotaDiagnostics.shared.capture("claude_authentication_state", failure: QuotaDiagnostics.failure(error), remote: false)
+            }
+        }
+        claudeConnected = false
+        setStatus(provider: "claude", text: remote ? "connexion requise sur le Mac source" : "connexion requise")
+        renderStatusTitle()
+        guard autoPrompted.insert("claude-authentication").inserted,
+              !CommandLine.arguments.contains("--self-test") else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.claudeVisible, self.configuredBridgeSource.remote == remote else { return }
+            let alert = NSAlert()
+            alert.messageText = "Connexion Claude requise"
+            alert.informativeText = remote
+                ? "Reconnectez Claude dans le Companion du Mac source. Les quotas Claude sont en pause jusqu’à la reconnexion."
+                : "La connexion Claude est absente ou expirée. Les lectures sont en pause jusqu’à la reconnexion."
+            alert.addButton(withTitle: remote ? "OK" : "Se connecter…")
+            if !remote { alert.addButton(withTitle: "Plus tard") }
+            NSApp.activate(ignoringOtherApps: true)
+            if alert.runModal() == .alertFirstButtonReturn && !remote { self.loginClaude() }
+        }
     }
 
     private var claudeDesktopAuthorizationURL: URL {
@@ -1969,8 +2034,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             NSApp.applicationIconImage = icon
         }
         NSApp.mainMenu = applicationMenu()
-        restartBridgeAfterUpdateIfNeeded()
         configureMenu()
+        restartBridgeAfterUpdateIfNeeded()
         checkAuthentication(autoPrompt: true)
         refreshClaudeDesktopIfAuthorized()
         loadAutoLaunchState()
@@ -2232,6 +2297,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             let selected = item.representedObject as? String == statusCodexLimitsPreference ? compactStatus.codexLimits : compactStatus.claudeLimits
             item.state = selected.contains(StatusLimit.allCases[item.tag]) ? .on : .off
         }
+        syncClaudeVisibility()
     }
 
     @objc private func toggleStatusProvider(_ sender: NSMenuItem) {
@@ -2264,10 +2330,12 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let suite = "quota-status-test-" + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         let controller = MenuController()
+        controller.appSupportURL = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
         controller.statusDefaults = defaults
         controller.snapshot = snapshot
         defer {
             defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: controller.appSupportURL)
             NSStatusBar.system.removeStatusItem(controller.statusItem)
         }
         defaults.register(defaults: [showCodexPreference: true, showClaudePreference: true, showStatusIconsPreference: true])
@@ -2297,6 +2365,35 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         precondition(persisted.stringArray(forKey: statusClaudeLimitsPreference) == [StatusLimit.fableWeekly.rawValue])
         precondition(!persisted.bool(forKey: statusCodexPreference) && !persisted.bool(forKey: showStatusIconsPreference))
         precondition(controller.compactStatus.accessibilitySummary.contains("Fable"))
+        let disabled = controller.appSupportURL.appendingPathComponent("claude-disabled").path
+        for (interface, menuBar) in [(false, false), (false, true), (true, false), (true, true)] {
+            defaults.set(interface, forKey: showClaudePreference)
+            defaults.set(menuBar, forKey: statusClaudePreference)
+            controller.applyStatusPreferences()
+            precondition(controller.claudeVisible == (interface || menuBar))
+            precondition(FileManager.default.fileExists(atPath: disabled) == !(interface || menuBar))
+            precondition(controller.claudeActionItem.isEnabled == (interface || menuBar))
+        }
+        defaults.set(false, forKey: showClaudePreference)
+        defaults.set(false, forKey: statusClaudePreference)
+        controller.applyStatusPreferences()
+        controller.requireClaudeAuthentication()
+        precondition(!controller.claudeAuthenticationRequired)
+        var refused = false
+        controller.refreshClaudeDesktop(allowPrompt: true) { success, _ in refused = !success }
+        precondition(refused && !controller.refreshingClaudeDesktop)
+        defaults.set(true, forKey: statusClaudePreference)
+        controller.applyStatusPreferences()
+        controller.requireClaudeAuthentication()
+        controller.requireClaudeAuthentication()
+        precondition(controller.claudeAuthenticationRequired && controller.claudeConnected == false)
+        precondition(controller.autoPrompted == ["claude-authentication"])
+        refused = false
+        controller.refreshClaudeDesktop(allowPrompt: false) { success, _ in refused = !success }
+        precondition(refused && !controller.refreshingClaudeDesktop)
+        try! FileManager.default.removeItem(at: controller.claudeAuthenticationURL)
+        controller.requireClaudeAuthentication(remote: true)
+        precondition(!controller.claudeAuthenticationRequired) // A remote account never blocks this Mac's account.
     }
 
     @objc private func toggleStatusIcons() {
@@ -2363,7 +2460,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             sourceItem.title = "Source des quotas : ce Mac…"
             connectionsItem.title = "Connexions"
             connectionsItem.isEnabled = true
-            let desktop = claudeDesktopHasCredentialMaterial()
+            let desktop = claudeVisible && claudeDesktopHasCredentialMaterial()
             claudeActionItem.title = desktop
                 ? (claudeDesktopAuthorized ? "Reconnecter Claude Desktop…" : "Autoriser Claude Desktop…")
                 : "Reconnecter Claude Code…"
@@ -2562,6 +2659,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         persistentDashboard.snapshot = nil
         persistentDashboard.apiOnline = false
         updateSourceItems()
+        syncClaudeVisibility()
         checkAuthentication(autoPrompt: false)
         loadQuotas()
         if !remote { refreshQuotas() }
@@ -2592,12 +2690,15 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 
     private func checkAuthentication(autoPrompt: Bool) {
         guard !configuredBridgeSource.remote, !checking else { return }
+        if claudeVisible && claudeAuthenticationRequired { requireClaudeAuthentication() }
+        let checkClaude = claudeVisible && !claudeAuthenticationRequired
         checking = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let claudePath = executable(named: "claude")
+            let claudePath = checkClaude ? executable(named: "claude") : nil
             let codexPath = executable(named: "codex")
-            let desktop = claudeDesktopHasCredentialMaterial()
-            let cliClaude = claudeState(from: run(claudePath, ["auth", "status", "--json"]))
+            let desktop = checkClaude && claudeDesktopHasCredentialMaterial()
+            let cliClaude = checkClaude ? claudeState(from: run(claudePath, ["auth", "status", "--json"]))
+                : AuthState(connected: false, label: "connexion requise")
             let authorized = FileManager.default.fileExists(
                 atPath: FileManager.default.homeDirectoryForCurrentUser
                     .appendingPathComponent("Library/Application Support/Quota Display/claude-desktop-authorized").path
@@ -2632,20 +2733,17 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             updateSourceItems()
             return
         }
-        claudeConnected = claude.connected
+        claudeConnected = claudeVisible && !claudeAuthenticationRequired && claude.connected
         codexConnected = codex.connected
-        claudeStatus.title = "Claude : \(claude.label)"
+        claudeStatus.title = !claudeVisible ? "Claude : masqué"
+            : claudeAuthenticationRequired ? "Claude : connexion requise" : "Claude : \(claude.label)"
         codexStatus.title = "Codex : \(codex.label)"
-        claudeActionItem.title = claudeDesktopAvailable
+        claudeActionItem.title = claudeAuthenticationRequired ? "Reconnecter Claude…" : claudeDesktopAvailable
             ? (claudeDesktopAuthorized ? "Reconnecter Claude Desktop…" : "Autoriser Claude Desktop…")
             : "Reconnecter Claude Code…"
         renderStatusTitle()
 
-        if claude.connected { autoPrompted.remove("claude") }
         if codex.connected { autoPrompted.remove("codex") }
-        if autoPrompt && !claude.connected && !claudeDesktopAvailable && autoPrompted.insert("claude").inserted {
-            launchLogin(provider: "claude")
-        }
         if autoPrompt && !codex.connected && autoPrompted.insert("codex").inserted {
             launchLogin(provider: "codex")
         }
@@ -2655,8 +2753,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let remote = configuredBridgeSource.remote
         compactStatus.snapshot = snapshot
         compactStatus.bridgeOnline = bridgeOnline
-        compactStatus.codexConnected = remote ? snapshot.map { $0.codex.status != "error" } : codexConnected
-        compactStatus.claudeConnected = remote ? snapshot.map { $0.claude.status != "error" } : claudeConnected
+        compactStatus.codexConnected = remote ? snapshot.map { $0.codex.status != "error" && !$0.codex.authenticationRequired } : codexConnected
+        compactStatus.claudeConnected = remote ? snapshot.map { $0.claude.status != "error" && !$0.claude.authenticationRequired } : claudeConnected
         statusItem.length = compactStatus.contentWidth
         compactStatus.needsDisplay = true
         let updated = snapshot?.refreshedAt.map {
@@ -2773,6 +2871,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                     self.snapshot = loaded
                     self.dashboard.snapshot = loaded
                     self.persistentDashboard.snapshot = loaded
+                    if self.claudeVisible && (self.configuredBridgeSource.remote ? loaded.claude.authenticationRequired : self.claudeAuthenticationRequired) {
+                        self.requireClaudeAuthentication(remote: self.configuredBridgeSource.remote)
+                    } else if loaded.claude.status == "ok" && !self.claudeAuthenticationRequired {
+                        self.autoPrompted.remove("claude-authentication")
+                    }
                 }
                 self.renderStatusTitle()
             }
@@ -2897,16 +3000,26 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     @objc private func loginClaude() {
+        guard claudeVisible, !configuredBridgeSource.remote else { return }
+        autoPrompted.insert("claude-authentication")
+        claudeDesktopCredential = nil
         guard claudeDesktopHasCredentialMaterial() else {
             launchLogin(provider: "claude")
             return
         }
         let alert = NSAlert()
         alert.messageText = "Autoriser Claude Desktop"
-        alert.informativeText = "macOS demandera la permission de lire « Claude Safe Storage ». Le jeton reste uniquement en mémoire; seuls les pourcentages et les heures de remise à zéro sont enregistrés localement."
+        alert.informativeText = "Si votre session a expiré, reconnectez-vous d’abord dans Claude Desktop, puis revenez ici. macOS demandera la permission de lire « Claude Safe Storage ». Le jeton reste uniquement en mémoire."
         alert.addButton(withTitle: "Autoriser")
         alert.addButton(withTitle: "Annuler")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let desktopApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop")
+        if desktopApp != nil { alert.addButton(withTitle: "Ouvrir Claude Desktop") }
+        let response = alert.runModal()
+        if response == .alertThirdButtonReturn, let desktopApp {
+            NSWorkspace.shared.open(desktopApp)
+            return
+        }
+        guard response == .alertFirstButtonReturn else { return }
         setStatus(provider: "claude", text: "autorisation en cours…")
         refreshClaudeDesktop(allowPrompt: true) { [weak self] success, message in
             guard let self else { return }
@@ -2936,7 +3049,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             ? ["auth", "login", "--claudeai"]
             : ["login"]
         do {
-            let command = ([path] + arguments).map(shellQuoted).joined(separator: " ")
+            var command = ([path] + arguments).map(shellQuoted).joined(separator: " ")
+            if provider == "claude" {
+                command += " && /bin/rm -f -- " + shellQuoted(claudeAuthenticationURL.path)
+            }
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("quota-display-login-\(UUID().uuidString).command")
             try "#!/bin/zsh\n/bin/rm -f -- \"$0\"\n\(command)\n".write(to: url, atomically: true, encoding: .utf8)
@@ -2977,7 +3093,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 
     @objc private func refreshQuotas() {
         setRefreshAnimation(true)
-        if !configuredBridgeSource.remote && claudeDesktopAuthorized {
+        if !configuredBridgeSource.remote && claudeVisible && !claudeAuthenticationRequired && claudeDesktopAuthorized {
             refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
                 self?.triggerRefresh()
             }
@@ -2987,7 +3103,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     private func refreshClaudeDesktopIfAuthorized() {
-        guard !configuredBridgeSource.remote, claudeDesktopAuthorized else { return }
+        guard !configuredBridgeSource.remote, claudeVisible, !claudeAuthenticationRequired, claudeDesktopAuthorized else { return }
         refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
             self?.triggerRefresh()
         }
@@ -2997,6 +3113,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         allowPrompt: Bool,
         completion: @escaping (Bool, String) -> Void
     ) {
+        guard claudeVisible, !configuredBridgeSource.remote, allowPrompt || !claudeAuthenticationRequired else {
+            completion(false, "Claude est masqué ou attend une reconnexion.")
+            return
+        }
         guard !refreshingClaudeDesktop else {
             completion(false, "Une actualisation Claude Desktop est déjà en cours.")
             return
@@ -3013,6 +3133,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             let result = Result { try loadClaudeDesktopCredential(allowPrompt: allowPrompt) }
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard self.claudeVisible, !self.configuredBridgeSource.remote else {
+                    self.refreshingClaudeDesktop = false
+                    completion(false, "La source ou l’affichage des quotas a changé.")
+                    return
+                }
                 switch result {
                 case .success(let credential):
                     self.claudeDesktopCredential = credential
@@ -3033,9 +3158,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 case .failure(let error):
                     self.refreshingClaudeDesktop = false
                     QuotaDiagnostics.shared.capture("claude_credentials", failure: QuotaDiagnostics.failure(error), remote: false)
-                    self.claudeConnected = false
-                    self.setStatus(provider: "claude", text: "autorisation requise")
-                    self.renderStatusTitle()
+                    self.requireClaudeAuthentication()
                     completion(false, error.localizedDescription)
                 }
             }
@@ -3044,8 +3167,14 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 
     private func fetchClaudeDesktopUsage(
         _ credential: ClaudeDesktopCredential,
+        retryAttempt: Int = 0,
         completion: @escaping (Bool, String) -> Void
     ) {
+        guard claudeVisible, !configuredBridgeSource.remote else {
+            refreshingClaudeDesktop = false
+            completion(false, "La source ou l’affichage des quotas a changé.")
+            return
+        }
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!, timeoutInterval: 20)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
@@ -3054,6 +3183,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         quotaSession.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard self.claudeVisible, !self.configuredBridgeSource.remote else {
+                    self.refreshingClaudeDesktop = false
+                    completion(false, "La source ou l’affichage des quotas a changé.")
+                    return
+                }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 guard
                     error == nil,
@@ -3061,12 +3195,24 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                     let data,
                     let initialValue = claudeDesktopQuotaSnapshot(from: data)
                 else {
+                    if let delay = quotaRetryDelay(error: error, attempt: retryAttempt) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                            guard let self else { return }
+                            guard !self.configuredBridgeSource.remote else {
+                                self.refreshingClaudeDesktop = false
+                                completion(false, "La source des quotas a changé.")
+                                return
+                            }
+                            self.fetchClaudeDesktopUsage(credential, retryAttempt: retryAttempt + 1, completion: completion)
+                        }
+                        return
+                    }
                     self.refreshingClaudeDesktop = false
                     QuotaDiagnostics.shared.capture("claude_usage",
                         failure: QuotaDiagnostics.failure(error, status: (200...299 ~= status) || status == 0 ? nil : status), remote: false)
-                    if status == 401 || status == 403 { self.claudeDesktopCredential = nil }
+                    if status == 401 || status == 403 { self.requireClaudeAuthentication() }
                     self.claudeConnected = false
-                    self.setStatus(provider: "claude", text: "lecture impossible")
+                    self.setStatus(provider: "claude", text: self.claudeAuthenticationRequired ? "connexion requise" : "lecture impossible")
                     self.renderStatusTitle()
                     let failure = status > 0
                         ? ClaudeDesktopError.http(status).localizedDescription
@@ -3077,6 +3223,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 
                 let save: ([String: Any]) -> Void = { value in
                     self.refreshingClaudeDesktop = false
+                    guard self.claudeVisible, !self.configuredBridgeSource.remote else {
+                        completion(false, "La source ou l’affichage des quotas a changé.")
+                        return
+                    }
                     do {
                         let output = try JSONSerialization.data(withJSONObject: value)
                         try FileManager.default.createDirectory(
@@ -3088,6 +3238,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                             [.posixPermissions: 0o600],
                             ofItemAtPath: self.claudeDesktopQuotaURL.path
                         )
+                        if self.claudeAuthenticationRequired { try FileManager.default.removeItem(at: self.claudeAuthenticationURL) }
+                        self.autoPrompted.remove("claude-authentication")
                         self.claudeConnected = true
                         self.claudeStatus.title = "Claude : Claude Desktop connecté"
                         self.claudeActionItem.title = "Reconnecter Claude Desktop…"
@@ -3100,6 +3252,11 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 }
 
                 let finish: ([String: Any]) -> Void = { value in
+                    guard self.claudeVisible, !self.configuredBridgeSource.remote else {
+                        self.refreshingClaudeDesktop = false
+                        completion(false, "La source ou l’affichage des quotas a changé.")
+                        return
+                    }
                     guard let organization = credential.organization,
                           let cookie = credential.sessionKey, !cookie.isEmpty,
                           cookie.utf8.allSatisfy({ $0 > 32 && $0 < 127 && $0 != 59 }) else {
@@ -3146,7 +3303,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         }.resume()
     }
 
-    private func triggerRefresh() {
+    private func triggerRefresh(retryAttempt: Int = 0) {
         guard let request = bridgeRequest(path: "/v1/refresh", method: "POST") else {
             refreshItem.title = "Pont indisponible"
             setRefreshAnimation(false)
@@ -3154,21 +3311,30 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         }
         refreshItem.title = "Actualisation en cours…"
         let remote = configuredBridgeSource.remote
+        let sourceURL = configuredBridgeSource.url
         quotaSession.dataTask(with: request) { [weak self] _, response, error in
             let ok = (response as? HTTPURLResponse)?.statusCode == 202
-            if !ok {
-                QuotaDiagnostics.shared.capture("bridge_refresh",
-                    failure: QuotaDiagnostics.failure(error, status: (response as? HTTPURLResponse)?.statusCode), remote: remote)
-            }
             DispatchQueue.main.async {
-                self?.refreshItem.title = ok ? "Actualisation lancée ✓" : "Pont indisponible"
+                guard let self, self.configuredBridgeSource.url == sourceURL else { return }
+                if !ok {
+                    if let delay = quotaRetryDelay(error: error, attempt: retryAttempt) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                            guard self?.configuredBridgeSource.url == sourceURL else { return }
+                            self?.triggerRefresh(retryAttempt: retryAttempt + 1)
+                        }
+                        return
+                    }
+                    QuotaDiagnostics.shared.capture("bridge_refresh",
+                        failure: QuotaDiagnostics.failure(error, status: (response as? HTTPURLResponse)?.statusCode), remote: remote)
+                }
+                self.refreshItem.title = ok ? "Actualisation lancée ✓" : "Pont indisponible"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    self?.refreshItem.title = "Actualiser les quotas"
-                    self?.setRefreshAnimation(false)
-                    self?.loadQuotas()
+                    self.refreshItem.title = "Actualiser les quotas"
+                    self.setRefreshAnimation(false)
+                    self.loadQuotas()
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                    self?.loadQuotas()
+                    self.loadQuotas()
                 }
             }
         }.resume()
@@ -3207,6 +3373,12 @@ private struct QuotaMenu {
             let staleData = Data(#"{"server_time":2000,"refresh":{"active":true,"started_at":1800,"completed_at":900},"display":{"claude":false},"providers":{"codex":{"status":"stale","updated_at":900},"claude":{"status":"error"}}}"#.utf8)
             precondition(quotaFreshnessFailures(staleData).map(\.operation) == ["refresh_stalled", "refresh_overdue", "codex_quotas_stale"])
             precondition(quotaFreshnessFailures(Data(#"{"server_time":2000,"refresh":{"completed_at":1990},"providers":{"codex":{"status":"ok","updated_at":1990}}}"#.utf8)).isEmpty)
+            precondition(quotaFreshnessFailures(Data(#"{"server_time":2000,"providers":{"codex":{"status":"stale","updated_at":1640}}}"#.utf8)).isEmpty)
+            precondition(quotaFreshnessFailures(Data(#"{"server_time":2000,"providers":{"codex":{"status":"stale","updated_at":1000}}}"#.utf8)).map(\.operation) == ["codex_quotas_stale"])
+            precondition(quotaFreshnessFailures(Data(#"{"server_time":2000,"providers":{"claude":{"status":"error"}}}"#.utf8)).map(\.operation) == ["claude_quotas_stale"])
+            precondition(quotaFreshnessFailures(Data(#"{"server_time":2000,"providers":{"claude":{"status":"error","error_reason":"authentication_required"}}}"#.utf8)).isEmpty)
+            precondition(providerQuotas(["status": "stale", "error_reason": "authentication_required"])?.authenticationRequired == true)
+            precondition(providerQuotas(["status": "ok"])?.authenticationRequired == false)
             precondition(quotaFreshnessFailures(Data("invalid".utf8)).isEmpty)
             var trackingTimerFired = false
             let trackingTimer = quotaTimer(interval: 0.01) { _ in trackingTimerFired = true }

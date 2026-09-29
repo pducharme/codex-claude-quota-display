@@ -3,6 +3,29 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.1.10</title>
+            <pubDate>Tue, 29 Sep 2026 11:38:14 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.1.10</sparkle:version>
+            <sparkle:shortVersionString>1.1.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.1.10</h2>
+<ul>
+  <li>Claude ne fait plus de lecture ni de demande de connexion lorsqu’il est masqué à la fois dans la barre de menus et dans l’interface.</li>
+  <li>Si la connexion Claude est absente ou expirée, les lectures sont suspendues, même après un redémarrage. Le Companion propose une reconnexion et reprend les lectures après son succès.</li>
+  <li>Une source distante indique que la reconnexion doit se faire sur le Mac source.</li>
+  <li>Au démarrage, le pont attend l’actualisation de Claude Desktop lorsqu’il est autorisé, sans basculer vers un autre compte Claude Code.</li>
+  <li>Les lectures Codex et les requêtes réseau récupèrent mieux après un délai dépassé ou une interruption temporaire. Les tentatives restent limitées et les erreurs persistantes demeurent signalées.</li>
+  <li>Un échec ponctuel ne produit plus immédiatement une seconde alerte de quotas périmés lorsque les dernières données sont encore récentes.</li>
+</ul>
+<p>Les préférences, clés API et connexions existantes sont conservées. Aucun nouveau firmware n’est nécessaire pour les mini-écrans.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.10/Quota-Display-1.1.10.zip" length="3539439" type="application/octet-stream" sparkle:edSignature="GRr8UpKWqMHs7uRvzQtmU5ct2HtafI3YZaJcmxIEr1fLWyGPPOlIFDoAQ4K/gT2ppFSZYVjP5KoDXML5R3bxCw=="/>
+        </item>
+        <item>
             <title>1.1.9</title>
             <pubDate>Thu, 24 Sep 2026 14:06:07 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -46,26 +69,6 @@
 <p>Les préférences et connexions existantes sont conservées.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.8/Quota-Display-1.1.8.zip" length="3509695" type="application/octet-stream" sparkle:edSignature="pdr5GJzmMFWPq52Itnxdb8U1xxVL8tQ3YbT7PDBnLyFLL0I51KGbTh+qLqonCtOUA3SIts4ado+V6LjTeFLJBA=="/>
-        </item>
-        <item>
-            <title>1.1.7</title>
-            <pubDate>Thu, 24 Sep 2026 11:49:34 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.1.7</sparkle:version>
-            <sparkle:shortVersionString>1.1.7</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.1.7</h2>
-<ul>
-  <li>Stabilisation du rendu de la barre de menus : les polices sont conservées et réutilisées au lieu d’être redemandées pendant chaque redessin, afin d’éviter le plantage CoreText observé.</li>
-  <li>Avec un seul fournisseur, les pourcentages utilisent la police standard de la barre de menus, en graisse normale, à 13 points.</li>
-  <li>Les icônes de 16 points, l’espace de 2 points et le mode compact à deux fournisseurs sont conservés.</li>
-</ul>
-<p>Les préférences et connexions existantes sont conservées.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.7/Quota-Display-1.1.7.zip" length="3441942" type="application/octet-stream" sparkle:edSignature="04ZcYlKMZSh0ydclbI48GwyUowQEfDe6XNxZ/iO+bEJd5xtvM7cDK5Q2t2maocOoFrUMDvxjkG+JNFgLSDwkBw=="/>
         </item>
     </channel>
 </rss>

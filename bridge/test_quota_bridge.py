@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
-from urllib.error import HTTPError
-from unittest.mock import patch
+from urllib.error import HTTPError, URLError
+from unittest.mock import Mock, patch
 
 from quota_bridge import (
     QuotaState,
@@ -21,6 +21,7 @@ from quota_bridge import (
     parse_claude_api_usage,
     parse_claude_banked_resets,
     ClaudeAuthenticationRequired,
+    ClaudeDesktopRefreshRequired,
     NoCredentialRedirect,
     parse_codex_limits,
     read_claude,
@@ -122,10 +123,129 @@ class QuotaParsingTest(unittest.TestCase):
                 reporter.send(event)
                 send.assert_not_called()
 
-    @patch("quota_bridge.read_claude", return_value={})
-    @patch("quota_bridge.read_codex", side_effect=[TimeoutError("test"), {}])
+    def test_codex_waits_for_initialization_and_reports_rejection_or_exit(self):
+        popen = subprocess.Popen
+        handshake = '''
+import json, os, sys, time
+request = os.read(0, 65536)
+assert request.count(b'\\n') == 1
+assert json.loads(request)['method'] == 'initialize'
+print('{"id":1,"result":{}}', flush=True)
+assert json.loads(sys.stdin.readline())['method'] == 'initialized'
+assert json.loads(sys.stdin.readline())['method'] == 'account/rateLimits/read'
+print('{"id":2,"result":{}}', flush=True)
+time.sleep(3)
+'''
+        for script, expected in [(handshake, None),
+                                 ('print(\'{"id":1,"error":{"message":"private"}}\', flush=True)', 'initialization'),
+                                 ('pass', 'closed')]:
+            with patch("quota_bridge.command_path", return_value="fake-codex"), \
+                 patch("quota_bridge.subprocess.Popen", side_effect=lambda *_args, **kwargs:
+                       popen([sys.executable, "-c", script], **kwargs)):
+                if expected:
+                    with self.assertRaisesRegex(RuntimeError, expected):
+                        read_codex(timeout=1)
+                else:
+                    self.assertIn("weekly", read_codex(timeout=1))
+
+    @patch("quota_bridge.time.sleep")
     @patch("quota_bridge.diagnostics.capture")
-    def test_failed_refresh_reports_and_next_cycle_recovers(self, capture, codex, claude):
+    def test_transient_provider_failure_retries_once_and_keeps_last_good_values(self, capture, sleep):
+        state = QuotaState()
+        windows = {"five_hour": {"used_percent": 42, "resets_at": 2000}}
+        for error in [TimeoutError(), ConnectionResetError(), URLError(TimeoutError())]:
+            reader = Mock(side_effect=[error, windows])
+            state.refresh_provider("codex", reader)
+            self.assertEqual(reader.call_count, 2)
+            self.assertEqual(state.providers["codex"]["status"], "ok")
+            capture.assert_not_called()
+        previous = state.providers["codex"].copy()
+        reader = Mock(side_effect=TimeoutError())
+        state.refresh_provider("codex", reader)
+        self.assertEqual(reader.call_count, 2)
+        self.assertEqual(state.providers["codex"]["status"], "stale")
+        self.assertEqual(state.providers["codex"]["updated_at"], previous["updated_at"])
+        self.assertEqual(state.providers["codex"]["five_hour"], windows["five_hour"])
+        capture.assert_called_once()
+        for error in [HTTPError("", 401, "", {}, None), HTTPError("", 429, "", {}, None), ValueError()]:
+            reader = Mock(side_effect=error)
+            state.refresh_provider("claude", reader)
+            reader.assert_called_once()
+
+    @patch("quota_bridge.diagnostics.capture")
+    def test_authentication_incident_stays_visible_and_reports_again_after_recovery(self, capture):
+        state = QuotaState()
+        reader = Mock(side_effect=ClaudeAuthenticationRequired("private"))
+        for _ in range(3):
+            state.refresh_provider("claude", reader)
+        self.assertEqual(reader.call_count, 1)
+        capture.assert_called_once()
+        provider = state.payload()["providers"]["claude"]
+        self.assertEqual(provider["status"], "error")
+        self.assertEqual(provider["error_reason"], "authentication_required")
+        state.providers["claude"].pop("error_reason")  # Explicit reconnection for an in-memory bridge.
+        state.refresh_provider("claude", lambda: {"five_hour": {"used_percent": 4}})
+        self.assertNotIn("error_reason", state.providers["claude"])
+        state.refresh_provider("claude", reader)
+        self.assertEqual(capture.call_count, 2)
+        self.assertEqual(state.providers["claude"]["status"], "stale")
+        self.assertEqual(state.providers["claude"]["five_hour"]["used_percent"], 4)
+
+    @patch("quota_bridge.read_codex", return_value={})
+    @patch("quota_bridge.read_claude", return_value={})
+    @patch("quota_bridge.diagnostics.capture")
+    def test_claude_disabled_and_authentication_pause_survive_restart(self, capture, claude, codex):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "display.json"
+            disabled = path.with_name("claude-disabled")
+            blocked = path.with_name("claude-authentication-required")
+            state = QuotaState(display_path=path)
+            disabled.touch()
+            state.refresh()
+            claude.assert_not_called()
+            codex.assert_called_once()
+            capture.assert_not_called()
+            disabled.unlink()
+            claude.side_effect = ClaudeAuthenticationRequired()
+            state.refresh()
+            self.assertTrue(blocked.exists())
+            self.assertEqual(claude.call_count, 1)
+            capture.assert_called_once()
+            state = QuotaState(display_path=path)
+            self.assertEqual(state.payload()["providers"]["claude"]["error_reason"], "authentication_required")
+            state.refresh()
+            self.assertEqual(claude.call_count, 1)
+            blocked.unlink()  # The Companion clears this only after successful authentication.
+            claude.side_effect = None
+            state.refresh()
+            self.assertEqual(claude.call_count, 2)
+            self.assertEqual(state.payload()["providers"]["claude"]["status"], "ok")
+            self.assertNotIn("error_reason", state.providers["claude"])
+
+    @patch("quota_bridge.diagnostics.capture")
+    def test_claude_hiding_cancels_retry_and_unwritable_auth_state_still_blocks(self, capture):
+        with tempfile.TemporaryDirectory() as directory:
+            state = QuotaState(display_path=Path(directory) / "display.json")
+            disabled = Path(directory) / "claude-disabled"
+            reader = Mock(side_effect=TimeoutError())
+            with patch("quota_bridge.time.sleep", side_effect=lambda _: disabled.touch()):
+                state.refresh_provider("claude", reader)
+            reader.assert_called_once()
+            capture.assert_not_called()
+            disabled.unlink()
+            reader = Mock(side_effect=ClaudeAuthenticationRequired())
+            with patch("quota_bridge.Path.touch", side_effect=PermissionError()):
+                state.refresh_provider("claude", reader)
+            state.refresh_provider("claude", reader)
+            reader.assert_called_once()
+            self.assertFalse(state.claude_polling_enabled())
+            self.assertEqual(state.payload()["providers"]["claude"]["error_reason"], "authentication_required")
+
+    @patch("quota_bridge.read_claude", return_value={})
+    @patch("quota_bridge.read_codex", side_effect=[TimeoutError("test"), TimeoutError("test"), {}])
+    @patch("quota_bridge.diagnostics.capture")
+    @patch("quota_bridge.time.sleep")
+    def test_failed_refresh_reports_and_next_cycle_recovers(self, sleep, capture, codex, claude):
         state = QuotaState()
         state.refresh()
         self.assertFalse(state.refreshing)
@@ -257,7 +377,8 @@ class QuotaParsingTest(unittest.TestCase):
     @patch("quota_bridge.read_claude_desktop_cache", side_effect=FileNotFoundError())
     @patch("quota_bridge.read_claude_oauth")
     @patch("quota_bridge.build_opener")
-    def test_claude_api_fallback_and_expired_credentials(self, opener, oauth, _cache):
+    @patch("quota_bridge.Path.exists", return_value=False)
+    def test_claude_api_fallback_and_expired_credentials(self, _authorized, opener, oauth, _cache):
         oauth.return_value = {"accessToken": "test-token", "expiresAt": (time.time() + 3600) * 1000,
                               "subscriptionType": "max", "rateLimitTier": "default_claude_max_5x"}
         for tier, expected in (("20x", "Max 20X"), ("5x", "Max 5X")):
@@ -292,6 +413,25 @@ class QuotaParsingTest(unittest.TestCase):
             with self.assertRaises(ClaudeAuthenticationRequired):
                 read_claude()
             opener.assert_not_called()
+
+    @patch("quota_bridge.read_claude_desktop_cache", side_effect=FileNotFoundError())
+    @patch("quota_bridge.read_claude_oauth")
+    @patch("quota_bridge.Path.exists", return_value=True)
+    @patch("quota_bridge.diagnostics.capture")
+    def test_desktop_cache_startup_never_blocks_or_switches_to_cli_account(self, capture, _authorized, oauth, _cache):
+        with self.assertRaises(ClaudeDesktopRefreshRequired):
+            read_claude()
+        oauth.assert_not_called()
+        state = QuotaState()
+        state.refresh_provider("claude", read_claude)
+        self.assertTrue(state.claude_polling_enabled())
+        self.assertEqual(state.providers["claude"]["status"], "loading")
+        capture.assert_not_called()
+        state.refresh_provider("claude", lambda: {"five_hour": {"used_percent": 8}})
+        state.refresh_provider("claude", read_claude)
+        self.assertEqual(state.providers["claude"]["status"], "stale")
+        self.assertEqual(state.providers["claude"]["five_hour"]["used_percent"], 8)
+        self.assertTrue(state.claude_polling_enabled())
 
     @patch("quota_bridge.read_codex", return_value={})
     @patch("quota_bridge.read_claude", return_value={})

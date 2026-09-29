@@ -22,11 +22,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 from designer import Designer
 
-APP_VERSION = "1.1.9"
+APP_VERSION = "1.1.10"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -222,6 +222,10 @@ class ClaudeAuthenticationRequired(RuntimeError):
     pass
 
 
+class ClaudeDesktopRefreshRequired(RuntimeError):
+    pass
+
+
 def parse_claude_api_usage(source):
     if not isinstance(source, dict):
         raise ValueError("Claude usage response is not an object")
@@ -405,27 +409,34 @@ def read_codex(timeout=20):
 
     selector = selectors.DefaultSelector()
     try:
-        for request in requests:
-            process.stdin.write((json.dumps(request, separators=(",", ":")) + "\n").encode())
+        process.stdin.write((json.dumps(requests[0], separators=(",", ":")) + "\n").encode())
         process.stdin.flush()
 
         os.set_blocking(process.stdout.fileno(), False)
         selector.register(process.stdout, selectors.EVENT_READ)
         pending = b""
+        initialized = False
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not selector.select(timeout=min(0.5, deadline - time.monotonic())):
                 continue
             chunk = os.read(process.stdout.fileno(), 65536)
             if not chunk:
-                break
+                raise RuntimeError("Codex app-server closed before returning rate limits")
             pending += chunk
             if len(pending) > 1024 * 1024:
                 raise ValueError("Codex response exceeds size limit")
             while b"\n" in pending:
                 line, pending = pending.split(b"\n", 1)
                 message = json.loads(line)
-                if message.get("id") == 2:
+                if message.get("id") == 1 and not initialized:
+                    if "error" in message:
+                        raise RuntimeError("Codex rejected initialization")
+                    for request in requests[1:]:
+                        process.stdin.write((json.dumps(request, separators=(",", ":")) + "\n").encode())
+                    process.stdin.flush()
+                    initialized = True
+                elif message.get("id") == 2 and initialized:
                     if "error" in message:
                         raise RuntimeError("Codex rejected rate-limit request")
                     return parse_codex_limits(message["result"])
@@ -447,7 +458,9 @@ def read_claude(timeout=20):
         # Stay on the Desktop account; never fill its missing windows from another CLI account.
         return read_claude_desktop_cache()
     except (OSError, ValueError, TypeError):
-        pass
+        if (Path.home() / "Library/Application Support/Quota Display/claude-desktop-authorized").exists():
+            # The Companion owns Desktop credentials; a pending cache refresh is not a failed CLI login.
+            raise ClaudeDesktopRefreshRequired("Waiting for the authorized Claude Desktop account") from None
     oauth = read_claude_oauth()
     token = oauth.get("accessToken")
     expiry = oauth.get("expiresAt")
@@ -681,6 +694,7 @@ class QuotaState:
         self.refresh_completed_at = None
         self.refresh_started_at = None
         self.interval = 300
+        self.claude_authentication_write_failed = False
         self.providers = {
             "codex": {
                 "status": "loading",
@@ -734,9 +748,31 @@ class QuotaState:
         except FileNotFoundError:
             return True
 
+    def claude_polling_enabled(self):
+        if self.claude_authentication_write_failed:
+            return False
+        if self.display_path:
+            return not any(self.display_path.with_name(name).exists() for name in
+                           ("claude-disabled", "claude-authentication-required"))
+        return self.providers["claude"].get("error_reason") != "authentication_required"
+
     def refresh_provider(self, name, reader):
+        if name == "claude" and not self.claude_polling_enabled():
+            return
         try:
-            windows = reader()
+            for attempt in range(2):
+                try:
+                    windows = reader()
+                    break
+                except (TimeoutError, ConnectionError, subprocess.TimeoutExpired, URLError) as error:
+                    cause = error.reason if isinstance(error, URLError) else error
+                    if attempt or not isinstance(cause, (TimeoutError, ConnectionError, subprocess.TimeoutExpired)):
+                        raise
+                    time.sleep(1)
+                    if not self.local_providers_enabled() or (name == "claude" and not self.claude_polling_enabled()):
+                        return
+            if name == "claude" and not self.claude_polling_enabled():
+                return
             with self.lock:
                 self.providers[name] = {
                     "status": "ok",
@@ -745,14 +781,27 @@ class QuotaState:
                 }
             print(f"{name}: refreshed", flush=True)
         except Exception as error:
-            if not self.local_providers_enabled():
+            if not self.local_providers_enabled() or (name == "claude" and not self.claude_polling_enabled()):
                 return
             with self.lock:
                 previous = self.providers[name]
+                if isinstance(error, ClaudeDesktopRefreshRequired):
+                    previous["status"] = "stale" if previous["updated_at"] is not None else "loading"
+                    previous["error_reason"] = "desktop_refresh_required"
+                    return
+                authentication_required = isinstance(error, ClaudeAuthenticationRequired)
+                previous["error_reason"] = "authentication_required" if authentication_required else None
                 previous["status"] = (
                     "stale" if previous["updated_at"] is not None else "error"
                 )
                 last_success = previous["updated_at"]
+            if authentication_required and self.display_path:
+                try:
+                    self.display_path.parent.mkdir(parents=True, exist_ok=True)
+                    self.display_path.with_name("claude-authentication-required").touch(mode=0o600)
+                except OSError as marker_error:
+                    self.claude_authentication_write_failed = True
+                    diagnostics.capture("claude_authentication_state", marker_error, name)
             diagnostics.capture("provider_refresh", error, name, last_success)
             print(f"{name}: {type(error).__name__}: {error}", flush=True)
 
@@ -760,6 +809,8 @@ class QuotaState:
         threads = []
         try:
             for name, reader in (("codex", read_codex), ("claude", read_claude)):
+                if name == "claude" and not self.claude_polling_enabled():
+                    continue
                 thread = threading.Thread(target=self.refresh_provider, args=(name, reader), daemon=True)
                 thread.start()
                 threads.append(thread)
@@ -813,6 +864,10 @@ class QuotaState:
     def payload(self):
         with self.lock:
             providers = json.loads(json.dumps(self.providers))
+            if self.display_path and self.display_path.with_name("claude-authentication-required").exists():
+                providers["claude"].update(
+                    status="stale" if providers["claude"]["updated_at"] is not None else "error",
+                    error_reason="authentication_required")
             display = json.loads(json.dumps(self.display))
             refresh = {
                 "active": self.refreshing,
