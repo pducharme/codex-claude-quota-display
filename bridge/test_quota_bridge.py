@@ -271,6 +271,23 @@ time.sleep(3)
             run.return_value.stdout = f"shell startup text\n{command}\n"
             self.assertEqual(command_path("provider-cli"), str(command))
 
+    @patch("quota_bridge.shutil.which", return_value=None)
+    @patch("quota_bridge.subprocess.run")
+    def test_codex_bundle_supports_current_and_legacy_paths(self, run, _which):
+        with tempfile.TemporaryDirectory(prefix="quota codex ") as directory:
+            app = Path(directory) / "ChatGPT.app"
+            paths = ("Contents/Resources/codex-cli/bin/codex", "Contents/Resources/codex")
+            run.return_value.stdout = str(app) + "\n"
+            for relative in reversed(paths):
+                command = app / relative
+                command.parent.mkdir(parents=True, exist_ok=True)
+                command.write_text("#!/bin/sh\nexit 0\n")
+                command.chmod(0o700)
+                self.assertEqual(command_path("codex", bundle_id="com.openai.codex", bundle_paths=paths), str(command))
+                self.assertEqual(command_path("codex", installed=(app / p for p in paths)), str(command))
+            (app / paths[0]).chmod(0o600)
+            self.assertEqual(command_path("codex", bundle_id="com.openai.codex", bundle_paths=paths), str(app / paths[1]))
+
     def test_codex_windows_are_mapped_by_duration(self):
         result = {
             "rateLimits": {

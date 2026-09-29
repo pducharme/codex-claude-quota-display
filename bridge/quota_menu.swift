@@ -838,18 +838,27 @@ private func shellQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
+private func bundledCodexExecutable(in app: URL) -> String? {
+    ["Contents/Resources/codex-cli/bin/codex", "Contents/Resources/codex"]
+        .map { app.appendingPathComponent($0).path }
+        .first(where: FileManager.default.isExecutableFile(atPath:))
+}
+
 private func executable(named name: String) -> String? {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     var candidates = [
-        name == "codex" ? "/Applications/Codex.app/Contents/Resources/codex" : "",
-        name == "codex" ? "\(home)/Applications/Codex.app/Contents/Resources/codex" : "",
         "\(home)/.local/bin/\(name)",
         "/opt/homebrew/bin/\(name)",
         "/usr/local/bin/\(name)",
         "/usr/bin/\(name)",
     ]
-    if name == "codex", let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") {
-        candidates.insert(app.appendingPathComponent("Contents/Resources/codex").path, at: 0)
+    if name == "codex" {
+        let apps = [
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex"),
+            URL(fileURLWithPath: "/Applications/Codex.app"),
+            URL(fileURLWithPath: "\(home)/Applications/Codex.app"),
+        ].compactMap { $0 }
+        candidates.insert(contentsOf: apps.compactMap(bundledCodexExecutable), at: 0)
     }
     if let direct = candidates.first(where: FileManager.default.isExecutableFile(atPath:)) {
         return direct
@@ -3351,6 +3360,19 @@ private struct QuotaMenu {
             return
         }
         if CommandLine.arguments.contains("--self-test") {
+            let codexApp = FileManager.default.temporaryDirectory.appendingPathComponent("quota-codex-\(UUID().uuidString)/ChatGPT.app")
+            defer { try? FileManager.default.removeItem(at: codexApp.deletingLastPathComponent()) }
+            let legacyCodex = codexApp.appendingPathComponent("Contents/Resources/codex")
+            let currentCodex = codexApp.appendingPathComponent("Contents/Resources/codex-cli/bin/codex")
+            try! FileManager.default.createDirectory(at: currentCodex.deletingLastPathComponent(), withIntermediateDirectories: true)
+            precondition(bundledCodexExecutable(in: codexApp) == nil)
+            for command in [legacyCodex, currentCodex] {
+                try! Data("#!/bin/sh\nexit 0\n".utf8).write(to: command)
+                try! FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: command.path)
+                precondition(bundledCodexExecutable(in: codexApp) == command.path)
+            }
+            try! FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: currentCodex.path)
+            precondition(bundledCodexExecutable(in: codexApp) == legacyCodex.path)
             precondition(apiToken("  existing-api-key-1234\n") == "existing-api-key-1234")
             for invalid in ["", "too-short", "api key with spaces", "api-key-with-é-1234", "api-key\nwith-newline-1234", String(repeating: "a", count: 257)] {
                 precondition(apiToken(invalid) == nil)

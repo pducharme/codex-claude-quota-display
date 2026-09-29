@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 from designer import Designer
 
-APP_VERSION = "1.1.10"
+APP_VERSION = "1.1.11"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -327,11 +327,11 @@ def read_claude_desktop_cache(
     return windows
 
 
-def command_path(name, installed=(), bundle_id=None, bundle_relative=None):
+def command_path(name, installed=(), bundle_id=None, bundle_paths=()):
     for path in installed:
         if path.is_file() and os.access(path, os.X_OK):
             return str(path)
-    if bundle_id and bundle_relative:
+    if bundle_id and bundle_paths:
         try:
             result = subprocess.run(
                 [
@@ -344,9 +344,10 @@ def command_path(name, installed=(), bundle_id=None, bundle_relative=None):
                 check=False,
             )
             for value in result.stdout.splitlines():
-                path = Path(value.strip()) / bundle_relative
-                if path.is_file() and os.access(path, os.X_OK):
-                    return str(path)
+                for relative in bundle_paths:
+                    path = Path(value.strip()) / relative
+                    if path.is_file() and os.access(path, os.X_OK):
+                        return str(path)
         except (OSError, subprocess.TimeoutExpired):
             pass
     direct = shutil.which(name)
@@ -370,15 +371,17 @@ def command_path(name, installed=(), bundle_id=None, bundle_relative=None):
 
 
 def read_codex(timeout=20):
+    bundle_paths = ("Contents/Resources/codex-cli/bin/codex", "Contents/Resources/codex")
     installed = (
-        Path.home() / "Applications/Codex.app/Contents/Resources/codex",
-        Path("/Applications/Codex.app/Contents/Resources/codex"),
+        app / relative
+        for app in (Path.home() / "Applications/Codex.app", Path("/Applications/Codex.app"))
+        for relative in bundle_paths
     )
     codex = command_path(
         "codex",
         installed,
         bundle_id="com.openai.codex",
-        bundle_relative="Contents/Resources/codex",
+        bundle_paths=bundle_paths,
     )
     if not codex:
         raise RuntimeError("codex executable not found")

@@ -3,6 +3,24 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.1.11</title>
+            <pubDate>Tue, 29 Sep 2026 14:14:20 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:informationalUpdate>
+                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
+            </sparkle:informationalUpdate>
+            <sparkle:version>1.1.11</sparkle:version>
+            <sparkle:shortVersionString>1.1.11</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.1.11</h2>
+<ul>
+  <li>La connexion et la lecture des quotas Codex reconnaissent le nouvel emplacement de la commande dans ChatGPT.app, tout en conservant la compatibilité avec les versions précédentes de Codex.app.</li>
+  <li>Corrige l’alerte « La commande n’est pas installée » au démarrage lorsque l’application est déjà installée et connectée.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.11/Quota-Display-1.1.11.zip" length="3543080" type="application/octet-stream" sparkle:edSignature="vB8SdLdGJp3Wp3FonKONl1TlEnQwJo/3Lab9+ThBGyUxksC9FAsGRBpFZg1JWvh7uB8ANeXRohV4ZWzmAR38Bg=="/>
+        </item>
+        <item>
             <title>1.1.10</title>
             <pubDate>Tue, 29 Sep 2026 11:38:14 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -47,28 +65,6 @@
 <p>Les préférences et connexions existantes sont conservées.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.9/Quota-Display-1.1.9.zip" length="3509669" type="application/octet-stream" sparkle:edSignature="XePwOntt4mb8T2GeTvq3En2035vxBtKVa1tsaoeTOHSGn63I8PM1k4epnTVeWaqb6BBPneVUx3z23soJyjq6Bw=="/>
-        </item>
-        <item>
-            <title>1.1.8</title>
-            <pubDate>Thu, 24 Sep 2026 14:02:11 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
-            <sparkle:version>1.1.8</sparkle:version>
-            <sparkle:shortVersionString>1.1.8</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Quota Display 1.1.8</h2>
-<ul>
-  <li>La durée d’affichage automatique d’un avion se règle dans le Designer : 3 secondes par défaut, de 0,1 seconde à 24 heures.</li>
-  <li>La page Avion adopte un trajet animé, des caractères lissés, les accents français et une indication du temps restant. Le texte de retour s’affiche au complet.</li>
-  <li>Un nouveau passage interrompt temporairement la page active, puis celle-ci revient à la fin du délai ou dès réception de la sortie du rayon. Aucun écran vide ne s’impose automatiquement.</li>
-  <li>Un vol ou appareil déjà montré ne déclenche plus d’alerte jusqu’au redémarrage du mini-écran. La page reste accessible par balayage.</li>
-</ul>
-<p>Ces fonctions nécessitent le firmware joint à la release. Une fois installé, les changements de durée sont envoyés par Wi-Fi avec « Envoyer aux écrans », sans nouveau flash. Le rendu spécial Avion reste intégré au firmware.</p>
-<p>Les préférences et connexions existantes sont conservées.</p>
-]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.8/Quota-Display-1.1.8.zip" length="3509695" type="application/octet-stream" sparkle:edSignature="pdr5GJzmMFWPq52Itnxdb8U1xxVL8tQ3YbT7PDBnLyFLL0I51KGbTh+qLqonCtOUA3SIts4ado+V6LjTeFLJBA=="/>
         </item>
     </channel>
 </rss>
