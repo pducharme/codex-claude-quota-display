@@ -10,6 +10,7 @@
                 <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
             </sparkle:informationalUpdate>
             <sparkle:version>1.1.11</sparkle:version>
+            <sparkle:criticalUpdate sparkle:version="1.1.11"/>
             <sparkle:shortVersionString>1.1.11</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<h2>Quota Display 1.1.11</h2>
