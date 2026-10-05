@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.1.12}
+VERSION=${1:-1.1.13}
 ZIP_NAME="Quota-Display-$VERSION.zip"
 NOTES_NAME="Quota-Display-$VERSION.html"
 SPARKLE_ROOT=$("$SCRIPT_DIR/prepare_sparkle.sh")
@@ -21,11 +21,14 @@ fi
   --download-url-prefix "https://github.com/pducharme/codex-claude-quota-display/releases/download/v$VERSION/" \
   --link "https://github.com/pducharme/codex-claude-quota-display/releases/latest" \
   --embed-release-notes \
-  --informational-update-versions '<1.0.7' \
+  --minimum-update-version '1.0.7' \
+  --critical-update-version '1.1.11' \
   --versions "$VERSION" \
+  --maximum-versions 0 \
   --maximum-deltas 0 \
   -o "$WORK_DIR/appcast.xml" \
   "$WORK_DIR"
+python3 "$SCRIPT_DIR/finish_appcast.py" "$WORK_DIR/appcast.xml"
 /usr/bin/install -m 644 "$WORK_DIR/appcast.xml" "$REPO_DIR/appcast.xml"
 
 printf '%s\n' "$REPO_DIR/appcast.xml"

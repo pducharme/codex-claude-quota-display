@@ -63,8 +63,11 @@ Le projet contient trois parties :
 - Codex.app et/ou Claude Desktop installés et connectés.
 
 Pour mettre à jour un Companion déjà installé, utilisez **Paramètres → Mises à
-jour → Vérifier les mises à jour…**. La version 1.1.12 fournit un ZIP contenant
+jour → Vérifier les mises à jour…**. La version 1.1.13 fournit un ZIP contenant
 l’application signée Developer ID et une signature Sparkle pour sa mise à jour.
+Elle corrige le format du flux qui empêchait la reprise de certaines installations.
+Les versions antérieures à 1.0.7 restent dirigées vers une installation manuelle
+depuis la page de téléchargement.
 
 Pour une première installation avec configuration du pont API, téléchargez le
 [paquet 1.1.11](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.11/Quota-Display-1.1.11.pkg),

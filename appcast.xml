@@ -1,14 +1,39 @@
-<?xml version="1.0" standalone="yes"?>
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Quota Display</title>
+        <item>
+            <title>1.1.13</title>
+            <pubDate>Mon, 05 Oct 2026 18:29:52 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:minimumUpdateVersion>1.0.7</sparkle:minimumUpdateVersion>
+            <sparkle:criticalUpdate sparkle:version="1.1.11"/>
+            <sparkle:version>1.1.13</sparkle:version>
+            <sparkle:shortVersionString>1.1.13</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.1.13</h2>
+<ul>
+  <li>Corrige le format du flux de mises à jour qui pouvait bloquer Sparkle lors de la préparation puis de la reprise d’une installation.</li>
+  <li>Les métadonnées d’installation se relisent maintenant avec le décodage sécurisé de Sparkle, y compris après un redémarrage.</li>
+  <li>Les versions antérieures à 1.0.7 conservent une proposition d’installation manuelle ; les versions compatibles reçoivent l’archive signée.</li>
+</ul>
+<p>Les préférences, clés API et sources de quotas existantes sont conservées. Une installation déjà bloquée peut nécessiter une récupération locale avant de reprendre les mises à jour.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.13/Quota-Display-1.1.13.zip" length="3550748" type="application/octet-stream" sparkle:edSignature="MjU0+gK73aOxOd7mF0+VPaTSoY+9Gey+5Pwz5OxaOIcV1xMI+4Z1MDw8s6Uuh8vUnB18t/intle3yDnlyHLWAA=="/>
+        </item>
+        <item>
+            <title>Installation manuelle du Companion 1.1.13</title>
+            <pubDate>Mon, 05 Oct 2026 18:29:52 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:version>1.1.13</sparkle:version>
+            <sparkle:shortVersionString>1.1.13</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description>Les versions antérieures à 1.0.7 doivent être réinstallées depuis la page de téléchargement. Leurs préférences et leur source de quotas doivent être conservées.</description>
+        </item>
         <item>
             <title>1.1.12</title>
             <pubDate>Mon, 05 Oct 2026 17:07:37 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
+            <sparkle:minimumUpdateVersion>1.0.7</sparkle:minimumUpdateVersion>
             <sparkle:version>1.1.12</sparkle:version>
             <sparkle:criticalUpdate sparkle:version="1.1.11"/>
             <sparkle:shortVersionString>1.1.12</sparkle:shortVersionString>
@@ -28,9 +53,7 @@
             <title>1.1.11</title>
             <pubDate>Tue, 29 Sep 2026 14:14:20 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
+            <sparkle:minimumUpdateVersion>1.0.7</sparkle:minimumUpdateVersion>
             <sparkle:version>1.1.11</sparkle:version>
             <sparkle:criticalUpdate sparkle:version="1.1.11"/>
             <sparkle:shortVersionString>1.1.11</sparkle:shortVersionString>
@@ -47,9 +70,7 @@
             <title>1.1.10</title>
             <pubDate>Tue, 29 Sep 2026 11:38:14 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
+            <sparkle:minimumUpdateVersion>1.0.7</sparkle:minimumUpdateVersion>
             <sparkle:version>1.1.10</sparkle:version>
             <sparkle:shortVersionString>1.1.10</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
@@ -70,9 +91,7 @@
             <title>1.1.9</title>
             <pubDate>Thu, 24 Sep 2026 14:06:07 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:informationalUpdate>
-                <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
-            </sparkle:informationalUpdate>
+            <sparkle:minimumUpdateVersion>1.0.7</sparkle:minimumUpdateVersion>
             <sparkle:version>1.1.9</sparkle:version>
             <sparkle:shortVersionString>1.1.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
