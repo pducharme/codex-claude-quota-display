@@ -99,9 +99,31 @@ private final class QuotaDiagnostics {
         return status.map { "http_\($0)" } ?? "invalid_response"
     }
 
+    static func providerFailure(_ operation: String, failure: String) -> [String: Any]? {
+        // Only this call site represents a provider HTTP response. Never parse error prose.
+        guard operation == "claude_usage", failure.hasPrefix("http_") else { return nil }
+        let digits = failure.dropFirst(5)
+        guard digits.utf8.count == 3, digits.utf8.allSatisfy({ 48...57 ~= $0 }),
+              let status = Int(digits), 100...599 ~= status else { return nil }
+        let reason: String
+        switch status {
+        case 401, 403: reason = "authentication_required"
+        case 429: reason = "rate_limited"
+        case 500...599: reason = "service_unavailable"
+        case 400: reason = "invalid_request"
+        case 405: reason = "unsupported_operation"
+        default: reason = "unknown"
+        }
+        return ["stage": "quota_read", "transport": "http", "http_status": status, "reason": reason]
+    }
+
     func event(_ operation: String, failure: String, remote: Bool, age: Int? = nil) -> [String: Any] {
         var extra: [String: Any] = ["session": sessionID, "uptime_seconds": max(0, Int(Date().timeIntervalSince(started)))]
         if let age { extra["last_success_age_seconds"] = max(0, age) }
+        var contexts: [String: Any] = ["os": ["name": "macOS", "version": ProcessInfo.processInfo.operatingSystemVersionString]]
+        if let providerFailure = Self.providerFailure(operation, failure: failure) {
+            contexts["provider_failure"] = providerFailure
+        }
         return [
             "event_id": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(),
             "timestamp": Date().timeIntervalSince1970, "platform": "other", "level": "error",
@@ -109,7 +131,7 @@ private final class QuotaDiagnostics {
             "release": "quota-display@\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development")",
             "message": "\(operation): \(failure)", "fingerprint": ["companion", operation, failure],
             "tags": ["component": "companion", "operation": operation, "source_mode": remote ? "remote" : "local"],
-            "contexts": ["os": ["name": "macOS", "version": ProcessInfo.processInfo.operatingSystemVersionString]],
+            "contexts": contexts,
             "extra": extra,
         ]
     }
@@ -2160,7 +2182,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         diagnosticsItem.target = self
         diagnosticsItem.action = #selector(toggleDiagnostics)
         diagnosticsItem.state = FileManager.default.fileExists(atPath: QuotaDiagnostics.disabledURL.path) ? .off : .on
-        diagnosticsItem.toolTip = "Envoie les erreurs, la version et l’ancienneté des quotas à GlitchTip. Aucun jeton, compte ou contenu de conversation."
+        diagnosticsItem.toolTip = "Envoie les erreurs, l’étape, les codes et catégories de refus filtrés, la version et l’ancienneté des quotas à GlitchTip. Aucun journal brut, jeton, compte ou contenu de conversation."
         updates.addItem(diagnosticsItem)
         updatesItem.submenu = updates
         let connections = NSMenu()
@@ -3392,6 +3414,20 @@ private struct QuotaMenu {
             precondition(!["test-secret", "user@example", "/Users/private", "private-host"].contains { diagnosticJSON.contains($0) })
             precondition(QuotaDiagnostics.failure(ClaudeDesktopError.noAccount) == "credential_missing_or_expired")
             precondition(QuotaDiagnostics.failure(nil, status: 401) == "http_401")
+            for (status, reason) in [(401, "authentication_required"), (403, "authentication_required"),
+                                     (429, "rate_limited"), (503, "service_unavailable"),
+                                     (400, "invalid_request"), (405, "unsupported_operation"), (418, "unknown")] {
+                let context = QuotaDiagnostics.providerFailure("claude_usage", failure: "http_\(status)")!
+                precondition(context["http_status"] as? Int == status && context["reason"] as? String == reason)
+                precondition(context["rpc_error_code"] == nil && context["rpc_method"] == nil)
+            }
+            for malformed in ["http_99", "http_600", "http_true", "http_401 Bearer test-secret",
+                              "http_401\nuser@example.test", "http_４０１", "http_000401"] {
+                precondition(QuotaDiagnostics.providerFailure("claude_usage", failure: malformed) == nil)
+            }
+            precondition(QuotaDiagnostics.providerFailure("bridge_read", failure: "http_401") == nil)
+            let providerEvent = QuotaDiagnostics.shared.event("claude_usage", failure: "http_429", remote: false)
+            precondition((providerEvent["contexts"] as? [String: Any])?["provider_failure"] != nil)
             let staleData = Data(#"{"server_time":2000,"refresh":{"active":true,"started_at":1800,"completed_at":900},"display":{"claude":false},"providers":{"codex":{"status":"stale","updated_at":900},"claude":{"status":"error"}}}"#.utf8)
             precondition(quotaFreshnessFailures(staleData).map(\.operation) == ["refresh_stalled", "refresh_overdue", "codex_quotas_stale"])
             precondition(quotaFreshnessFailures(Data(#"{"server_time":2000,"refresh":{"completed_at":1990},"providers":{"codex":{"status":"ok","updated_at":1990}}}"#.utf8)).isEmpty)

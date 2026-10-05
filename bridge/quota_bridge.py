@@ -26,9 +26,92 @@ from urllib.error import HTTPError, URLError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 from designer import Designer
 
-APP_VERSION = "1.1.11"
+APP_VERSION = "1.1.12"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
+
+
+PROVIDER_REASONS = frozenset({
+    "authentication_required", "rate_limited", "service_unavailable",
+    "unsupported_operation", "invalid_request", "internal_error", "unknown",
+})
+RPC_REASONS = {
+    -32700: "invalid_request", -32600: "invalid_request",
+    -32601: "unsupported_operation", -32602: "invalid_request",
+    -32603: "internal_error",
+}
+# Exact protocol messages only (openai/codex account processor and app-server docs).
+# Never retain/transmit source message/data or infer details from unfamiliar wording.
+RPC_MESSAGE_REASONS = {
+    (-32600, "codex account authentication required to read rate limits"): "authentication_required",
+    (-32600, "chatgpt authentication required to read rate limits"): "authentication_required",
+    (-32001, "Server overloaded; retry later."): "service_unavailable",
+}
+
+
+def filtered_provider_failure(value):
+    """Revalidate every field at the telemetry boundary; reject unknown keys/values."""
+    if not isinstance(value, dict):
+        return None
+    stage = value.get("stage")
+    if not isinstance(stage, str) or stage not in {"initialize", "quota_read"}:
+        return None
+    transport = value.get("transport")
+    if not isinstance(transport, str) or transport not in {"jsonrpc_stdio", "http"}:
+        return None
+    reason = value.get("reason")
+    result = {"stage": value["stage"], "transport": transport,
+              "reason": reason if isinstance(reason, str) and reason in PROVIDER_REASONS else "unknown"}
+    if transport == "jsonrpc_stdio":
+        result["rpc_method"] = "initialize" if value["stage"] == "initialize" else "account/rateLimits/read"
+        code = value.get("rpc_error_code")
+        if type(code) is int and (code in RPC_REASONS or -32099 <= code <= -32000):
+            result["rpc_error_code"] = code
+        else:
+            result["reason"] = "unknown"
+    else:
+        status = value.get("http_status")
+        if type(status) is not int or not 100 <= status <= 599 or value["stage"] != "quota_read":
+            return None
+        result["http_status"] = status
+    return result
+
+
+class ProviderFailure(RuntimeError):
+    def __init__(self, message="", provider_failure=None):
+        super().__init__(message)
+        self.provider_failure = filtered_provider_failure(provider_failure)
+
+
+def codex_provider_failure(stage, error):
+    value = {"stage": stage, "transport": "jsonrpc_stdio", "reason": "unknown"}
+    if isinstance(error, dict):
+        code = error.get("code")
+        if type(code) is int and (code in RPC_REASONS or -32099 <= code <= -32000):
+            value["rpc_error_code"] = code
+            value["reason"] = RPC_REASONS.get(code, "unknown")
+            message = error.get("message")
+            if isinstance(message, str):
+                value["reason"] = RPC_MESSAGE_REASONS.get((code, message), value["reason"])
+    message = "Codex rejected initialization" if stage == "initialize" else "Codex rejected rate-limit request"
+    return ProviderFailure(message, value)
+
+
+def http_provider_failure(status):
+    if type(status) is not int or not 100 <= status <= 599:
+        return None
+    reason = "unknown"
+    if status in (401, 403):
+        reason = "authentication_required"
+    elif status == 429:
+        reason = "rate_limited"
+    elif status >= 500:
+        reason = "service_unavailable"
+    elif status == 400:
+        reason = "invalid_request"
+    elif status == 405:
+        reason = "unsupported_operation"
+    return {"stage": "quota_read", "transport": "http", "http_status": status, "reason": reason}
 
 
 class Diagnostics:
@@ -77,6 +160,13 @@ class Diagnostics:
                     for frame in traceback.extract_tb(error.__traceback__)[-12:]
                 ]}}]},
         }
+        failure = None
+        if isinstance(error, ProviderFailure):
+            failure = filtered_provider_failure(error.provider_failure)
+        elif isinstance(error, HTTPError) and operation == "provider_refresh" and provider in {"codex", "claude"}:
+            failure = http_provider_failure(error.code)
+        if failure:
+            event["contexts"]["provider_failure"] = failure
         try:
             threading.Thread(target=self.send, args=(event,), daemon=True).start()
         except RuntimeError:
@@ -218,7 +308,7 @@ class NoCredentialRedirect(HTTPRedirectHandler):
         return None  # Never forward an OAuth token to a redirected origin.
 
 
-class ClaudeAuthenticationRequired(RuntimeError):
+class ClaudeAuthenticationRequired(ProviderFailure):
     pass
 
 
@@ -434,14 +524,14 @@ def read_codex(timeout=20):
                 message = json.loads(line)
                 if message.get("id") == 1 and not initialized:
                     if "error" in message:
-                        raise RuntimeError("Codex rejected initialization")
+                        raise codex_provider_failure("initialize", message["error"]) from None
                     for request in requests[1:]:
                         process.stdin.write((json.dumps(request, separators=(",", ":")) + "\n").encode())
                     process.stdin.flush()
                     initialized = True
                 elif message.get("id") == 2 and initialized:
                     if "error" in message:
-                        raise RuntimeError("Codex rejected rate-limit request")
+                        raise codex_provider_failure("quota_read", message["error"]) from None
                     return parse_codex_limits(message["result"])
         raise TimeoutError("Codex rate-limit request timed out")
     finally:
@@ -482,7 +572,7 @@ def read_claude(timeout=20):
             usage = parse_claude_api_usage(source)
     except HTTPError as error:
         if error.code in (401, 403):
-            raise ClaudeAuthenticationRequired("Claude session must be renewed") from None
+            raise ClaudeAuthenticationRequired("Claude session must be renewed", http_provider_failure(error.code)) from None
         raise
     # Login metadata can outlive a plan change; read the current account profile.
     usage["plan"] = read_claude_plan(source)

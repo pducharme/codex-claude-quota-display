@@ -1,0 +1,47 @@
+name: Companion checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }}
+    runs-on: macos-15-intel
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Bridge, installer and designer tests
+        run: python3 -m unittest discover -s bridge -p 'test_*.py'
+
+  native:
+    name: Native compile and self-test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compile both supported architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          sparkle_root=$(bridge/prepare_sparkle.sh)
+          mkdir -p .build/ci
+          for arch in arm64 x86_64; do
+            xcrun swiftc -target "$arch-apple-macosx13.0" \
+              -parse-as-library -swift-version 5 -O \
+              -F "$sparkle_root" -framework Sparkle \
+              -Xlinker -rpath -Xlinker "$sparkle_root" \
+              -framework WebKit -framework AppKit -framework Foundation \
+              -framework LocalAuthentication -framework Security -lsqlite3 \
+              bridge/quota_menu.swift -o ".build/ci/QuotaDisplayMenu-$arch"
+          done
+      - name: Run native self-test
+        run: .build/ci/QuotaDisplayMenu-$(uname -m) --self-test

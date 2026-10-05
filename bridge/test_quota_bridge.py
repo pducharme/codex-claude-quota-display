@@ -16,6 +16,10 @@ from unittest.mock import Mock, patch
 from quota_bridge import (
     QuotaState,
     Diagnostics,
+    ProviderFailure,
+    codex_provider_failure,
+    filtered_provider_failure,
+    http_provider_failure,
     QuotaHandler,
     command_path,
     parse_claude_api_usage,
@@ -35,6 +39,131 @@ from quota_bridge import (
 
 
 class QuotaParsingTest(unittest.TestCase):
+    def test_provider_failure_classifies_protocol_codes_without_raw_data(self):
+        expected = {-32700: "invalid_request", -32600: "invalid_request",
+                    -32601: "unsupported_operation", -32602: "invalid_request",
+                    -32603: "internal_error", -32099: "unknown", -32000: "unknown"}
+        for code, reason in expected.items():
+            with self.subTest(code=code):
+                error = codex_provider_failure("quota_read", {"code": code,
+                    "message": "Bearer test-secret account@example.test HTTP 401",
+                    "data": {"token": "test-secret", "conversation": "private text"}})
+                self.assertEqual(error.provider_failure, {
+                    "stage": "quota_read", "transport": "jsonrpc_stdio",
+                    "rpc_method": "account/rateLimits/read", "rpc_error_code": code, "reason": reason})
+                self.assertEqual(str(error), "Codex rejected rate-limit request")
+                self.assertNotIn("test-secret", json.dumps(error.__dict__))
+        error = codex_provider_failure("initialize", {"code": -32601})
+        self.assertEqual(error.provider_failure["rpc_method"], "initialize")
+        self.assertNotIn("http_status", error.provider_failure)
+        overloaded = codex_provider_failure("quota_read", {
+            "code": -32001, "message": "Server overloaded; retry later."})
+        self.assertEqual(overloaded.provider_failure["reason"], "service_unavailable")
+        for message in ["codex account authentication required to read rate limits",
+                        "chatgpt authentication required to read rate limits"]:
+            self.assertEqual(codex_provider_failure("quota_read", {
+                "code": -32600, "message": message}).provider_failure["reason"], "authentication_required")
+        wrong_code = codex_provider_failure("quota_read", {
+            "code": -32601, "message": "Server overloaded; retry later."})
+        self.assertEqual(wrong_code.provider_failure["reason"], "unsupported_operation")
+
+    def test_provider_failure_rejects_malformed_and_unrecognized_fields(self):
+        for payload in [None, [], "Bearer test-secret", {}, {"code": True},
+                        {"code": "-32603"}, {"code": -32603.0}, {"code": 401},
+                        {"code": -32100}, {"code": -31999}, {"code": {"secret": "test-secret"}}]:
+            failure = codex_provider_failure("quota_read", payload).provider_failure
+            self.assertEqual(failure["reason"], "unknown")
+            self.assertNotIn("rpc_error_code", failure)
+            self.assertNotIn("http_status", failure)
+        for payload in [None, [], {}, {"stage": []}, {"stage": "quota_read", "transport": {}},
+                        {"stage": "initialize", "transport": "http", "http_status": 401}]:
+            self.assertIsNone(filtered_provider_failure(payload))
+        context = filtered_provider_failure({"stage": "quota_read", "transport": "jsonrpc_stdio",
+            "rpc_error_code": -32603, "reason": ["test-secret"],
+            "rpc_method": "private-method", "http_status": 401, "message": "test-secret"})
+        self.assertEqual(context["reason"], "unknown")
+        self.assertEqual(set(context), {"stage", "transport", "rpc_method", "rpc_error_code", "reason"})
+        for status in [None, True, "401", 401.0, 99, 600, [], {}]:
+            self.assertIsNone(http_provider_failure(status))
+        for status, reason in [(401, "authentication_required"), (403, "authentication_required"),
+                               (429, "rate_limited"), (503, "service_unavailable"),
+                               (400, "invalid_request"), (405, "unsupported_operation"), (418, "unknown")]:
+            self.assertEqual(http_provider_failure(status)["reason"], reason)
+
+    def test_codex_rejection_captures_stage_and_cleans_up_real_pipe(self):
+        popen = subprocess.Popen
+        for stage in ["initialize", "quota_read"]:
+            responses = [{"id": 1, "error": {"code": -32603, "message": "Bearer test-secret"}}]
+            if stage == "quota_read":
+                responses = [{"id": 1, "result": {}},
+                             {"id": 2, "error": {"code": -32601, "data": {"token": "test-secret"}}}]
+            output = "".join(json.dumps(item) + "\n" for item in responses)
+            processes = []
+            def spawn(*_args, **kwargs):
+                process = popen([sys.executable, "-c",
+                    f"import os,time; os.write(1, {output.encode()!r}); time.sleep(3)"], **kwargs)
+                processes.append(process)
+                return process
+            with patch("quota_bridge.command_path", return_value="fake-codex"), \
+                 patch("quota_bridge.subprocess.Popen", side_effect=spawn):
+                with self.assertRaises(ProviderFailure) as caught:
+                    read_codex(timeout=1)
+                self.assertEqual(caught.exception.provider_failure["stage"], stage)
+                self.assertNotIn("test-secret", str(caught.exception))
+                self.assertIsNotNone(processes[0].poll())
+                self.assertTrue(processes[0].stdin.closed and processes[0].stdout.closed)
+
+    def test_provider_failure_telemetry_revalidates_context_and_preserves_throttle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reporter = Diagnostics(enabled=True)
+            reporter.disabled_path = Path(directory) / "disabled"
+            error = codex_provider_failure("quota_read", {"code": -32601})
+            error.provider_failure.update(message="test-secret", data={"token": "test-secret"},
+                                          rpc_method="private-method", http_status=401)
+            with patch("quota_bridge.threading.Thread") as thread, \
+                 patch("quota_bridge.time.monotonic", return_value=1000) as clock:
+                reporter.capture("provider_refresh", error, "codex")
+                event = thread.call_args.kwargs["args"][0]
+                self.assertEqual(event["fingerprint"], ["provider_refresh", "codex", "provider_rejected"])
+                self.assertEqual(event["contexts"]["provider_failure"]["reason"], "unsupported_operation")
+                self.assertNotIn("test-secret", json.dumps(event))
+                self.assertNotIn("http_status", event["contexts"]["provider_failure"])
+                changed = codex_provider_failure("initialize", {"code": -32603})
+                clock.return_value = 1899
+                reporter.capture("provider_refresh", changed, "codex")
+                self.assertEqual(thread.call_count, 1)
+                clock.return_value = 1900
+                reporter.capture("provider_refresh", changed, "codex")
+                self.assertEqual(thread.call_count, 2)
+                reporter.disabled_path.touch()
+                reporter.capture("provider_refresh", error, "claude")
+                self.assertEqual(thread.call_count, 2)
+            with patch("quota_bridge.urlopen") as send:
+                reporter.send(event)
+                send.assert_not_called()
+            reporter.disabled_path.unlink()
+            reporter.enabled = False
+            with patch("quota_bridge.threading.Thread") as thread, patch("quota_bridge.urlopen") as send:
+                reporter.capture("provider_refresh", error, "codex")
+                reporter.send(event)
+                thread.assert_not_called()
+                send.assert_not_called()
+
+    def test_http_failure_telemetry_uses_status_without_headers_body_or_url(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reporter = Diagnostics(enabled=True)
+            reporter.disabled_path = Path(directory) / "disabled"
+            error = HTTPError("https://private.test/?token=test-secret", 429, "test-secret",
+                              {"Authorization": "Bearer test-secret"}, io.BytesIO(b"private conversation"))
+            with patch("quota_bridge.threading.Thread") as thread:
+                reporter.capture("provider_refresh", error, "claude")
+                event = thread.call_args.kwargs["args"][0]
+                self.assertEqual(event["contexts"]["provider_failure"], http_provider_failure(429))
+                for secret in ["test-secret", "private.test", "Authorization", "private conversation"]:
+                    self.assertNotIn(secret, json.dumps(event))
+                reporter.capture("weather_refresh", error, "weather")
+                self.assertNotIn("provider_failure", thread.call_args.kwargs["args"][0]["contexts"])
+
     def test_claude_reset_bank_counts_available_grants_and_cache_keeps_them(self):
         grant = {"id": "offer", "resets_total": 2, "resets_left": 2,
                  "ends_at": "2026-10-22T16:00:00Z", "paused": False}
@@ -422,8 +551,9 @@ time.sleep(3)
             self.assertEqual(usage["five_hour"]["used_percent"], 12)
             self.assertIsNone(usage["plan"])
         opener.return_value.open.side_effect = HTTPError(request.full_url, 401, "", {}, None)
-        with self.assertRaises(ClaudeAuthenticationRequired):
+        with self.assertRaises(ClaudeAuthenticationRequired) as caught:
             read_claude()
+        self.assertEqual(caught.exception.provider_failure, http_provider_failure(401))
         for credentials in [{}, {"accessToken": "expired", "expiresAt": 1}]:
             oauth.return_value = credentials
             opener.reset_mock()

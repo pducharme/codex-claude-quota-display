@@ -62,9 +62,13 @@ Le projet contient trois parties :
 - Python 3.9 ou plus récent (Python.org, Homebrew ou outils de ligne de commande Apple);
 - Codex.app et/ou Claude Desktop installés et connectés.
 
-Téléchargez le fichier `.pkg` de la
-[dernière Release](https://github.com/pducharme/codex-claude-quota-display/releases/latest),
-puis ouvrez-le. Le paquet universel prend en charge Apple Silicon et Intel. Il
+Pour mettre à jour un Companion déjà installé, utilisez **Paramètres → Mises à
+jour → Vérifier les mises à jour…**. La version 1.1.12 fournit un ZIP contenant
+l’application signée Developer ID et une signature Sparkle pour sa mise à jour.
+
+Pour une première installation avec configuration du pont API, téléchargez le
+[paquet 1.1.11](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.11/Quota-Display-1.1.11.pkg),
+puis ouvrez-le et effectuez la mise à jour du Companion. Le paquet universel prend en charge Apple Silicon et Intel. Il
 installe le Companion et son pont API, puis configure leur démarrage à
 l’ouverture de session.
 
@@ -307,6 +311,12 @@ Anthropic ne sont jamais envoyés aux écrans ni aux Companions clients.
 échecs d’actualisation à GlitchTip : type d’erreur, code HTTP ou système,
 version de l’application et de macOS/Python, mode local ou distant, temps
 écoulé depuis la dernière lecture et identifiant aléatoire de session.
+À partir de la version 1.1.12, un refus de lecture peut aussi inclure un contexte
+`provider_failure` : étape (`initialize` ou `quota_read`), transport, méthode
+JSON-RPC autorisée, code JSON-RPC autorisé ou statut HTTP réel, et catégorie
+de cause filtrée. Une cause non reconnue reste `unknown`; aucun statut HTTP
+n’est déduit du texte d’un refus JSON-RPC local. Les messages et données bruts
+du fournisseur ne sont pas joints au diagnostic.
 Les erreurs du pont incluent les noms des fichiers/fonctions concernés, sans
 chemin personnel ni variables locales.
 
@@ -321,6 +331,10 @@ l’envoi du Companion et du pont sur ce Mac. En mode distant, ce réglage doit
 être désactivé séparément sur le Mac source. Pour un pont sans Companion,
 créez le fichier vide
 `~/Library/Application Support/Quota Display/diagnostics-disabled`.
+
+Le choix de désactivation et la limitation de fréquence s’appliquent également
+à ces nouveaux champs. Les envois échoués ne sont pas conservés dans une file
+sur disque : le diagnostic ne garantit pas l’enregistrement de chaque incident.
 
 La collecte commence après la mise à jour; elle ne récupère pas les erreurs
 anciennes. Mettez aussi à jour le Mac source lorsqu’il est distinct du client.
