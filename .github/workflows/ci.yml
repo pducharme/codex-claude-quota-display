@@ -25,6 +25,7 @@ jobs:
 
   native:
     name: Native compile and self-test
+    timeout-minutes: 10
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,7 +37,7 @@ jobs:
           mkdir -p .build/ci
           for arch in arm64 x86_64; do
             xcrun swiftc -target "$arch-apple-macosx13.0" \
-              -parse-as-library -swift-version 5 -O \
+              -parse-as-library -swift-version 5 -O -g \
               -F "$sparkle_root" -framework Sparkle \
               -Xlinker -rpath -Xlinker "$sparkle_root" \
               -framework WebKit -framework AppKit -framework Foundation \
@@ -44,4 +45,13 @@ jobs:
               bridge/quota_menu.swift -o ".build/ci/QuotaDisplayMenu-$arch"
           done
       - name: Run native self-test
-        run: .build/ci/QuotaDisplayMenu-$(uname -m) --self-test
+        shell: bash
+        run: |
+          set +e
+          binary=".build/ci/QuotaDisplayMenu-$(uname -m)"
+          "$binary" --self-test
+          native_result=$?
+          if [ "$native_result" -ne 0 ]; then
+            lldb --batch -o run -o 'thread backtrace all' -- "$binary" --self-test || true
+          fi
+          exit "$native_result"
