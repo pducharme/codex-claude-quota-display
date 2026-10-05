@@ -1448,6 +1448,7 @@ private final class QuotaDashboardView: NSView {
         refreshSpinner.controlSize = .small
         refreshSpinner.isIndeterminate = true
         refreshSpinner.isDisplayedWhenStopped = false
+        refreshSpinner.isHidden = true
         refreshSpinner.frame = NSRect(x: frameRect.width - 40, y: 186, width: 14, height: 14)
         refreshSpinner.autoresizingMask = [.minXMargin]
         refreshSpinner.setAccessibilityLabel("Actualisation des quotas en cours")
@@ -1519,6 +1520,8 @@ private final class QuotaDashboardView: NSView {
 
     func setRefreshing(_ active: Bool) {
         refreshButton.isHidden = active
+        // Older AppKit versions let a stopped indicator intercept the button underneath.
+        refreshSpinner.isHidden = !active
         active ? refreshSpinner.startAnimation(nil) : refreshSpinner.stopAnimation(nil)
     }
 
@@ -3714,7 +3717,14 @@ private struct QuotaMenu {
             let asleepIcon = displaySleepIcon(screen: iconScreen, brightness: 0).tiffRepresentation
             dashboardView.setRefreshing(true)
             let refreshAnimationStarted = dashboardView.refreshButton.isHidden
+            let refreshPoint = dashboardView.convert(NSPoint(x: 605, y: 192), to: dashboardHost)
+            precondition(dashboardHost.hitTest(refreshPoint) !== dashboardView.refreshButton)
             dashboardView.setRefreshing(false)
+            precondition(dashboardHost.hitTest(refreshPoint) === dashboardView.refreshButton)
+            for active in [true, false, true, false] {
+                dashboardView.setRefreshing(active)
+                precondition((dashboardHost.hitTest(refreshPoint) === dashboardView.refreshButton) == !active)
+            }
             let bundledIcon = Bundle.main.bundleURL.pathExtension != "app"
                 || Bundle.main.url(forResource: "CodexIcon", withExtension: "png").flatMap(NSImage.init(contentsOf:)) != nil
             let bundledAppIcon = Bundle.main.bundleURL.pathExtension != "app"

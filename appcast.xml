@@ -4,7 +4,7 @@
         <title>Quota Display</title>
         <item>
             <title>1.1.12</title>
-            <pubDate>Mon, 05 Oct 2026 16:38:02 -0400</pubDate>
+            <pubDate>Mon, 05 Oct 2026 17:07:37 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
             <sparkle:informationalUpdate>
                 <sparkle:belowVersion>1.0.7</sparkle:belowVersion>
@@ -18,10 +18,11 @@
   <li>Les diagnostics des refus Codex précisent l’étape, la méthode JSON-RPC, le code autorisé et une catégorie de cause filtrée. Les réponses HTTP de quotas Claude peuvent inclure leur statut réel.</li>
   <li>Les causes inconnues restent explicitement inconnues. Aucun journal brut, message fournisseur, jeton, compte ou contenu de conversation n’est transmis.</li>
   <li>Le choix « Partager les erreurs techniques », la limitation à quinze minutes et les préférences existantes sont conservés.</li>
+  <li>L’indicateur de progression est explicitement masqué au repos pour que le bouton « Actualiser » reste cliquable sur les versions antérieures de macOS.</li>
 </ul>
 <p>Les nouveaux champs nécessitent cette mise à jour sur le Mac source. Ils ne permettent pas de reconstituer les détails des erreurs anciennes. Aucun nouveau firmware n’est nécessaire.</p>
 ]]></description>
-            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.12/Quota-Display-1.1.12.zip" length="3549550" type="application/octet-stream" sparkle:edSignature="DI5lt4h9dgVNnADnkZaiR+05Vsgc3mjtuxMrKgMLgQX23SsPCEq5jcGaiiZiANNg+hv7jPbLCEmDmZupU+jZAA=="/>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.12/Quota-Display-1.1.12.zip" length="3550753" type="application/octet-stream" sparkle:edSignature="zqr1VRyFJQlPTnXpSJsaNLU0dmFtWqMRK+YSlUZIasMCXAloUSzw++LDbpd7lgZQ13p7oK8STeugT3VWY+7zAQ=="/>
         </item>
         <item>
             <title>1.1.11</title>
