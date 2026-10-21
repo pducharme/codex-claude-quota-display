@@ -1,0 +1,34 @@
+:root { color-scheme: dark; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #10141c; color: #e6edf5; }
+* { box-sizing: border-box; }
+body { width: 640px; margin: 0 auto; max-height: 600px; overflow-y: auto; overflow-x: hidden; }
+main { padding-bottom: 4px; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { padding: 7px 11px; border: 1px solid #384459; border-radius: 6px; background: #1b2638; cursor: pointer; }
+button:hover { background: #293950; }
+.dashboard-action:hover { background: transparent; }
+.dashboard-wrap { width: 100%; height: auto; aspect-ratio: 64 / 25; }
+#dashboard { width: 100%; height: auto; }
+#back { inset: 0; width: 100%; height: 100%; }
+#canvas-refresh { left: 92.8%; top: 72%; width: 4.4%; height: 10.4%; }
+button:disabled { opacity: .5; cursor: default; }
+:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+details { border-top: 1px solid #293448; }
+summary { cursor: pointer; padding: 10px 15px; user-select: none; }
+summary:hover { background: #1a2230; }
+.settings-content { padding: 0 14px 8px; }
+.settings-content > details { margin-top: 10px; }
+.settings-content > details > summary { padding-left: 1px; }
+p { line-height: 1.5; margin: 9px 0; }
+#status { background: #2b2217; color: #f8dba4; padding: 8px 14px; margin: 0 8px 6px; border-radius: 6px; overflow-wrap: anywhere; }
+.hint { color: #a5b3c8; font-size: 12px; }
+label { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; }
+.check { flex-direction: row; align-items: center; gap: 7px; }
+input:not([type=checkbox]), textarea, select { width: 100%; min-height: 33px; padding: 7px 9px; background: #080e18; border: 1px solid #384459; border-radius: 5px; }
+input[type=checkbox] { accent-color: #38bdf8; }
+textarea { resize: vertical; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hours { grid-template-columns: 90px 90px 1fr; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+[hidden] { display: none !important; }
+body.standalone { max-height: none; }
+@media (max-width: 639px) { body { width: 100%; } .fields { grid-template-columns: 1fr; gap: 0; } .hours { grid-template-columns: 1fr 1fr; gap: 10px; } .hours label:last-child { grid-column: 1 / -1; } }

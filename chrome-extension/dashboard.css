@@ -1,0 +1,32 @@
+.dashboard-wrap {
+  position: relative;
+  width: 640px;
+  height: 250px;
+  flex: none;
+}
+
+#dashboard {
+  display: block;
+  width: 640px;
+  height: 250px;
+}
+
+.dashboard-action {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+}
+
+.dashboard-action:focus-visible {
+  outline: 2px solid #e6edf5;
+  outline-offset: 2px;
+}
+
+.dashboard-action:disabled {
+  cursor: progress;
+}

@@ -1,12 +1,16 @@
 # Quota Display
 
 Quota Display affiche les limites d’utilisation de **Codex** et de **Claude**
-dans un Companion macOS et, facultativement, sur un mini-écran
-**LILYGO T-Display S3 Long**.
+dans un Companion macOS, dans une extension Chrome et, facultativement, sur un
+mini-écran **LILYGO T-Display S3 Long**. L’extension Chrome est uniquement cliente
+de l’API : un Mac source conserve les sessions et collecte les quotas.
 
 [Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
 
-[Télécharger la dernière version](https://github.com/pducharme/codex-claude-quota-display/releases/latest)
+[Télécharger le Companion macOS](https://github.com/pducharme/codex-claude-quota-display/releases/latest)
+· [Télécharger l’extension Chrome 1.0.0](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.0)
+· [Installer l’extension](#installer-lextension-chrome)
+· [Confidentialité de l’extension](chrome-extension/PRIVACY.md)
 
 ![Mini-écran Quota Display affichant les quotas Codex et Claude, passant au noir pendant la veille puis se rallumant](docs/assets/mini-screen-sleep.gif)
 
@@ -25,6 +29,7 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
   permanente, mode toujours au premier plan et pourcentage restant dans la
   barre des menus.
 - Mode source locale ou client d’une autre instance Quota Display sur le réseau.
+- Extension Chrome cliente du Mac source, avec le même tableau de bord animé.
 - Mini-écran tactile avec vue détaillée, météo sur cinq jours et actualisation
   par glissement.
 - Veille quotidienne des mini-écrans, avec horaire réglable dans le Companion.
@@ -45,14 +50,16 @@ Codex.app + Claude Desktop
        Companion source
             │ API locale :8788
             ├── mini-écran ESP32
-            └── autres Companions macOS
+            ├── autres Companions macOS
+            └── extension Chrome
 ```
 
-Le projet contient trois parties :
+Le projet contient quatre parties :
 
 - `bridge/quota_menu.swift` : Companion macOS natif;
 - `bridge/quota_bridge.py` : pont API local;
-- `firmware/` : firmware PlatformIO du T-Display S3 Long.
+- `firmware/` : firmware PlatformIO du T-Display S3 Long;
+- `chrome-extension/` : Companion Chrome, client de l’API du Mac source.
 
 ## Installer le Companion macOS
 
@@ -134,6 +141,47 @@ Mac source. Le pont du Mac client reste disponible, mais ne lance plus de
 lectures locales des fournisseurs tant qu’une source distante est configurée.
 L’action **Actualiser les quotas** du client demande une nouvelle lecture à cette source. Le choix des fournisseurs affichés est aussi enregistré
 sur la source : tous les Companions et mini-écrans adoptent le même affichage.
+
+## Installer l’extension Chrome
+
+L’extension reprend le tableau de bord du Companion : quotas, forfaits, Fable,
+mascottes animées et resets en banque. Cliquez sur une carte pour consulter les
+dates des resets, puis appuyez sur **Échap** pour revenir. Le Mac source doit
+rester allumé et son pont API accessible; il conserve les sessions Codex et Claude
+et collecte leurs quotas.
+
+1. Téléchargez le ZIP de l’extension depuis la
+   [release Chrome 1.0.0](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.0),
+   puis décompressez-le. Les [sources sont dans `chrome-extension/`](chrome-extension/).
+2. Ouvrez `chrome://extensions`, activez le **Mode développeur**, puis choisissez
+   **Charger l’extension non empaquetée** et sélectionnez le dossier décompressé
+   contenant `manifest.json` — ou le dossier `chrome-extension/` de ce dépôt.
+   La publication dans le Chrome Web Store est en préparation.
+3. Épinglez **Quota Display — Companion** dans le menu des extensions de Chrome,
+   puis cliquez sur son icône.
+4. Sur le Mac source, choisissez **Paramètres → API et connexions → Copier la
+   configuration API**.
+5. Dans les paramètres de l’extension, collez les deux lignes **Adresse:** et
+   **Jeton:**, puis choisissez **Enregistrer et connecter**. Autorisez Chrome à
+   accéder à l’hôte choisi.
+
+**Paramètres** permet d’actualiser les quotas sur le Mac source, d’ouvrir une
+fenêtre permanente et de choisir la limite affichée en pourcentage sur l’icône
+Chrome. Les réglages **Affichage** et **Mini-écrans — Veille** sont enregistrés
+sur la source et partagés avec ses autres clients et mini-écrans. La fenêtre
+Chrome ne propose pas le mode natif « toujours au premier plan ».
+
+L’adresse et la clé API sont conservées dans `chrome.storage.local`, dans ce
+profil Chrome, sans synchronisation. L’extension contacte uniquement le Mac
+configuré; elle ne contient ni télémétrie ni suivi de navigation. Consultez sa
+[politique de confidentialité](chrome-extension/PRIVACY.md). Utilisez l’API HTTP
+uniquement sur un réseau de confiance ou un VPN, sans exposer le port sur Internet. Le Designer, les
+connexions aux fournisseurs et services, ainsi que les fonctions système et les
+mises à jour du Companion restent gérés sur le Mac.
+
+Pour vérifier le client avec Node.js : `node --test chrome-extension/test.mjs`.
+Pour créer le ZIP du Web Store et son SHA-256 :
+`python3 chrome-extension/package.py` (sortie dans `dist/`).
 
 ## Designer
 

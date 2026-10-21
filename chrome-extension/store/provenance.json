@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-10-21T17:16:01.311Z",
+  "browser": "155.0.8059.85",
+  "source": "Actual chrome-extension/popup.html, popup.js, dashboard.js and styles, loaded unchanged in a disposable headless Chrome context. Chrome storage/runtime were replaced only in that context with deterministic demo responses. Temporary Store capture HTML added promotional headings outside the real UI iframe. Reset details were opened using the real UI button. Temporary capture sources were removed after generation.",
+  "demo_time": "2026-10-21T16:30:00.000Z",
+  "source_label": "mac-source.local:8788",
+  "personal_data": false,
+  "external_requests": false,
+  "page_errors": [],
+  "visually_inspected": true,
+  "files": [
+    {"filename": "screenshot-dashboard-1280x800.png", "width": 1280, "height": 800, "mode": "dashboard", "color": "RGB", "opaque": true},
+    {"filename": "screenshot-resets-1280x800.png", "width": 1280, "height": 800, "mode": "resets", "color": "RGB", "opaque": true},
+    {"filename": "promo-440x280.png", "width": 440, "height": 280, "mode": "promo", "color": "RGB", "opaque": true}
+  ]
+}

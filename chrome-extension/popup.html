@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quota Display</title>
+  <link rel="stylesheet" href="dashboard.css">
+  <link rel="stylesheet" href="popup.css">
+  <script type="module" src="popup.js"></script>
+</head>
+<body>
+  <main>
+    <div class="dashboard-wrap">
+      <canvas id="dashboard" width="640" height="250" role="img" aria-label="Quotas en attente"></canvas>
+      <button id="codex-details" class="dashboard-action" aria-label="Voir les resets Codex en banque"></button>
+      <button id="claude-details" class="dashboard-action" aria-label="Voir les resets Claude en banque"></button>
+      <button id="back" class="dashboard-action" aria-label="Revenir aux quotas" hidden></button>
+      <button id="canvas-refresh" class="dashboard-action" aria-label="Actualiser les quotas"></button>
+    </div>
+    <p id="status" role="status" aria-live="polite" hidden></p>
+    <details id="settings">
+      <summary>Paramètres</summary>
+      <div class="settings-content">
+        <div class="actions">
+          <button id="refresh">Actualiser les quotas</button>
+          <button id="window">Fenêtre permanente ↗</button>
+        </div>
+        <details id="source-settings">
+          <summary>API et connexions — Source des quotas</summary>
+          <form id="source-form">
+            <p>Sur le Mac source : <strong>Paramètres → API et connexions → Copier la configuration API</strong>.</p>
+            <label>Configuration copiée du Mac (facultatif)
+              <textarea id="import" rows="2" spellcheck="false" autocomplete="off" placeholder="Adresse: …&#10;Jeton: …"></textarea>
+            </label>
+            <div class="fields">
+              <label>Adresse de l’API
+                <input id="address" type="text" spellcheck="false" autocomplete="off" placeholder="http://mac-source.local:8788">
+              </label>
+              <label>Clé API
+                <input id="token" type="password" autocomplete="off" spellcheck="false">
+              </label>
+            </div>
+            <p class="hint">La clé reste dans ce profil Chrome. Les comptes Codex et Claude se gèrent sur le Mac source. Utilisez le réseau local ou un VPN de confiance.</p>
+            <div class="actions">
+              <button type="submit">Enregistrer et connecter</button>
+              <button id="copy" type="button">Copier la configuration API</button>
+              <button id="disconnect" type="button">Déconnecter</button>
+            </div>
+          </form>
+        </details>
+        <details>
+          <summary>Affichage</summary>
+          <p>Ces choix sont partagés avec le Mac source et ses mini-écrans.</p>
+          <div class="actions">
+            <label class="check"><input id="show-codex" type="checkbox">Afficher Codex</label>
+            <label class="check"><input id="show-claude" type="checkbox">Afficher Claude</label>
+          </div>
+          <label>Pourcentage sur l’icône Chrome
+            <select id="badge">
+              <option value="codex:five_hour">Codex — 5 heures</option>
+              <option value="codex:weekly">Codex — semaine</option>
+              <option value="claude:five_hour">Claude — 5 heures</option>
+              <option value="claude:weekly">Claude — semaine</option>
+              <option value="claude:fable_weekly">Claude — Fable</option>
+              <option value="none">Masquer le pourcentage</option>
+            </select>
+          </label>
+        </details>
+        <details>
+          <summary>Mini-écrans — Veille</summary>
+          <form id="sleep-form">
+            <label class="check"><input id="sleep-enabled" type="checkbox">Activer la veille quotidienne</label>
+            <div class="fields hours">
+              <label>Début<input id="sleep-start" type="time" value="22:00" required></label>
+              <label>Fin<input id="sleep-end" type="time" value="07:00" required></label>
+              <label>Fuseau horaire<input id="timezone" type="text" placeholder="America/Toronto" required></label>
+            </div>
+            <button type="submit">Enregistrer la veille</button>
+          </form>
+          <p class="hint">Le Designer et les connexions aux services s’ouvrent depuis le Companion Mac.</p>
+        </details>
+        <p id="about" class="hint">Quota Display pour Chrome · client du Companion Mac</p>
+      </div>
+    </details>
+  </main>
+</body>
+</html>
