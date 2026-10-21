@@ -156,7 +156,8 @@ et collecte leurs quotas.
 2. Ouvrez `chrome://extensions`, activez le **Mode développeur**, puis choisissez
    **Charger l’extension non empaquetée** et sélectionnez le dossier décompressé
    contenant `manifest.json` — ou le dossier `chrome-extension/` de ce dépôt.
-   La publication dans le Chrome Web Store est en préparation.
+   L’extension a été soumise à l’examen de Google; sa publication dans le Chrome
+   Web Store sera automatique après approbation.
 3. Épinglez **Quota Display — Companion** dans le menu des extensions de Chrome,
    puis cliquez sur son icône.
 4. Sur le Mac source, choisissez **Paramètres → API et connexions → Copier la
