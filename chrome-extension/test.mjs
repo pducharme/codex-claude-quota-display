@@ -256,14 +256,32 @@ test('dashboard interaction follows provider visibility and detail navigation', 
     claude: {status: 'ok', credits: {status: 'stale', purchased: 0, monthly: 87.65, monthly_granted: 200, expires_at: 1795651200}},
   }};
   assert.match(dashboardSummary(credits), /12345|12\s345/);
-  assert.match(dashboardSummary(credits), /87,65\/200,00/);
-  assert.match(dashboardSummary(credits), /EXP 26\/11 UTC/);
+  assert.match(dashboardSummary(credits), /UTILISÉ : 112\.35\$ \/ 200\.00\$ \(USD\) - exp\. 26\/11/);
   assert.match(dashboardSummary(credits), /Crédits non actualisés/);
   assert.match(dashboardSummary(quotas), /CRÉDITS OPENAI : —/);
   drawDashboard(canvas, credits);
   assert.equal(canvas.width, 640);
   assert.equal(canvas.height, 250);
   assert.ok(fills > 0);
+});
+
+test('Claude credits show monthly USD usage without inventing missing balances', async () => {
+  const rendererSource = await readFile(new URL('./dashboard.js', import.meta.url), 'utf8');
+  const {dashboardSummary} = await import(`data:text/javascript;base64,${Buffer.from(rendererSource).toString('base64')}`);
+  const credits = {purchased: 0, monthly: 199.18, monthly_granted: 200, expires_at: 1795651200};
+  const summary = overrides => dashboardSummary({...quotas, providers: {
+    ...quotas.providers, claude: {...quotas.providers.claude, credits: {...credits, ...overrides}},
+  }});
+  assert.ok(summary({}).includes('UTILISÉ : 0.82$ / 200.00$ (USD) - exp. 26/11'));
+  assert.ok(summary({}).includes('API ACHETÉS : 0.00$ (USD)'));
+  assert.ok(summary({monthly: 200}).includes('UTILISÉ : 0.00$ / 200.00$ (USD)'));
+  assert.ok(summary({monthly: 0}).includes('UTILISÉ : 200.00$ / 200.00$ (USD)'));
+  for (const monthly of [null, undefined, -1, 201, true, '199.18', NaN, Infinity]) {
+    assert.ok(summary({monthly}).includes('UTILISÉ : — / 200.00$ (USD)'), String(monthly));
+  }
+  assert.ok(summary({monthly_granted: null}).includes('MENSUEL RESTANT : 199.18$ (USD)'));
+  assert.ok(summary({status: 'stale'}).includes('≈ UTILISÉ : 0.82$ / 200.00$ (USD)'));
+  assert.ok(summary({promotional: 5}).includes('PROMO 5.00$'));
 });
 
 test('manifest is a client-only MV3 package with optional host access', async () => {

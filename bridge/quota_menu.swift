@@ -704,28 +704,34 @@ private struct ProviderQuotas {
 
 private func creditLines(_ provider: ProviderQuotas?, codex: Bool) -> [String] {
     let credits = provider?.credits
-    func number(_ key: String, dollars: Bool = true) -> String {
-        guard let value = credits?[key] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+    func number(_ amount: Any?, dollars: Bool = true) -> String {
+        guard let value = amount as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
               value.doubleValue.isFinite, value.doubleValue >= 0 else { return "—" }
         let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "fr_CA")
+        formatter.locale = Locale(identifier: codex ? "fr_CA" : "en_US_POSIX")
         formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = dollars ? 2 : 0
+        formatter.usesGroupingSeparator = codex
+        formatter.minimumFractionDigits = codex && !dollars ? 0 : 2
         formatter.maximumFractionDigits = 2
-        return (formatter.string(from: value) ?? "—") + (dollars ? " $US" : "")
+        return (formatter.string(from: value) ?? "—") + (dollars ? "$" : "")
     }
-    if codex { return ["CRÉDITS OPENAI : " + (credits?["unlimited"] as? Bool == true ? "ILLIMITÉS" : number("balance", dollars: false))] }
+    if codex { return ["CRÉDITS OPENAI : " + (credits?["unlimited"] as? Bool == true ? "ILLIMITÉS" : number(credits?["balance"], dollars: false))] }
     let stale = credits?["status"] as? String == "stale" ? "≈ " : ""
-    var purchased = "\(stale)API ACHETÉS : \(number("purchased"))"
-    if (credits?["promotional"] as? NSNumber)?.doubleValue ?? 0 > 0 { purchased += " · PROMO \(number("promotional"))" }
+    var purchased = "\(stale)API ACHETÉS : \(number(credits?["purchased"])) (USD)"
+    if (credits?["promotional"] as? NSNumber)?.doubleValue ?? 0 > 0 { purchased += " · PROMO \(number(credits?["promotional"]))" }
     let granted = (credits?["monthly_granted"] as? NSNumber)?.doubleValue ?? 0
-    var monthly = "\(stale)API MENSUEL : \(number("monthly"))"
-    if granted > 0 { monthly = "\(stale)API MENSUEL : \(number("monthly", dollars: false))/\(number("monthly_granted"))" }
+    let remaining = (credits?["monthly"] as? NSNumber)?.doubleValue
+    var monthly = "\(stale)MENSUEL RESTANT : \(number(credits?["monthly"])) (USD)"
+    if granted > 0 {
+        let used = number(credits?["monthly"]) != "—" && number(credits?["monthly_granted"]) != "—"
+            ? remaining.flatMap { $0 <= granted ? granted - $0 : nil } : nil
+        monthly = "\(stale)UTILISÉ : \(number(used)) / \(number(credits?["monthly_granted"])) (USD)"
+    }
     if let expiry = credits?["expires_at"] as? Int {
         let formatter = DateFormatter()
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "dd/MM"
-        monthly += " · EXP \(formatter.string(from: Date(timeIntervalSince1970: Double(expiry)))) UTC"
+        monthly += " - exp. \(formatter.string(from: Date(timeIntervalSince1970: Double(expiry))))"
     }
     return [purchased, monthly]
 }
@@ -1611,6 +1617,7 @@ private final class QuotaDashboardView: NSView {
         claudeResetsButton.isHidden = showingBankedResets || panels.claude == nil
         claudeResetsButton.frame = panels.claude ?? .zero
         claudeResetsButton.toolTip = "Claude : voir les dates d’expiration des resets en banque\n" + creditLines(snapshot?.claude, codex: false).joined(separator: "\n")
+            + "\nCrédits API mensuels : montant utilisé / accordé; expiration en UTC."
             + ((snapshot?.claude.credits?["organization_id"] as? String).map { "\nOrganisation Console : \($0)" } ?? "")
             + (snapshot?.claude.credits?["status"] as? String == "stale" ? "\nCrédits non actualisés : reconnectez Claude Console." : "")
         claudeResetsButton.setAccessibilityLabel(claudeResetsButton.toolTip)
@@ -1655,6 +1662,7 @@ private final class QuotaDashboardView: NSView {
             parts.append("Codex, forfait \(snapshot.codex.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)).")
         }
         if showClaude && !showingBankedResets {
+            parts.append("Crédits API mensuels : montant utilisé / accordé; expiration en UTC.")
             parts.append(creditLines(snapshot.claude, codex: false).joined(separator: ". "))
             parts.append("Claude, forfait \(snapshot.claude.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)), \(snapshot.claude.bankedResets.map(String.init) ?? "—") resets en banque.")
         }
@@ -3682,11 +3690,28 @@ private struct QuotaMenu {
             )).connected
             let codexGood = codexState(from: CommandResult(status: 0, output: "Logged in using ChatGPT")).connected
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
-            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1791173954},{"expires_at":1791080428}]},"credits":{"balance":12345.67,"unlimited":false}},"claude":{"status":"ok","plan":"Max 20X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1792684800},{"expires_at":1791080428}]},"credits":{"status":"ok","purchased":0,"monthly":87.65,"monthly_granted":200,"promotional":0,"expires_at":1795651200,"organization_id":"00000000-0000-4000-8000-000000000001"}}}}"#
+            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1791173954},{"expires_at":1791080428}]},"credits":{"balance":12345.67,"unlimited":false}},"claude":{"status":"ok","plan":"Max 20X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1792684800},{"expires_at":1791080428}]},"credits":{"status":"ok","purchased":0,"monthly":199.18,"monthly_granted":200,"promotional":0,"expires_at":1795651200,"organization_id":"00000000-0000-4000-8000-000000000001"}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             precondition(creditLines(quotas?.codex, codex: true).first?.contains("12") == true)
-            precondition(creditLines(quotas?.claude, codex: false).last?.contains("87,65/200,00") == true)
+            precondition(creditLines(quotas?.claude, codex: false).last == "UTILISÉ : 0.82$ / 200.00$ (USD) - exp. 26/11")
             precondition(creditLines(nil, codex: false).allSatisfy { $0.contains("—") })
+            var creditProvider = quotas!.claude
+            for (remaining, used) in [(199.18, "0.82$"), (200.0, "0.00$"), (0.0, "200.00$")] {
+                creditProvider.credits?["monthly"] = remaining
+                precondition(creditLines(creditProvider, codex: false).last == "UTILISÉ : \(used) / 200.00$ (USD) - exp. 26/11")
+            }
+            for missing: Any in [NSNull(), -1, 201, true, "199.18", Double.nan, Double.infinity] {
+                creditProvider.credits?["monthly"] = missing
+                precondition(creditLines(creditProvider, codex: false).last == "UTILISÉ : — / 200.00$ (USD) - exp. 26/11")
+            }
+            creditProvider.credits = ["monthly": 199.18]
+            precondition(creditLines(creditProvider, codex: false).last == "MENSUEL RESTANT : 199.18$ (USD)")
+            creditProvider.credits = ["status": "stale", "purchased": 0, "monthly": 0,
+                                      "monthly_granted": 200, "promotional": 5, "expires_at": 1795651200]
+            precondition(creditLines(creditProvider, codex: false).first == "≈ API ACHETÉS : 0.00$ (USD) · PROMO 5.00$")
+            let monthlyCreditLine = creditLines(creditProvider, codex: false).last!
+            precondition(monthlyCreditLine == "≈ UTILISÉ : 200.00$ / 200.00$ (USD) - exp. 26/11")
+            precondition((monthlyCreditLine as NSString).size(withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)]).width <= 280)
             let consoleBody: [String: Any] = ["organization_id": "00000000-0000-4000-8000-000000000001",
                 "credits": ["currency": "USD", "amount_without_scoped_credits": 0, "sessionKey": "test-secret",
                     "promo_tranches": [["currency": "USD", "remaining_amount_minor_units": 8765,

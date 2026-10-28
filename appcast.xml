@@ -2,6 +2,36 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.1.15</title>
+            <pubDate>Wed, 28 Oct 2026 09:54:17 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:minimumUpdateVersion>1.0.7</sparkle:minimumUpdateVersion>
+            <sparkle:criticalUpdate sparkle:version="1.1.11"/>
+            <sparkle:version>1.1.15</sparkle:version>
+            <sparkle:shortVersionString>1.1.15</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.1.15 — crédits Claude plus lisibles</h2>
+<ul>
+  <li>Présente les crédits API Claude en dollars américains, avec deux décimales et la mention explicite (USD).</li>
+  <li>Affiche le montant mensuel utilisé sur le montant accordé : « UTILISÉ : 0.82$ / 200.00$ (USD) - exp. 26/11 ».</li>
+  <li>Conserve les crédits achetés et les autres promotions sur une ligne distincte. Les montants inconnus restent « — » et les soldes non actualisés restent marqués « ≈ ».</li>
+  <li>Précise dans l’infobulle et le résumé accessible que le montant mensuel représente l’utilisation et que l’expiration reste calculée en UTC.</li>
+  <li>Harmonise cette présentation avec Chrome 1.0.2 et le firmware du 28 octobre 2026.</li>
+</ul>
+<p>Les préférences, clés API, sources de quotas et autorisations existantes sont conservées. L’application universelle Intel et Apple Silicon et les mises à jour Sparkle gardent la signature Developer ID existante. Le paquet d’installation n’est pas notarié par Apple.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.15/Quota-Display-1.1.15.zip" length="3607937" type="application/octet-stream" sparkle:edSignature="20c9eYGJsQ5UhQeGDQMXYx36vyB6tE/LPsQovfV2ui5fNlbFMdnyK3lLC/6ui7vMMvC/Fspt4IgXWn68Q+v4Aw=="/>
+        </item>
+        <item>
+            <title>Installation manuelle du Companion 1.1.15</title>
+            <pubDate>Wed, 28 Oct 2026 09:54:17 -0400</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:version>1.1.15</sparkle:version>
+            <sparkle:shortVersionString>1.1.15</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description>Les versions antérieures à 1.0.7 doivent être réinstallées depuis la page de téléchargement. Leurs préférences et leur source de quotas doivent être conservées.</description>
+        </item>
+        <item>
             <title>1.1.14</title>
             <pubDate>Tue, 27 Oct 2026 23:31:42 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -22,15 +52,6 @@
 <p>Les préférences, clés API, sources de quotas et autorisations existantes sont conservées. L’application universelle et les mises à jour Sparkle sont signées Developer ID. Le paquet d’installation n’est pas notarié par Apple.</p>
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.14/Quota-Display-1.1.14.zip" length="3600892" type="application/octet-stream" sparkle:edSignature="wy0rcqKGvhzdCnW8PbXjnTKeGlR2rNhJnrlO9uejwZvgJz2vmboWZMO6vHTCJIb2M+MxKyeNFFPakgPEclk1CA=="/>
-        </item>
-        <item>
-            <title>Installation manuelle du Companion 1.1.14</title>
-            <pubDate>Tue, 27 Oct 2026 23:31:42 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:version>1.1.14</sparkle:version>
-            <sparkle:shortVersionString>1.1.14</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description>Les versions antérieures à 1.0.7 doivent être réinstallées depuis la page de téléchargement. Leurs préférences et leur source de quotas doivent être conservées.</description>
         </item>
 
         <item>

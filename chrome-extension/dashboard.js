@@ -167,13 +167,17 @@ function quotaCell(ctx, label, window, [x, y, width, height], accent, duration, 
 
 function creditLines(key, provider) {
   const credits = provider?.credits;
-  const number = (field, dollars = true) => finite(credits?.[field]) && credits[field] >= 0
-    ? credits[field].toLocaleString("fr-CA", { minimumFractionDigits: dollars ? 2 : 0, maximumFractionDigits: 2 }) + (dollars ? " $US" : "") : "—";
-  if (key === "codex") return [`CRÉDITS OPENAI : ${credits?.unlimited === true ? "ILLIMITÉS" : number("balance", false)}`];
+  const number = (value, dollars = true) => finite(value) && value >= 0
+    ? value.toLocaleString(key === "codex" ? "fr-CA" : "en-US", { useGrouping: key === "codex", minimumFractionDigits: key === "codex" && !dollars ? 0 : 2, maximumFractionDigits: 2 }) + (dollars ? "$" : "") : "—";
+  if (key === "codex") return [`CRÉDITS OPENAI : ${credits?.unlimited === true ? "ILLIMITÉS" : number(credits?.balance, false)}`];
   const stale = credits?.status === "stale" ? "≈ " : "";
-  const purchased = `${stale}API ACHETÉS : ${number("purchased")}${credits?.promotional > 0 ? ` · PROMO ${number("promotional")}` : ""}`;
-  const expiry = finite(credits?.expires_at) ? ` · EXP ${new Date(credits.expires_at * 1000).toLocaleDateString("fr-FR", {day: "2-digit", month: "2-digit", timeZone: "UTC"})} UTC` : "";
-  return [purchased, `${stale}API MENSUEL : ${credits?.monthly_granted > 0 ? `${number("monthly", false)}/${number("monthly_granted")}` : number("monthly")}${expiry}`];
+  const purchased = `${stale}API ACHETÉS : ${number(credits?.purchased)} (USD)${credits?.promotional > 0 ? ` · PROMO ${number(credits.promotional)}` : ""}`;
+  const expiry = finite(credits?.expires_at) ? ` - exp. ${new Date(credits.expires_at * 1000).toLocaleDateString("fr-FR", {day: "2-digit", month: "2-digit", timeZone: "UTC"})}` : "";
+  const used = finite(credits?.monthly) && finite(credits?.monthly_granted) && credits.monthly >= 0 && credits.monthly <= credits.monthly_granted ? credits.monthly_granted - credits.monthly : null;
+  const monthly = credits?.monthly_granted > 0
+    ? `UTILISÉ : ${number(used)} / ${number(credits.monthly_granted)} (USD)`
+    : `MENSUEL RESTANT : ${number(credits?.monthly)} (USD)`;
+  return [purchased, `${stale}${monthly}${expiry}`];
 }
 
 function providerCard(ctx, key, provider, [x, y, width, height], now, frame) {
@@ -294,6 +298,7 @@ export function dashboardSummary(snapshot, { online = true, detail = null } = {}
     const provider = snapshot.providers?.[key], name = key === "codex" ? "Codex" : "Claude";
     if (detail) parts.push(`${name}, ${resetCount(provider) ?? "—"} resets en banque. ${resetRows(provider, now).join(". ")}.`);
     else parts.push(`${name}, forfait ${typeof provider?.plan === "string" ? provider.plan : "inconnu"}, 5 heures ${remainingText(provider?.five_hour)}, semaine ${remainingText(provider?.weekly)}${key === "claude" ? `, Fable ${remainingText(provider?.fable_weekly)}` : ""}, ${resetCount(provider) ?? "—"} resets en banque.`);
+    if (key === "claude") parts.push("Crédits API mensuels : montant utilisé / accordé; expiration en UTC.");
     parts.push(creditLines(key, provider).join(". "));
     if (provider?.credits?.status === "stale") parts.push("Crédits non actualisés : reconnectez Claude Console sur le Mac source.");
     if (typeof provider?.credits?.organization_id === "string") parts.push(`Organisation Console : ${provider.credits.organization_id}.`);

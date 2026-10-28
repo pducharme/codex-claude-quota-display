@@ -8,7 +8,7 @@ de l’API : un Mac source conserve les sessions et collecte les quotas.
 [Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
 
 [Télécharger le Companion macOS](https://github.com/pducharme/codex-claude-quota-display/releases/latest)
-· [Télécharger l’extension Chrome 1.0.1](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.1)
+· [Télécharger l’extension Chrome 1.0.2](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.2)
 · [Installer l’extension](#installer-lextension-chrome)
 · [Confidentialité de l’extension](chrome-extension/PRIVACY.md)
 
@@ -72,14 +72,14 @@ Le projet contient quatre parties :
 - Codex.app et/ou Claude Desktop installés et connectés.
 
 Pour mettre à jour un Companion déjà installé, utilisez **Paramètres → Mises à
-jour → Vérifier les mises à jour…**. La version 1.1.14 ajoute les soldes de
-crédits OpenAI et Claude et fournit un ZIP contenant l’application universelle
+jour → Vérifier les mises à jour…**. La version 1.1.15 clarifie les montants des
+crédits API Claude en USD et fournit un ZIP contenant l’application universelle
 signée Developer ID avec sa signature Sparkle.
 Les versions antérieures à 1.0.7 restent dirigées vers une installation manuelle
 depuis la page de téléchargement.
 
 Pour une première installation avec configuration du pont API, téléchargez le
-[paquet 1.1.14](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.14/Quota-Display-1.1.14.pkg),
+[paquet 1.1.15](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.15/Quota-Display-1.1.15.pkg),
 puis ouvrez-le. Le paquet universel prend en charge Apple Silicon et Intel. Il
 installe le Companion et son pont API, puis configure leur démarrage à
 l’ouverture de session.
@@ -111,8 +111,8 @@ autorisez **Chrome Safe Storage** si macOS le demande. Une autorisation de lectu
 du fichier est conservée sur ce Mac. Le Companion
 réutilise uniquement les cookies de session de la Console, en mémoire, pour
 relire ses soldes toutes les cinq minutes; il n’enregistre aucun cookie.
-Les crédits achetés et les crédits mensuels sont affichés séparément :
-le montant mensuel accordé n’est pas ajouté une seconde fois au solde restant.
+Les crédits achetés et les crédits mensuels sont affichés séparément. Le mensuel
+indique le montant utilisé / accordé en USD, suivi de sa date d’expiration (UTC).
 Les autres crédits promotionnels sont identifiés séparément. Après quinze
 minutes sans lecture réussie, le dernier solde est marqué **≈**; reconnectez la
 Console si nécessaire. Un solde non fourni reste **—**, jamais un zéro supposé.
@@ -169,7 +169,7 @@ rester allumé et son pont API accessible; il conserve les sessions Codex et Cla
 et collecte leurs quotas.
 
 1. Téléchargez le ZIP de l’extension depuis la
-   [release Chrome 1.0.1](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.1),
+   [release Chrome 1.0.2](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.2),
    puis décompressez-le. Les [sources sont dans `chrome-extension/`](chrome-extension/).
 2. Ouvrez `chrome://extensions`, activez le **Mode développeur**, puis choisissez
    **Charger l’extension non empaquetée** et sélectionnez le dossier décompressé
@@ -227,8 +227,8 @@ révisions actuelles.
 ### Firmware précompilé
 
 Pour les crédits OpenAI et Claude, le Designer et les alertes Avion, téléchargez
-`quota-display-credits-2026.10.27-app.bin` et sa somme SHA-256 dans la
-[release firmware du 27 octobre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.10.27).
+`quota-display-credits-2026.10.28-app.bin` et sa somme SHA-256 dans la
+[release firmware du 28 octobre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.10.28).
 Sur un écran déjà configuré, écrivez cette image application à **`0x10000`**
 pour conserver les réglages. Le Companion source doit utiliser la version 1.1.14
 ou une version plus récente pour fournir les soldes de crédits.

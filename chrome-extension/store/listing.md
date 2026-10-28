@@ -11,7 +11,7 @@ Retrouvez les quotas de votre Companion Mac directement dans Chrome, avec la mê
 - Pourcentages disponibles sur les périodes de 5 heures et de la semaine, selon les données fournies par le Mac.
 - Forfaits, compte à rebours des remises à zéro et quota Fable lorsque disponible.
 - Resets en banque et dates d’expiration fournies par chaque compte.
-- Crédits OpenAI Work/Codex et crédits API Claude achetés et mensuels, avec leur expiration lorsque fournis par le Companion Mac 1.1.14.
+- Crédits OpenAI Work/Codex et crédits API Claude en USD, avec le montant mensuel utilisé / accordé et son expiration lorsque fournis par le Companion Mac 1.1.14 ou plus récent.
 - Pourcentage au choix sur l’icône de l’extension et ouverture dans une fenêtre permanente.
 - Actualisation à la demande, affichage des fournisseurs et réglage de veille des mini-écrans via le Mac source.
 

@@ -1050,7 +1050,7 @@ String creditAmount(JsonVariantConst value, bool dollars = true) {
   if (!value.is<double>()) return "--";
   double amount = value.as<double>();
   if (!std::isfinite(amount) || amount < 0 || amount > 1e12) return "--";
-  return String(amount, !dollars && amount == floor(amount) ? 0 : 2) + (dollars ? " USD" : "");
+  return String(amount, !dollars && amount == floor(amount) ? 0 : 2) + (dollars ? "$" : "");
 }
 
 void readProvider(JsonObjectConst providers, const char *name,
@@ -1071,17 +1071,24 @@ void readProvider(JsonObjectConst providers, const char *name,
         (credits["unlimited"] == true ? String("ILLIMITES") : creditAmount(credits["balance"], false));
   } else {
     String prefix = provider.creditsStale ? "~ " : "";
-    provider.creditLines[0] = prefix + "API ACHETES: " + creditAmount(credits["purchased"]);
+    provider.creditLines[0] = prefix + "API ACHETES: " + creditAmount(credits["purchased"]) + " (USD)";
     if ((credits["promotional"] | 0.0) > 0) provider.creditLines[0] += " PROMO " + creditAmount(credits["promotional"]);
-    provider.creditLines[1] = prefix + "API MENSUEL: " + creditAmount(credits["monthly"], false);
-    if ((credits["monthly_granted"] | 0.0) > 0) provider.creditLines[1] += "/" + creditAmount(credits["monthly_granted"], false);
-    provider.creditLines[1] += " USD";
+    double granted = credits["monthly_granted"] | 0.0;
+    double remaining = credits["monthly"] | -1.0;
+    provider.creditLines[1] = prefix + "MENSUEL RESTANT: " + creditAmount(credits["monthly"]) + " (USD)";
+    if (granted > 0) {
+      String used = creditAmount(credits["monthly"]) != "--" &&
+                    creditAmount(credits["monthly_granted"]) != "--" && remaining <= granted
+          ? String(granted - remaining, 2) + "$" : "--";
+      provider.creditLines[1] = prefix + "UTILISE: " + used + " / " +
+          creditAmount(credits["monthly_granted"]) + " (USD)";
+    }
     if (credits["expires_at"].is<uint32_t>()) {
       time_t epoch = credits["expires_at"].as<uint32_t>();
       struct tm utc;
       gmtime_r(&epoch, &utc);
       char expiry[18];
-      strftime(expiry, sizeof(expiry), " EXP %d/%m UTC", &utc);
+      strftime(expiry, sizeof(expiry), " - exp. %d/%m", &utc);
       provider.creditLines[1] += expiry;
     }
   }
