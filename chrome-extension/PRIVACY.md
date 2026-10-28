@@ -1,6 +1,6 @@
 # Confidentialité — Quota Display pour Chrome
 
-Dernière mise à jour : 21 octobre 2026.
+Dernière mise à jour : 27 octobre 2026.
 
 Quota Display pour Chrome affiche les quotas fournis par le Companion installé
 sur votre Mac. L’extension est uniquement cliente de cette API.
@@ -11,7 +11,8 @@ sur votre Mac. L’extension est uniquement cliente de cette API.
   `chrome.storage.local`, dans votre profil Chrome, sans synchronisation avec
   votre compte Google. La préférence du pourcentage affiché sur l’icône y est
   aussi conservée.
-- Les quotas, forfaits, états des fournisseurs, dates de remise à zéro et réglages
+- Les quotas, forfaits, soldes de crédits, identifiant d’organisation Console,
+  états des fournisseurs, dates de remise à zéro ou d’expiration et réglages
   reçus du Mac sont conservés temporairement dans `chrome.storage.session` pour
   afficher le tableau de bord, y compris les dernières données si le Mac devient
   inaccessible. Ce cache disparaît à la fin de la session du navigateur.

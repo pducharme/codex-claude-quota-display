@@ -147,12 +147,12 @@ function quotaCell(ctx, label, window, [x, y, width, height], accent, duration, 
   roundRect(ctx, [x, y, width, height], 8, C.cell);
   text(ctx, label, [x + 8, y + 5, width - 16, 11], 7.5, C.muted, { weight: 700 });
   pixelText(ctx, remainingText(window), [x + 8, y + 19, width - 16, 25], 3, quotaColor(percent));
-  text(ctx, percent == null ? "NON FOURNI" : "LIBRE", [x + 8, y + 42, width - 16, 10], 7, C.muted, { align: "right", weight: 600 });
-  bar(ctx, [x + 8, y + 55, width - 16, 6], percent, accent);
+  text(ctx, percent == null ? "NON FOURNI" : "LIBRE", [x + 8, y + 31, width - 16, 10], 7, C.muted, { align: "right", weight: 600 });
+  bar(ctx, [x + 8, y + 46, width - 16, 6], percent, accent);
   const segmentWidth = (width - 16 - (segments - 1) * 2) / segments;
   const filled = finite(window?.resets_at) ? clamp((window.resets_at - now) / duration, 0, 1) * segments : 0;
   for (let index = 0; index < segments; index++) {
-    const segment = [x + 8 + index * (segmentWidth + 2), y + 65, segmentWidth, 4];
+    const segment = [x + 8 + index * (segmentWidth + 2), y + 54, segmentWidth, 4];
     roundRect(ctx, segment, 2, C.track);
     const fraction = clamp(filled - index, 0, 1);
     if (fraction > 0) {
@@ -162,7 +162,18 @@ function quotaCell(ctx, label, window, [x, y, width, height], accent, duration, 
       ctx.restore();
     }
   }
-  text(ctx, `RESET ${countdown(window?.resets_at, now)}`, [x + 8, y + 73, width - 16, 14], 10.5, C.muted, { mono: true });
+  text(ctx, `RESET ${countdown(window?.resets_at, now)}`, [x + 8, y + 62, width - 16, 14], 10.5, C.muted, { mono: true });
+}
+
+function creditLines(key, provider) {
+  const credits = provider?.credits;
+  const number = (field, dollars = true) => finite(credits?.[field]) && credits[field] >= 0
+    ? credits[field].toLocaleString("fr-CA", { minimumFractionDigits: dollars ? 2 : 0, maximumFractionDigits: 2 }) + (dollars ? " $US" : "") : "—";
+  if (key === "codex") return [`CRÉDITS OPENAI : ${credits?.unlimited === true ? "ILLIMITÉS" : number("balance", false)}`];
+  const stale = credits?.status === "stale" ? "≈ " : "";
+  const purchased = `${stale}API ACHETÉS : ${number("purchased")}${credits?.promotional > 0 ? ` · PROMO ${number("promotional")}` : ""}`;
+  const expiry = finite(credits?.expires_at) ? ` · EXP ${new Date(credits.expires_at * 1000).toLocaleDateString("fr-FR", {day: "2-digit", month: "2-digit", timeZone: "UTC"})} UTC` : "";
+  return [purchased, `${stale}API MENSUEL : ${credits?.monthly_granted > 0 ? `${number("monthly", false)}/${number("monthly_granted")}` : number("monthly")}${expiry}`];
 }
 
 function providerCard(ctx, key, provider, [x, y, width, height], now, frame) {
@@ -179,9 +190,9 @@ function providerCard(ctx, key, provider, [x, y, width, height], now, frame) {
   text(ctx, plan, [planX + 5, y + 14, planWidth - 10, 12], 9, accent, { align: "center", weight: 700 });
   circle(ctx, x + width - 13.5, y + 20.5, 3.5, provider?.status === "ok" ? C.green : provider?.status === "stale" ? C.amber : C.red);
   const cellWidth = (width - 28) / 2;
-  quotaCell(ctx, "5 HEURES", provider?.five_hour, [x + 10, y + 38, cellWidth, 90], accent, 5 * 3600, 5, now);
-  quotaCell(ctx, "SEMAINE", provider?.weekly, [x + 18 + cellWidth, y + 38, cellWidth, 90], accent, 7 * 86400, 7, now);
-  const count = resetCount(provider), bottom = y + 139;
+  quotaCell(ctx, "5 HEURES", provider?.five_hour, [x + 10, y + 38, cellWidth, 78], accent, 5 * 3600, 5, now);
+  quotaCell(ctx, "SEMAINE", provider?.weekly, [x + 18 + cellWidth, y + 38, cellWidth, 78], accent, 7 * 86400, 7, now);
+  const count = resetCount(provider), bottom = y + 121;
   if (codex) {
     text(ctx, "RESETS:", [x + 10, bottom, 46, 12], 8, C.muted, { weight: 700 });
     text(ctx, count ?? "—", [x + 57, bottom - 1, 18, 13], 8, accent, { mono: true, weight: 700 });
@@ -192,8 +203,9 @@ function providerCard(ctx, key, provider, [x, y, width, height], now, frame) {
     text(ctx, "FABLE:", [x + 10, bottom, 42, 12], 8, C.muted, { weight: 700 });
     bar(ctx, [x + 53, bottom + 2, compactWidth - 93, 7], remaining(provider?.fable_weekly), accent);
     pixelText(ctx, remainingText(provider?.fable_weekly), [x + compactWidth - 38, bottom - 1, 28, 13], 1, quotaColor(remaining(provider?.fable_weekly)), "right");
-    text(ctx, `RESETS: ${count ?? "—"} ›`, [x + width - 100, y + 138, 90, 14], 9, accent, { align: "right", mono: true, weight: 700 });
+    text(ctx, `RESETS: ${count ?? "—"} ›`, [x + width - 100, y + 120, 90, 14], 9, accent, { align: "right", mono: true, weight: 700 });
   }
+  creditLines(key, provider).forEach((line, index) => text(ctx, line, [x + 10, y + 135 + index * 12, width - 20, 12], 9, provider?.credits?.status === "stale" ? C.amber : accent));
 }
 
 function bankedDetail(ctx, key, provider, now, frame, detailOffset) {
@@ -282,6 +294,9 @@ export function dashboardSummary(snapshot, { online = true, detail = null } = {}
     const provider = snapshot.providers?.[key], name = key === "codex" ? "Codex" : "Claude";
     if (detail) parts.push(`${name}, ${resetCount(provider) ?? "—"} resets en banque. ${resetRows(provider, now).join(". ")}.`);
     else parts.push(`${name}, forfait ${typeof provider?.plan === "string" ? provider.plan : "inconnu"}, 5 heures ${remainingText(provider?.five_hour)}, semaine ${remainingText(provider?.weekly)}${key === "claude" ? `, Fable ${remainingText(provider?.fable_weekly)}` : ""}, ${resetCount(provider) ?? "—"} resets en banque.`);
+    parts.push(creditLines(key, provider).join(". "));
+    if (provider?.credits?.status === "stale") parts.push("Crédits non actualisés : reconnectez Claude Console sur le Mac source.");
+    if (typeof provider?.credits?.organization_id === "string") parts.push(`Organisation Console : ${provider.credits.organization_id}.`);
     if (provider?.error_reason === "authentication_required") parts.push(`${name} : connexion requise sur le Mac source.`);
   }
   const address = typeof snapshot.api?.address === "string" ? snapshot.api.address : "port 8788";

@@ -8,7 +8,7 @@ de l’API : un Mac source conserve les sessions et collecte les quotas.
 [Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
 
 [Télécharger le Companion macOS](https://github.com/pducharme/codex-claude-quota-display/releases/latest)
-· [Télécharger l’extension Chrome 1.0.0](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.0)
+· [Télécharger l’extension Chrome 1.0.1](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.1)
 · [Installer l’extension](#installer-lextension-chrome)
 · [Confidentialité de l’extension](chrome-extension/PRIVACY.md)
 
@@ -22,6 +22,8 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
 - Quotas restants sur 5 heures et sur la semaine.
 - Forfaits Codex et Claude, quotas Fable et resets Codex/Claude en banque lorsque les
   fournisseurs les rendent disponibles.
+- Crédits OpenAI Work/Codex, crédits API Claude achetés et solde mensuel lié au
+  forfait Claude, avec son montant accordé et son expiration (UTC).
 - Jauges réelles accompagnées de segments indiquant où la consommation devrait
   théoriquement se situer dans la période.
 - Companion natif dans la barre de menus macOS.
@@ -41,7 +43,7 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
 ## Architecture
 
 Un Mac agit comme source et garde les sessions des fournisseurs localement. Son
-pont API transmet uniquement les quotas, les heures de remise à zéro et les
+pont API transmet uniquement les quotas, les soldes de crédits, les heures de remise à zéro et les
 données météo aux autres appareils :
 
 ```text
@@ -70,15 +72,15 @@ Le projet contient quatre parties :
 - Codex.app et/ou Claude Desktop installés et connectés.
 
 Pour mettre à jour un Companion déjà installé, utilisez **Paramètres → Mises à
-jour → Vérifier les mises à jour…**. La version 1.1.13 fournit un ZIP contenant
-l’application signée Developer ID et une signature Sparkle pour sa mise à jour.
-Elle corrige le format du flux qui empêchait la reprise de certaines installations.
+jour → Vérifier les mises à jour…**. La version 1.1.14 ajoute les soldes de
+crédits OpenAI et Claude et fournit un ZIP contenant l’application universelle
+signée Developer ID avec sa signature Sparkle.
 Les versions antérieures à 1.0.7 restent dirigées vers une installation manuelle
 depuis la page de téléchargement.
 
 Pour une première installation avec configuration du pont API, téléchargez le
-[paquet 1.1.11](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.11/Quota-Display-1.1.11.pkg),
-puis ouvrez-le et effectuez la mise à jour du Companion. Le paquet universel prend en charge Apple Silicon et Intel. Il
+[paquet 1.1.14](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.14/Quota-Display-1.1.14.pkg),
+puis ouvrez-le. Le paquet universel prend en charge Apple Silicon et Intel. Il
 installe le Companion et son pont API, puis configure leur démarrage à
 l’ouverture de session.
 
@@ -100,6 +102,22 @@ Après l’installation :
    le Companion garde la même identité de signature entre les versions. Une
    nouvelle autorisation est nécessaire au passage depuis une ancienne signature.
 4. Choisissez **Actualiser les quotas**.
+
+Pour les crédits API Claude, ouvrez **Paramètres → API et connexions → Connexions →
+Autoriser Claude Console via Chrome…** sur le Mac source. Connectez-vous à la
+Console dans le profil Chrome actif et sélectionnez l’organisation concernée.
+Dans le sélecteur macOS, choisissez le fichier **Cookies** de ce profil, puis
+autorisez **Chrome Safe Storage** si macOS le demande. Une autorisation de lecture
+du fichier est conservée sur ce Mac. Le Companion
+réutilise uniquement les cookies de session de la Console, en mémoire, pour
+relire ses soldes toutes les cinq minutes; il n’enregistre aucun cookie.
+Les crédits achetés et les crédits mensuels sont affichés séparément :
+le montant mensuel accordé n’est pas ajouté une seconde fois au solde restant.
+Les autres crédits promotionnels sont identifiés séparément. Après quinze
+minutes sans lecture réussie, le dernier solde est marqué **≈**; reconnectez la
+Console si nécessaire. Un solde non fourni reste **—**, jamais un zéro supposé.
+Les clients Chrome et les mini-écrans lisent ces valeurs par l’API existante et
+nécessitent leurs versions prenant en charge l’affichage des crédits.
 
 Par défaut, le menu montre seulement le tableau de bord et une ligne
 **Paramètres**. Les réglages sont regroupés dans **Affichage** (fournisseurs,
@@ -145,19 +163,19 @@ sur la source : tous les Companions et mini-écrans adoptent le même affichage.
 ## Installer l’extension Chrome
 
 L’extension reprend le tableau de bord du Companion : quotas, forfaits, Fable,
-mascottes animées et resets en banque. Cliquez sur une carte pour consulter les
+mascottes animées, resets en banque et soldes de crédits. Cliquez sur une carte pour consulter les
 dates des resets, puis appuyez sur **Échap** pour revenir. Le Mac source doit
 rester allumé et son pont API accessible; il conserve les sessions Codex et Claude
 et collecte leurs quotas.
 
 1. Téléchargez le ZIP de l’extension depuis la
-   [release Chrome 1.0.0](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.0),
+   [release Chrome 1.0.1](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.1),
    puis décompressez-le. Les [sources sont dans `chrome-extension/`](chrome-extension/).
 2. Ouvrez `chrome://extensions`, activez le **Mode développeur**, puis choisissez
    **Charger l’extension non empaquetée** et sélectionnez le dossier décompressé
    contenant `manifest.json` — ou le dossier `chrome-extension/` de ce dépôt.
-   L’extension a été soumise à l’examen de Google; sa publication dans le Chrome
-   Web Store sera automatique après approbation.
+   Les mises à jour automatiques depuis le Chrome Web Store dépendent de la
+   validation de Google; le ZIP de cette release permet une installation manuelle.
 3. Épinglez **Quota Display — Companion** dans le menu des extensions de Chrome,
    puis cliquez sur son icône.
 4. Sur le Mac source, choisissez **Paramètres → API et connexions → Copier la
@@ -208,12 +226,12 @@ révisions actuelles.
 
 ### Firmware précompilé
 
-Pour le Designer et les nouvelles alertes Avion, téléchargez
-`quota-display-flight-2026.09.24-app.bin` et sa somme SHA-256 dans la
-[release 1.1.8](https://github.com/pducharme/codex-claude-quota-display/releases/tag/v1.1.8).
+Pour les crédits OpenAI et Claude, le Designer et les alertes Avion, téléchargez
+`quota-display-credits-2026.10.27-app.bin` et sa somme SHA-256 dans la
+[release firmware du 27 octobre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.10.27).
 Sur un écran déjà configuré, écrivez cette image application à **`0x10000`**
-pour conserver les réglages. Les images historiques ci-dessous ne contiennent
-pas le moteur Designer.
+pour conserver les réglages. Le Companion source doit utiliser la version 1.1.14
+ou une version plus récente pour fournir les soldes de crédits.
 
 La [version firmware du 20 septembre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.09.20)
 inclut les réglages web tactiles et désactive la DEL de charge clignotante dès

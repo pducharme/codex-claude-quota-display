@@ -42,8 +42,11 @@ Politique publique :
 - Déclarer le **contenu de site Web** pour les réponses de l’API : quotas,
   forfaits, états, dates de remise à zéro et réglages. Ces données restent dans
   le cache de session Chrome et servent au tableau de bord et au badge.
-- Aucun historique de navigation, suivi des pages, identifiant fournisseur,
-  session OAuth, conversation ou donnée de paiement n’est lu par l’extension.
+- Déclarer les **informations financières et de paiement** pour les soldes de
+  crédits API et les montants mensuels. Les numéros de carte et moyens de paiement
+  ne sont jamais reçus; seuls les soldes normalisés par le Mac sont affichés.
+- Aucun historique de navigation, suivi des pages, identifiant de connexion,
+  session OAuth, conversation, numéro de carte ou coordonnée bancaire n’est lu par l’extension.
   Aucun service de publicité, de télémétrie ou de collecte du développeur n’est
   intégré. Aucune vente de données ni utilisation pour la publicité ou la
   solvabilité.
@@ -71,8 +74,9 @@ le Designer et les intégrations restent gérés par le Companion Mac.
 2. Sur le Mac : **Paramètres → API et connexions → Copier la configuration API**.
 3. Dans l’extension : **Paramètres → API et connexions**, coller la configuration,
    puis choisir **Enregistrer et connecter** et autoriser l’hôte configuré.
-4. Vérifier les quotas, les resets en banque, le badge, l’actualisation et la
-   fenêtre permanente. Les valeurs de quota et de reset dépendent des données
+4. Avec le Companion Mac 1.1.14, connecter Claude Console sur le Mac source pour
+   vérifier aussi les crédits achetés et mensuels. Vérifier les quotas, les resets
+   en banque, le badge, l’actualisation et la fenêtre permanente. Les valeurs de quota et de reset dépendent des données
    fournies par les comptes du Mac source.
 5. Vérifier les réglages de visibilité et de veille : ils sont partagés avec le
    Mac source et ses mini-écrans. Déconnecter termine la connexion côté Chrome.

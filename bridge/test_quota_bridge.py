@@ -31,6 +31,7 @@ from quota_bridge import (
     read_claude,
     read_codex,
     read_claude_desktop_cache,
+    read_claude_console_credits,
     read_claude_plan,
     read_weather,
     rain_summary,
@@ -39,6 +40,53 @@ from quota_bridge import (
 
 
 class QuotaParsingTest(unittest.TestCase):
+    def test_openai_credits_are_separate_from_limits_and_reset_credits(self):
+        credits = {"balance": "12345.67", "unlimited": False, "hasCredits": True}
+        result = {"rateLimits": {"credits": {"balance": "999"}},
+                  "rateLimitsByLimitId": {"codex": {"credits": credits}}}
+        self.assertEqual(parse_codex_limits(result)["credits"], {"balance": 12345.67, "unlimited": False})
+        self.assertIsNone(parse_codex_limits({})["credits"])
+        for invalid in [True, "unknown", "NaN", "Infinity", -1, {}, 10**400]:
+            result = {"rateLimits": {"credits": dict(credits, balance=invalid)}}
+            self.assertIsNone(parse_codex_limits(result)["credits"]["balance"])
+        self.assertEqual(parse_codex_limits({"rateLimits": {"credits": {"balance": "0"}}})["credits"]["balance"], 0)
+        self.assertTrue(parse_codex_limits({"rateLimits": {"credits": {"unlimited": True}}})["credits"]["unlimited"])
+
+    def test_claude_console_separates_paid_monthly_and_other_promos_without_double_counting(self):
+        tranche = {"currency": "USD", "remaining_amount_minor_units": 8765,
+                   "granted_amount_minor_units": 20000, "expires_at": "2026-11-26T00:00:00Z",
+                   "program_id": "subscription_api_credit"}
+        cache = {"updated_at": 1000, "organization_id": "00000000-0000-4000-8000-000000000001",
+                 "currency": "USD", "amount": 8766, "amount_without_scoped_credits": 0,
+                 "promo_tranches": [tranche], "sessionKey": "test-secret"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "claude-console-credits.json"
+            path.write_text(json.dumps(cache))
+            parsed = read_claude_console_credits(path, now=1000)
+            self.assertEqual((parsed["purchased"], parsed["monthly"], parsed["monthly_granted"], parsed["promotional"]), (0, 87.65, 200, 0))
+            self.assertNotIn("test-secret", json.dumps(parsed))
+            self.assertEqual(read_claude_console_credits(path, now=1901)["status"], "stale")
+            cache["amount_without_scoped_credits"] = 1250
+            cache["promo_tranches"] += [dict(tranche, program_id="other", remaining_amount_minor_units=100),
+                                       dict(tranche, expires_at="1970-01-01T00:00:01Z")]
+            path.write_text(json.dumps(cache))
+            parsed = read_claude_console_credits(path, now=1000)
+            self.assertEqual((parsed["purchased"], parsed["monthly"], parsed["promotional"]), (12.5, 87.65, 1))
+            state = QuotaState(display_path=Path(directory) / "display.json")
+            with patch("quota_bridge.time.time", return_value=1000):
+                self.assertEqual(state.payload()["providers"]["claude"]["credits"], parsed)
+            for invalid in [True, -1, 12.5, "8765", None]:
+                cache["amount_without_scoped_credits"] = invalid
+                path.write_text(json.dumps(cache))
+                self.assertIsNone(read_claude_console_credits(path, now=1000))
+            cache["amount_without_scoped_credits"] = 0
+            for overrides in [{"currency": "EUR"}, {"updated_at": 1001}, {"organization_id": "bad"},
+                              {"promo_tranches": [dict(tranche, remaining_amount_minor_units=20001)]},
+                              {"promo_tranches": [dict(tranche, expires_at="2026-11-26T00:00:00")]},
+                              {"promo_tranches": None}]:
+                path.write_text(json.dumps(dict(cache, **overrides)))
+                self.assertIsNone(read_claude_console_credits(path, now=1000))
+
     def test_provider_failure_classifies_protocol_codes_without_raw_data(self):
         expected = {-32700: "invalid_request", -32600: "invalid_request",
                     -32601: "unsupported_operation", -32602: "invalid_request",

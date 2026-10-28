@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 from designer import Designer
 
-APP_VERSION = "1.1.13"
+APP_VERSION = "1.1.14"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -222,6 +222,17 @@ def parse_codex_limits(result):
         "prolite": "Pro 5X",
         "pro": "Pro 20X",
     }.get(limits.get("planType"))
+    credits = limits.get("credits")
+    windows["credits"] = None
+    if isinstance(credits, dict):
+        balance = credits.get("balance")
+        try:
+            balance = float(balance) if type(balance) in (int, float, str) else None
+        except (ValueError, OverflowError):
+            balance = None
+        if balance is not None and (not math.isfinite(balance) or not 0 <= balance <= 1e12):
+            balance = None
+        windows["credits"] = {"balance": balance, "unlimited": credits.get("unlimited") is True}
 
     for candidate in (limits.get("primary"), limits.get("secondary")):
         if not isinstance(candidate, dict):
@@ -262,6 +273,51 @@ def parse_codex_limits(result):
         "expirations": expirations,
     }
     return windows
+
+
+def read_claude_console_credits(path=None, now=None):
+    """Read only the allowlisted billing snapshot collected by the Mac's Console reader."""
+    path = path or Path.home() / "Library/Application Support/Quota Display/claude-console-credits.json"
+    now = int(time.time() if now is None else now)
+    try:
+        value = json.loads(Path(path).read_text())
+        updated = value["updated_at"]
+        organization = str(uuid.UUID(value["organization_id"]))
+        if type(updated) is not int or not 0 <= updated <= now or value["currency"] != "USD":
+            return None
+        def cents(amount):
+            if type(amount) is not int or not 0 <= amount <= 10**14:
+                raise ValueError("Invalid credit amount")
+            return amount
+        purchased = cents(value["amount_without_scoped_credits"])
+        monthly, granted, promotional, expirations = 0, 0, 0, []
+        tranches = value["promo_tranches"]
+        if not isinstance(tranches, list) or len(tranches) > 1000:
+            return None
+        for tranche in tranches:
+            if tranche["currency"] != "USD":
+                return None
+            remaining = cents(tranche["remaining_amount_minor_units"])
+            initial = cents(tranche["granted_amount_minor_units"])
+            if remaining > initial:
+                return None
+            expiry = datetime.fromisoformat(tranche["expires_at"].replace("Z", "+00:00"))
+            if expiry.tzinfo is None:
+                return None
+            if expiry.timestamp() <= now:
+                continue
+            if tranche.get("program_id") == "subscription_api_credit":
+                monthly += remaining
+                granted += initial
+                expirations.append(int(expiry.timestamp()))
+            else:
+                promotional += remaining
+        return {"status": "ok" if now - updated <= 900 else "stale", "updated_at": updated,
+                "organization_id": organization, "currency": "USD", "purchased": purchased / 100,
+                "monthly": monthly / 100, "monthly_granted": granted / 100,
+                "promotional": promotional / 100, "expires_at": min(expirations, default=None)}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        return None
 
 
 def read_claude_oauth():
@@ -970,6 +1026,9 @@ class QuotaState:
                 "started_at": self.refresh_started_at,
                 "interval_seconds": self.interval,
             }
+        if refresh["enabled"]:
+            path = self.display_path.with_name("claude-console-credits.json") if self.display_path else None
+            providers["claude"]["credits"] = read_claude_console_credits(path)
         return {
             "version": 1,
             "app_version": APP_VERSION,

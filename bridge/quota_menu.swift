@@ -64,6 +64,32 @@ private final class DesignerWindow: NSWindowController, WKNavigationDelegate {
     }
 }
 
+private func consoleCreditSnapshot(_ body: Any, now: Int = Int(Date().timeIntervalSince1970)) -> [String: Any]? {
+    guard let body = body as? [String: Any],
+          let organization = body["organization_id"] as? String, UUID(uuidString: organization) != nil,
+          let source = body["credits"] as? [String: Any], source["currency"] as? String == "USD",
+          let purchased = source["amount_without_scoped_credits"] as? NSNumber,
+          CFGetTypeID(purchased) != CFBooleanGetTypeID(), purchased.doubleValue.isFinite,
+          purchased.doubleValue >= 0, purchased.doubleValue <= 1e14,
+          purchased.doubleValue.rounded() == purchased.doubleValue,
+          let tranches = source["promo_tranches"] as? [[String: Any]], tranches.count <= 1000 else { return nil }
+    var filtered: [[String: Any]] = []
+    for tranche in tranches {
+        guard tranche["currency"] as? String == "USD",
+              let remaining = tranche["remaining_amount_minor_units"] as? NSNumber,
+              let granted = tranche["granted_amount_minor_units"] as? NSNumber,
+              [remaining, granted].allSatisfy({ CFGetTypeID($0) != CFBooleanGetTypeID()
+                  && $0.doubleValue.isFinite && $0.doubleValue >= 0 && $0.doubleValue <= 1e14
+                  && $0.doubleValue.rounded() == $0.doubleValue }), remaining.doubleValue <= granted.doubleValue,
+              let expiry = tranche["expires_at"] as? String, epoch(fromISO8601: expiry) != nil else { return nil }
+        filtered.append(["currency": "USD", "remaining_amount_minor_units": remaining,
+                         "granted_amount_minor_units": granted, "expires_at": expiry,
+                         "program_id": tranche["program_id"] as? String == "subscription_api_credit" ? "subscription_api_credit" : "other"])
+    }
+    return ["updated_at": now, "organization_id": organization.lowercased(), "currency": "USD",
+            "amount_without_scoped_credits": purchased, "promo_tranches": filtered]
+}
+
 private final class QuotaDiagnostics {
     static let shared = QuotaDiagnostics()
     static let disabledURL = FileManager.default.homeDirectoryForCurrentUser
@@ -296,13 +322,13 @@ private func claudeDesktopHasCredentialMaterial() -> Bool {
     return claudeDesktopCookieURLs.contains { FileManager.default.fileExists(atPath: $0.path) }
 }
 
-private func claudeSafeStorageKey(allowPrompt: Bool) throws -> Data {
+private func safeStorageKey(service: String, account: String, allowPrompt: Bool) throws -> Data {
     let context = LAContext()
     context.interactionNotAllowed = !allowPrompt
     let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "Claude Safe Storage",
-        kSecAttrAccount as String: "Claude Key",
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: account,
         kSecReturnData as String: true,
         kSecMatchLimit as String: kSecMatchLimitOne,
         kSecUseAuthenticationContext as String: context,
@@ -383,23 +409,28 @@ private func sha256(_ data: Data) -> Data {
     return Data(digest)
 }
 
-private func claudeDesktopCookie(_ name: String, key: Data) -> String? {
-    for url in claudeDesktopCookieURLs where FileManager.default.fileExists(atPath: url.path) {
+private func chromiumCookie(_ name: String, key: Data, urls: [URL], hosts: [String]) -> String? {
+    guard !hosts.isEmpty else { return nil }
+    for url in urls where FileManager.default.fileExists(atPath: url.path) {
         var database: OpaquePointer?
         guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            sqlite3_close(database)
             continue
         }
         defer { sqlite3_close(database) }
         sqlite3_busy_timeout(database, 500)
-        let sql = "SELECT host_key, value, encrypted_value FROM cookies WHERE name=? AND host_key IN ('.claude.ai','claude.ai') ORDER BY last_update_utc DESC LIMIT 1"
+        let placeholders = Array(repeating: "?", count: hosts.count).joined(separator: ",")
+        let sql = "SELECT host_key, value, encrypted_value FROM cookies WHERE name=? AND host_key IN (\(placeholders)) ORDER BY last_update_utc DESC LIMIT 1"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
             continue
         }
         defer { sqlite3_finalize(statement) }
-        _ = name.withCString { sqlite3_bind_text(statement, 1, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }
+        for (index, value) in ([name] + hosts).enumerated() {
+            _ = value.withCString { sqlite3_bind_text(statement, Int32(index + 1), $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }
+        }
         guard sqlite3_step(statement) == SQLITE_ROW else { continue }
-        let host = sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? "claude.ai"
+        guard let host = sqlite3_column_text(statement, 0).map({ String(cString: $0) }) else { continue }
         if
             let text = sqlite3_column_text(statement, 1).map({ String(cString: $0) }),
             !text.isEmpty
@@ -418,6 +449,53 @@ private func claudeDesktopCookie(_ name: String, key: Data) -> String? {
         return text
     }
     return nil
+}
+
+private func claudeDesktopCookie(_ name: String, key: Data) -> String? {
+    chromiumCookie(name, key: key, urls: claudeDesktopCookieURLs, hosts: [".claude.ai", "claude.ai"])
+}
+
+private func chromeProfileName(_ value: Any?) -> String? {
+    guard let name = value as? String,
+          name == "Default" || name.range(of: #"\AProfile [0-9]+\z"#, options: .regularExpression) != nil else { return nil }
+    return name
+}
+
+private var chromeConsoleDirectory: URL {
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Google/Chrome")
+}
+
+private var chromeConsoleBookmarkURL: URL {
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Quota Display/chrome-console-cookies.bookmark")
+}
+
+private func isChromeCookieURL(_ url: URL) -> Bool {
+    let root = chromeConsoleDirectory.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+    let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+    guard path.hasPrefix(root) else { return false }
+    let parts = String(path.dropFirst(root.count)).split(separator: "/").map(String.init)
+    guard let profile = parts.first, chromeProfileName(profile) != nil else { return false }
+    return Array(parts.dropFirst()) == ["Cookies"] || Array(parts.dropFirst()) == ["Network", "Cookies"]
+}
+
+private func loadChromeConsoleSession(allowPrompt: Bool) throws -> (organization: String, cookie: String) {
+    guard let encoded = try? String(contentsOf: chromeConsoleBookmarkURL, encoding: .utf8),
+          let bookmark = Data(base64Encoded: encoded.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw ClaudeDesktopError.unavailable }
+    var stale = false
+    let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI], relativeTo: nil, bookmarkDataIsStale: &stale)
+    guard !stale, isChromeCookieURL(url) else { throw ClaudeDesktopError.unavailable }
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    let urls = [url]
+    let password = try safeStorageKey(service: "Chrome Safe Storage", account: "Chrome", allowPrompt: allowPrompt)
+    let key = try claudeDesktopKey(from: password)
+    let hosts = ["platform.claude.com", ".platform.claude.com", ".claude.com"]
+    guard let organization = chromiumCookie("lastActiveOrg", key: key, urls: urls, hosts: hosts)?.lowercased(),
+          UUID(uuidString: organization) != nil,
+          let cookie = chromiumCookie("sessionKey", key: key, urls: urls, hosts: hosts),
+          !cookie.isEmpty, cookie.utf8.count <= 8192,
+          cookie.utf8.allSatisfy({ $0 > 32 && $0 < 127 && $0 != 59 }) else { throw ClaudeDesktopError.noAccount }
+    return (organization, cookie)
 }
 
 private func decodedClaudeDesktopCache(_ value: Any?, key: Data) -> [String: Any]? {
@@ -470,7 +548,7 @@ private func loadClaudeDesktopCredential(allowPrompt: Bool) throws -> ClaudeDesk
         let configData = try? Data(contentsOf: claudeDesktopConfigURL),
         let root = try? JSONSerialization.jsonObject(with: configData) as? [String: Any]
     else { throw ClaudeDesktopError.unavailable }
-    let password = try claudeSafeStorageKey(allowPrompt: allowPrompt)
+    let password = try safeStorageKey(service: "Claude Safe Storage", account: "Claude Key", allowPrompt: allowPrompt)
     let key = try claudeDesktopKey(from: password)
     guard let organization = claudeDesktopCookie("lastActiveOrg", key: key)?.lowercased(),
           UUID(uuidString: organization) != nil else {
@@ -621,6 +699,35 @@ private struct ProviderQuotas {
     let bankedResets: Int?
     let bankedResetExpirations: [Int]
     var authenticationRequired = false
+    var credits: [String: Any]? = nil
+}
+
+private func creditLines(_ provider: ProviderQuotas?, codex: Bool) -> [String] {
+    let credits = provider?.credits
+    func number(_ key: String, dollars: Bool = true) -> String {
+        guard let value = credits?[key] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+              value.doubleValue.isFinite, value.doubleValue >= 0 else { return "—" }
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "fr_CA")
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = dollars ? 2 : 0
+        formatter.maximumFractionDigits = 2
+        return (formatter.string(from: value) ?? "—") + (dollars ? " $US" : "")
+    }
+    if codex { return ["CRÉDITS OPENAI : " + (credits?["unlimited"] as? Bool == true ? "ILLIMITÉS" : number("balance", dollars: false))] }
+    let stale = credits?["status"] as? String == "stale" ? "≈ " : ""
+    var purchased = "\(stale)API ACHETÉS : \(number("purchased"))"
+    if (credits?["promotional"] as? NSNumber)?.doubleValue ?? 0 > 0 { purchased += " · PROMO \(number("promotional"))" }
+    let granted = (credits?["monthly_granted"] as? NSNumber)?.doubleValue ?? 0
+    var monthly = "\(stale)API MENSUEL : \(number("monthly"))"
+    if granted > 0 { monthly = "\(stale)API MENSUEL : \(number("monthly", dollars: false))/\(number("monthly_granted"))" }
+    if let expiry = credits?["expires_at"] as? Int {
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "dd/MM"
+        monthly += " · EXP \(formatter.string(from: Date(timeIntervalSince1970: Double(expiry)))) UTC"
+    }
+    return [purchased, monthly]
 }
 
 private struct DisplaySleep: Codable, Equatable {
@@ -969,7 +1076,8 @@ private func providerQuotas(_ value: Any?) -> ProviderQuotas? {
         bankedResets: resets?["available_count"] as? Int,
         bankedResetExpirations: (resets?["expirations"] as? [[String: Any]] ?? [])
             .compactMap { $0["expires_at"] as? Int }.filter { $0 > 0 }.sorted(),
-        authenticationRequired: value["error_reason"] as? String == "authentication_required"
+        authenticationRequired: value["error_reason"] as? String == "authentication_required",
+        credits: value["credits"] as? [String: Any]
     )
 }
 
@@ -1497,12 +1605,14 @@ private final class QuotaDashboardView: NSView {
         bankedResetsButton.isHidden = !showingBankedResets && panels.codex == nil
         bankedResetsButton.frame = showingBankedResets ? bounds : panels.codex ?? .zero
         let label = showingBankedResets ? "Cliquer n’importe où pour revenir aux quotas" : "Codex : voir les dates d’expiration des resets en banque"
-        bankedResetsButton.toolTip = label
+        bankedResetsButton.toolTip = label + "\n" + creditLines(snapshot?.codex, codex: true).joined(separator: "\n")
         bankedResetsButton.setAccessibilityLabel(label)
         bankedResetsButton.keyEquivalent = showingBankedResets ? "\u{1b}" : ""
         claudeResetsButton.isHidden = showingBankedResets || panels.claude == nil
         claudeResetsButton.frame = panels.claude ?? .zero
-        claudeResetsButton.toolTip = "Claude : voir les dates d’expiration des resets en banque"
+        claudeResetsButton.toolTip = "Claude : voir les dates d’expiration des resets en banque\n" + creditLines(snapshot?.claude, codex: false).joined(separator: "\n")
+            + ((snapshot?.claude.credits?["organization_id"] as? String).map { "\nOrganisation Console : \($0)" } ?? "")
+            + (snapshot?.claude.credits?["status"] as? String == "stale" ? "\nCrédits non actualisés : reconnectez Claude Console." : "")
         claudeResetsButton.setAccessibilityLabel(claudeResetsButton.toolTip)
         bankedResetsScroll.isHidden = !showingBankedResets
         guard showingBankedResets else { return }
@@ -1541,9 +1651,11 @@ private final class QuotaDashboardView: NSView {
         if showingBankedResets {
             parts.append("\(bankedResetProvider == "claude" ? "Claude" : "Codex"), \(resetProviderQuotas?.bankedResets.map(String.init) ?? "—") resets en banque. " + bankedResetRows(resetProviderQuotas).joined(separator: ". "))
         } else if showCodex {
+            parts.append(creditLines(snapshot.codex, codex: true).joined(separator: ". "))
             parts.append("Codex, forfait \(snapshot.codex.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)).")
         }
         if showClaude && !showingBankedResets {
+            parts.append(creditLines(snapshot.claude, codex: false).joined(separator: ". "))
             parts.append("Claude, forfait \(snapshot.claude.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)), \(snapshot.claude.bankedResets.map(String.init) ?? "—") resets en banque.")
         }
         if showClaude && snapshot.claude.authenticationRequired { parts.append("Claude : connexion requise.") }
@@ -1680,7 +1792,7 @@ private final class QuotaDashboardView: NSView {
         drawQuotaCell(
             label: "5 HEURES",
             window: provider.fiveHour,
-            rect: NSRect(x: rect.minX + 10, y: rect.minY + 38, width: cellWidth, height: 90),
+            rect: NSRect(x: rect.minX + 10, y: rect.minY + 38, width: cellWidth, height: 78),
             accent: accent,
             durationSeconds: 5 * 3_600,
             segmentCount: 5
@@ -1688,7 +1800,7 @@ private final class QuotaDashboardView: NSView {
         drawQuotaCell(
             label: "SEMAINE",
             window: provider.weekly,
-            rect: NSRect(x: rect.minX + 10 + cellWidth + cellGap, y: rect.minY + 38, width: cellWidth, height: 90),
+            rect: NSRect(x: rect.minX + 10 + cellWidth + cellGap, y: rect.minY + 38, width: cellWidth, height: 78),
             accent: accent,
             durationSeconds: 7 * 86_400,
             segmentCount: 7
@@ -1697,9 +1809,14 @@ private final class QuotaDashboardView: NSView {
             var quotaRect = rect
             quotaRect.size.width -= 100
             drawCompactQuota(label: compactLabel, window: compactWindow, rect: quotaRect, accent: accent)
-            drawText("RESETS: \(provider.bankedResets.map(String.init) ?? "—") ›", in: NSRect(x: rect.maxX - 100, y: rect.minY + 138, width: 90, height: 14), font: .monospacedDigitSystemFont(ofSize: 9, weight: .bold), color: accent, alignment: .right)
+            drawText("RESETS: \(provider.bankedResets.map(String.init) ?? "—") ›", in: NSRect(x: rect.maxX - 100, y: rect.minY + 120, width: 90, height: 14), font: .monospacedDigitSystemFont(ofSize: 9, weight: .bold), color: accent, alignment: .right)
         } else {
             drawResetCount(label: compactLabel, count: compactCount, rect: rect, accent: accent)
+        }
+        for (index, line) in creditLines(provider, codex: codex).enumerated() {
+            drawText(line, in: NSRect(x: rect.minX + 10, y: rect.minY + 135 + CGFloat(index * 12), width: rect.width - 20, height: 12),
+                     font: .monospacedDigitSystemFont(ofSize: 9, weight: .medium),
+                     color: provider.credits?["status"] as? String == "stale" ? amberColor : accent)
         }
     }
 
@@ -1727,25 +1844,25 @@ private final class QuotaDashboardView: NSView {
         )
         drawText(
             window.remainingPercent == nil ? "NON FOURNI" : "LIBRE",
-            in: NSRect(x: rect.minX + 8, y: rect.minY + 42, width: rect.width - 16, height: 10),
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 31, width: rect.width - 16, height: 10),
             font: .systemFont(ofSize: 7, weight: .semibold),
             color: mutedColor,
             alignment: .right
         )
         drawBar(
-            in: NSRect(x: rect.minX + 8, y: rect.minY + 55, width: rect.width - 16, height: 6),
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 46, width: rect.width - 16, height: 6),
             percent: window.remainingPercent,
             accent: accent
         )
         drawTimeSegments(
-            in: NSRect(x: rect.minX + 8, y: rect.minY + 65, width: rect.width - 16, height: 4),
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 54, width: rect.width - 16, height: 4),
             expectedPercent: expectedRemainingPercent(window, durationSeconds: durationSeconds),
             count: segmentCount,
             accent: accent
         )
         drawText(
             "RESET \(resetCountdown(window))",
-            in: NSRect(x: rect.minX + 8, y: rect.minY + 73, width: rect.width - 16, height: 14),
+            in: NSRect(x: rect.minX + 8, y: rect.minY + 62, width: rect.width - 16, height: 14),
             font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .medium),
             color: mutedColor
         )
@@ -1785,7 +1902,7 @@ private final class QuotaDashboardView: NSView {
     }
 
     private func drawCompactQuota(label: String, window: QuotaWindow, rect: NSRect, accent: NSColor) {
-        let y = rect.minY + 139
+        let y = rect.minY + 121
         drawText(
             label,
             in: NSRect(x: rect.minX + 10, y: y, width: 42, height: 12),
@@ -1806,7 +1923,7 @@ private final class QuotaDashboardView: NSView {
     }
 
     private func drawResetCount(label: String, count: Int?, rect: NSRect, accent: NSColor) {
-        let y = rect.minY + 139
+        let y = rect.minY + 121
         drawText(
             label,
             in: NSRect(x: rect.minX + 10, y: y, width: 46, height: 12),
@@ -1952,6 +2069,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var quotaRequestID: UUID?
     private var quotaRetry: DispatchWorkItem?
     private var refreshingClaudeDesktop = false
+    private var refreshingClaudeConsoleCredits = false
+    private let claudeConsoleItem = NSMenuItem(title: "Autoriser Claude Console via Chrome…", action: nil, keyEquivalent: "")
     private var claudeDesktopCredential: ClaudeDesktopCredential?
     private var autoPrompted = Set<String>()
     private var persistentPanel: NSPanel?
@@ -1986,6 +2105,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             QuotaDiagnostics.shared.capture("claude_visibility", failure: QuotaDiagnostics.failure(error), remote: false)
         }
         claudeActionItem.isEnabled = claudeVisible
+        claudeConsoleItem.isEnabled = claudeVisible && !configuredBridgeSource.remote
         if !claudeVisible { claudeStatus.title = "Claude : masqué" }
     }
 
@@ -2072,6 +2192,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         restartBridgeAfterUpdateIfNeeded()
         checkAuthentication(autoPrompt: true)
         refreshClaudeDesktopIfAuthorized()
+        refreshClaudeConsoleCredits()
         loadAutoLaunchState()
         loadQuotas()
         let iconTimer = Timer(timeInterval: 0.9, target: self, selector: #selector(animateProviderIcons), userInfo: nil, repeats: true)
@@ -2085,6 +2206,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             Task { @MainActor in
                 self?.checkAuthentication(autoPrompt: true)
                 self?.refreshClaudeDesktopIfAuthorized()
+                self?.refreshClaudeConsoleCredits()
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -2200,6 +2322,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         claudeActionItem.target = self
         claudeActionItem.action = #selector(loginClaude)
         connections.addItem(claudeActionItem)
+        claudeConsoleItem.target = self
+        claudeConsoleItem.action = #selector(connectClaudeConsole)
+        claudeConsoleItem.toolTip = "Connectez Claude Console dans Chrome sur le Mac source, puis autorisez la lecture de ses soldes."
+        connections.addItem(claudeConsoleItem)
         connectionsItem.submenu = connections
         api.addItem(.separator())
         api.addItem(connectionsItem)
@@ -3126,6 +3252,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     }
 
     @objc private func refreshQuotas() {
+        refreshClaudeConsoleCredits()
         setRefreshAnimation(true)
         if !configuredBridgeSource.remote && claudeVisible && !claudeAuthenticationRequired && claudeDesktopAuthorized {
             refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
@@ -3140,6 +3267,102 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         guard !configuredBridgeSource.remote, claudeVisible, !claudeAuthenticationRequired, claudeDesktopAuthorized else { return }
         refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
             self?.triggerRefresh()
+        }
+    }
+
+    @objc private func connectClaudeConsole() {
+        let alert = NSAlert()
+        alert.messageText = "Autoriser Claude Console via Chrome"
+        alert.informativeText = "Connectez-vous à Claude Console dans votre profil Chrome actif et sélectionnez l’organisation. Choisissez ensuite le fichier « Cookies » du profil dans le sélecteur macOS, puis autorisez « Chrome Safe Storage ». Seuls les cookies de session de la Console sont lus, en mémoire; seuls les soldes sont enregistrés et partagés avec vos clients."
+        alert.addButton(withTitle: "Autoriser")
+        alert.addButton(withTitle: "Annuler")
+        alert.addButton(withTitle: "Ouvrir la Console")
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if response == .alertThirdButtonReturn {
+            if let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+                NSWorkspace.shared.open([URL(string: "https://platform.claude.com/settings/billing")!],
+                                        withApplicationAt: chrome, configuration: NSWorkspace.OpenConfiguration())
+            }
+        } else if response == .alertFirstButtonReturn {
+            let state = (try? Data(contentsOf: chromeConsoleDirectory.appendingPathComponent("Local State")))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let profile = state?["profile"] as? [String: Any]
+            let panel = NSOpenPanel()
+            panel.title = "Autoriser la lecture Claude Console"
+            panel.message = "Sélectionnez uniquement le fichier Cookies du profil Chrome connecté à la Console. Seuls les cookies de la Console seront utilisés, sur ce Mac."
+            panel.prompt = "Autoriser la lecture"
+            panel.directoryURL = chromeConsoleDirectory.appendingPathComponent(chromeProfileName(profile?["last_used"]) ?? "Default")
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            guard isChromeCookieURL(url) else {
+                showSourceError("Choisissez le fichier Cookies dans Default ou Profile N de Google/Chrome.", title: "Claude Console")
+                return
+            }
+            do {
+                let bookmark = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess], includingResourceValuesForKeys: nil, relativeTo: nil)
+                try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
+                try writePrivate(bookmark.base64EncodedString(), to: chromeConsoleBookmarkURL)
+                refreshClaudeConsoleCredits(show: true)
+            } catch {
+                showSourceError("macOS n’a pas autorisé la lecture du fichier Cookies. Réessayez depuis ce menu.", title: "Claude Console")
+            }
+        }
+    }
+
+    private func refreshClaudeConsoleCredits(show: Bool = false) {
+        guard !configuredBridgeSource.remote, claudeVisible, !refreshingClaudeConsoleCredits else { return }
+        let cache = appSupportURL.appendingPathComponent("claude-console-credits.json")
+        guard show || FileManager.default.fileExists(atPath: cache.path) else { return }
+        refreshingClaudeConsoleCredits = true
+        let finish: (Result<[String: Any], Error>) -> Void = { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.refreshingClaudeConsoleCredits = false
+                guard !self.configuredBridgeSource.remote, self.claudeVisible else { return }
+                do {
+                    let value = try result.get()
+                    try FileManager.default.createDirectory(at: self.appSupportURL, withIntermediateDirectories: true)
+                    let data = try JSONSerialization.data(withJSONObject: value)
+                    try self.writePrivate(String(decoding: data, as: UTF8.self), to: cache)
+                    self.loadQuotas()
+                } catch {
+                    QuotaDiagnostics.shared.capture("claude_console_credits", failure: QuotaDiagnostics.failure(error), remote: false)
+                    if show {
+                        let alert = NSAlert()
+                        alert.messageText = "Crédits Claude Console indisponibles"
+                        if case ClaudeDesktopError.http(let status) = error {
+                            alert.informativeText = "La Console a refusé la lecture (HTTP \(status)). Reconnectez-vous à Claude Console dans Chrome, sélectionnez l’organisation et réessayez."
+                        } else {
+                            alert.informativeText = "Ouvrez Claude Console dans le profil Chrome actif et sélectionnez l’organisation. Sélectionnez à nouveau son fichier Cookies depuis « Autoriser Claude Console via Chrome… », puis autorisez « Chrome Safe Storage » lorsque macOS le demande."
+                        }
+                        NSApp.activate(ignoringOtherApps: true)
+                        alert.runModal()
+                    }
+                }
+            }
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let session = try loadChromeConsoleSession(allowPrompt: show)
+                // shortcut: Console has no public balance API; follow its billing response until one exists.
+                let url = URL(string: "https://platform.claude.com/api/organizations/\(session.organization)/prepaid/credits")!
+                var request = URLRequest(url: url, timeoutInterval: 20)
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                request.setValue("sessionKey=\(session.cookie)", forHTTPHeaderField: "Cookie")
+                claudeResetSession.dataTask(with: request) { data, response, error in
+                    if let error { finish(.failure(error)); return }
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    guard status == 200 else { finish(.failure(ClaudeDesktopError.http(status))); return }
+                    guard let data, data.count <= 1_048_576,
+                          let body = try? JSONSerialization.jsonObject(with: data),
+                          let value = consoleCreditSnapshot(["organization_id": session.organization, "credits": body]) else {
+                        finish(.failure(ClaudeDesktopError.invalidData)); return
+                    }
+                    finish(.success(value))
+                }.resume()
+            } catch { finish(.failure(error)) }
         }
     }
 
@@ -3459,8 +3682,57 @@ private struct QuotaMenu {
             )).connected
             let codexGood = codexState(from: CommandResult(status: 0, output: "Logged in using ChatGPT")).connected
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
-            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1791173954},{"expires_at":1791080428}]}},"claude":{"status":"ok","plan":"Max 5X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1792684800},{"expires_at":1791080428}]}}}}"#
+            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1791173954},{"expires_at":1791080428}]},"credits":{"balance":12345.67,"unlimited":false}},"claude":{"status":"ok","plan":"Max 20X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1792684800},{"expires_at":1791080428}]},"credits":{"status":"ok","purchased":0,"monthly":87.65,"monthly_granted":200,"promotional":0,"expires_at":1795651200,"organization_id":"00000000-0000-4000-8000-000000000001"}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
+            precondition(creditLines(quotas?.codex, codex: true).first?.contains("12") == true)
+            precondition(creditLines(quotas?.claude, codex: false).last?.contains("87,65/200,00") == true)
+            precondition(creditLines(nil, codex: false).allSatisfy { $0.contains("—") })
+            let consoleBody: [String: Any] = ["organization_id": "00000000-0000-4000-8000-000000000001",
+                "credits": ["currency": "USD", "amount_without_scoped_credits": 0, "sessionKey": "test-secret",
+                    "promo_tranches": [["currency": "USD", "remaining_amount_minor_units": 8765,
+                        "granted_amount_minor_units": 20000, "expires_at": "2026-11-26T00:00:00Z",
+                        "program_id": "subscription_api_credit", "private": "test-secret"]]]]
+            let consoleSnapshot = consoleCreditSnapshot(consoleBody, now: 1000)!
+            precondition(chromeProfileName("Default") == "Default" && chromeProfileName("Profile 12") == "Profile 12")
+            for path in ["Default/Cookies", "Profile 12/Network/Cookies"] {
+                precondition(isChromeCookieURL(chromeConsoleDirectory.appendingPathComponent(path)))
+            }
+            for path in ["Default/History", "Profile 1/Login Data", "../Cookies", "Default/Network/Other", "Other/Cookies"] {
+                precondition(!isChromeCookieURL(chromeConsoleDirectory.appendingPathComponent(path)))
+            }
+            for name in [nil, "../Default", "Default/..", "Profile 1\n", "Profile bad", "/tmp/Profile 1"] {
+                precondition(chromeProfileName(name) == nil)
+            }
+            let cookieFile = FileManager.default.temporaryDirectory.appendingPathComponent("quota-cookie-test-\(UUID().uuidString)")
+            do {
+                defer { try? FileManager.default.removeItem(at: cookieFile) }
+                var database: OpaquePointer?
+                precondition(sqlite3_open(cookieFile.path, &database) == SQLITE_OK)
+                defer { sqlite3_close(database) }
+                let fixture = """
+                CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, last_update_utc INTEGER);
+                INSERT INTO cookies VALUES ('platform.claude.com','sessionKey','old-console',X'',1);
+                INSERT INTO cookies VALUES ('platform.claude.com','sessionKey','console-session',X'',2);
+                INSERT INTO cookies VALUES ('claude.ai','sessionKey','desktop-session',X'',3);
+                INSERT INTO cookies VALUES ('other.example','sessionKey','other-secret',X'',4);
+                """
+                precondition(sqlite3_exec(database, fixture, nil, nil, nil) == SQLITE_OK)
+                let urls = [cookieFile], hosts = ["platform.claude.com"]
+                precondition(chromiumCookie("sessionKey", key: Data(), urls: urls, hosts: hosts) == "console-session")
+                precondition(chromiumCookie("sessionKey", key: Data(), urls: urls, hosts: []) == nil)
+                precondition(chromiumCookie("sessionKey", key: Data(), urls: urls, hosts: ["' OR 1=1--"]) == nil)
+                precondition(chromiumCookie("' OR 1=1--", key: Data(), urls: urls, hosts: hosts) == nil)
+            }
+            precondition(consoleSnapshot["updated_at"] as? Int == 1000)
+            precondition(!String(decoding: try! JSONSerialization.data(withJSONObject: consoleSnapshot), as: UTF8.self).contains("test-secret"))
+            precondition(consoleCreditSnapshot(["organization_id": "bad", "credits": [:]]) == nil)
+            for bad: Any in [true, -1, 0.5, "0", Double.infinity] {
+                var invalid = consoleBody
+                var credits = invalid["credits"] as! [String: Any]
+                credits["amount_without_scoped_credits"] = bad
+                invalid["credits"] = credits
+                precondition(consoleCreditSnapshot(invalid) == nil)
+            }
             let resetSample = #"{"cedar_ember":{"eligible":true,"event_props":{"private":"ignored"},"grants":[{"id":"offer","resets_total":2,"resets_left":1,"ends_at":"2026-10-22T16:00:00Z","paused":false,"label":"ignored"}]}}"#
             let parsedResetBank = claudeResetBank(from: Data(resetSample.utf8))
             precondition(parsedResetBank?["eligible"] as? Bool == true && parsedResetBank?["event_props"] == nil)
@@ -3737,7 +4009,7 @@ private struct QuotaMenu {
                 quotas?.codex.weekly.remainingPercent == 93,
                 quotas?.codex.plan == "Pro 20X",
                 quotas?.claude.fiveHour.remainingPercent == 100,
-                quotas?.claude.plan == "Max 5X",
+                quotas?.claude.plan == "Max 20X",
                 quotas?.claude.fableWeekly.remainingPercent == 72,
                 quotas?.displayCodex == true, quotas?.displayClaude == false,
                 sleepingQuotas?.sleep == sleep, sleepResponsesValid,

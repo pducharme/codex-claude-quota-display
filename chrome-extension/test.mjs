@@ -251,6 +251,16 @@ test('dashboard interaction follows provider visibility and detail navigation', 
   drawDashboard(canvas, quotas, {now: 1700000000});
   drawDashboard(canvas, claudeOnly, {online: false});
   drawDashboard(canvas, resets, {detail: 'codex'});
+  const credits = {...quotas, providers: {
+    codex: {...quotas.providers.codex, credits: {balance: 12345.67, unlimited: false}},
+    claude: {status: 'ok', credits: {status: 'stale', purchased: 0, monthly: 87.65, monthly_granted: 200, expires_at: 1795651200}},
+  }};
+  assert.match(dashboardSummary(credits), /12345|12\s345/);
+  assert.match(dashboardSummary(credits), /87,65\/200,00/);
+  assert.match(dashboardSummary(credits), /EXP 26\/11 UTC/);
+  assert.match(dashboardSummary(credits), /Crédits non actualisés/);
+  assert.match(dashboardSummary(quotas), /CRÉDITS OPENAI : —/);
+  drawDashboard(canvas, credits);
   assert.equal(canvas.width, 640);
   assert.equal(canvas.height, 250);
   assert.ok(fills > 0);

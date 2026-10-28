@@ -132,6 +132,9 @@ struct Provider {
   Window fiveHour;
   Window weekly;
   Window fableWeekly;
+  String creditLines[2];
+  bool creditsStale = false;
+  bool creditsAvailable = false;
 };
 
 struct BankedResets {
@@ -306,13 +309,13 @@ void drawTimeSegments(int x, int y, int width, const Window &window,
 void drawQuotaCell(int x, int y, int width, const char *label,
                    const Window &window, uint16_t accent,
                    uint32_t durationSeconds, int segmentCount) {
-  view->fillRoundRect(x, y, width, 101, 8, COLOR_CELL);
+  view->fillRoundRect(x, y, width, 81, 8, COLOR_CELL);
   text(x + 9, y + 7, label, COLOR_MUTED, 1);
   if (!window.available) {
-    text(x + 9, y + 30, "--", COLOR_MUTED, 3);
+    text(x + 9, y + 24, "--", COLOR_MUTED, 3);
     text(x + 55, y + 37, "NON FOURNI", COLOR_MUTED, 1);
-    view->fillRoundRect(x + 9, y + 68, width - 18, 8, 4, COLOR_TRACK);
-    drawTimeSegments(x + 9, y + 79, width - 18, window,
+    view->fillRoundRect(x + 9, y + 48, width - 18, 8, 4, COLOR_TRACK);
+    drawTimeSegments(x + 9, y + 59, width - 18, window,
                      durationSeconds, segmentCount, accent);
     return;
   }
@@ -320,19 +323,19 @@ void drawQuotaCell(int x, int y, int width, const char *label,
   int remaining = 100 - window.used;
   char percentage[8];
   snprintf(percentage, sizeof(percentage), "%d%%", remaining);
-  text(x + 9, y + 27, percentage, quotaColor(remaining), 3);
+  text(x + 9, y + 23, percentage, quotaColor(remaining), 3);
   text(x + width - 40, y + 38, "LIBRE", COLOR_MUTED, 1);
 
   int barWidth = width - 18;
   int fill = (barWidth * remaining) / 100;
-  view->fillRoundRect(x + 9, y + 68, barWidth, 8, 4, COLOR_TRACK);
+  view->fillRoundRect(x + 9, y + 48, barWidth, 8, 4, COLOR_TRACK);
   if (fill > 0) {
-    view->fillRoundRect(x + 9, y + 68, fill, 8, 4,
+    view->fillRoundRect(x + 9, y + 48, fill, 8, 4,
                         remaining > 50 ? accent : quotaColor(remaining));
   }
-  drawTimeSegments(x + 9, y + 79, barWidth, window,
+  drawTimeSegments(x + 9, y + 59, barWidth, window,
                    durationSeconds, segmentCount, accent);
-  text(x + 9, y + 89, "RESET " + countdown(window.resetAt), COLOR_MUTED, 1);
+  text(x + 9, y + 69, "RESET " + countdown(window.resetAt), COLOR_MUTED, 1);
 }
 
 void drawCompactQuota(int x, int y, int width, const char *label,
@@ -406,7 +409,7 @@ void drawClaudeMascot(int x, int y, int frame) {
 
 bool providerAvailable(const Provider &provider) {
   return provider.status != "error" || provider.fiveHour.available ||
-         provider.weekly.available || provider.fableWeekly.available;
+         provider.weekly.available || provider.fableWeekly.available || provider.creditsAvailable;
 }
 
 constexpr int providerCardWidth(bool codexVisible, bool claudeVisible) {
@@ -457,12 +460,19 @@ void drawProviderCard(int x, int width, const char *name,
   drawQuotaCell(x + 20 + cellWidth, y + 39, cellWidth, "SEMAINE",
                 provider.weekly, accent, 7UL * 24UL * 3600UL, 7);
   if (codexLogo) {
-    drawCompactResets(x + 12, y + 151);
+    drawCompactResets(x + 12, y + 125);
   } else {
-    drawCompactQuota(x + 12, y + 151, width - 124, "FABLE:",
+    drawCompactQuota(x + 12, y + 125, width - 124, "FABLE:",
                      provider.fableWeekly, accent);
-    text(x + width - 104, y + 151, "RESETS: " +
+    text(x + width - 104, y + 125, "RESETS: " +
          (claudeBankedResets.availableCount < 0 ? String("--") : String(claudeBankedResets.availableCount)), accent, 1);
+  }
+  for (int index = 0; index < 2; ++index) {
+    String line = provider.creditLines[index];
+    int maxCharacters = (width - 24) / 6;
+    if (line.length() > maxCharacters) line = line.substring(0, maxCharacters - 3) + "...";
+    text(x + 12, y + 141 + index * 14, line,
+         provider.creditsStale ? COLOR_AMBER : accent, 1);
   }
 }
 
@@ -1036,6 +1046,13 @@ Window jsonWindow(JsonVariantConst value) {
   return window;
 }
 
+String creditAmount(JsonVariantConst value, bool dollars = true) {
+  if (!value.is<double>()) return "--";
+  double amount = value.as<double>();
+  if (!std::isfinite(amount) || amount < 0 || amount > 1e12) return "--";
+  return String(amount, !dollars && amount == floor(amount) ? 0 : 2) + (dollars ? " USD" : "");
+}
+
 void readProvider(JsonObjectConst providers, const char *name,
                   Provider &provider) {
   JsonObjectConst source = providers[name].as<JsonObjectConst>();
@@ -1045,6 +1062,29 @@ void readProvider(JsonObjectConst providers, const char *name,
   provider.fiveHour = jsonWindow(source["five_hour"]);
   provider.weekly = jsonWindow(source["weekly"]);
   provider.fableWeekly = jsonWindow(source["fable_weekly"]);
+  JsonObjectConst credits = source["credits"].as<JsonObjectConst>();
+  provider.creditsAvailable = !credits.isNull();
+  provider.creditsStale = credits["status"] == "stale";
+  provider.creditLines[1] = "";
+  if (strcmp(name, "codex") == 0) {
+    provider.creditLines[0] = "CREDITS OPENAI: " +
+        (credits["unlimited"] == true ? String("ILLIMITES") : creditAmount(credits["balance"], false));
+  } else {
+    String prefix = provider.creditsStale ? "~ " : "";
+    provider.creditLines[0] = prefix + "API ACHETES: " + creditAmount(credits["purchased"]);
+    if ((credits["promotional"] | 0.0) > 0) provider.creditLines[0] += " PROMO " + creditAmount(credits["promotional"]);
+    provider.creditLines[1] = prefix + "API MENSUEL: " + creditAmount(credits["monthly"], false);
+    if ((credits["monthly_granted"] | 0.0) > 0) provider.creditLines[1] += "/" + creditAmount(credits["monthly_granted"], false);
+    provider.creditLines[1] += " USD";
+    if (credits["expires_at"].is<uint32_t>()) {
+      time_t epoch = credits["expires_at"].as<uint32_t>();
+      struct tm utc;
+      gmtime_r(&epoch, &utc);
+      char expiry[18];
+      strftime(expiry, sizeof(expiry), " EXP %d/%m UTC", &utc);
+      provider.creditLines[1] += expiry;
+    }
+  }
 }
 
 void readBankedResets(JsonObjectConst providerSource, BankedResets &bankedResets) {
