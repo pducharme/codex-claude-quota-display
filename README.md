@@ -8,7 +8,7 @@ de l’API : un Mac source conserve les sessions et collecte les quotas.
 [Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
 
 [Télécharger le Companion macOS](https://github.com/pducharme/codex-claude-quota-display/releases/latest)
-· [Télécharger l’extension Chrome 1.0.2](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.2)
+· [Télécharger l’extension Chrome 1.0.3](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.3)
 · [Installer l’extension](#installer-lextension-chrome)
 · [Confidentialité de l’extension](chrome-extension/PRIVACY.md)
 
@@ -72,14 +72,15 @@ Le projet contient quatre parties :
 - Codex.app et/ou Claude Desktop installés et connectés.
 
 Pour mettre à jour un Companion déjà installé, utilisez **Paramètres → Mises à
-jour → Vérifier les mises à jour…**. La version 1.1.15 clarifie les montants des
-crédits API Claude en USD et fournit un ZIP contenant l’application universelle
-signée Developer ID avec sa signature Sparkle.
+jour → Vérifier les mises à jour…**. La version 1.1.16 masque les limites 5 h non fournies,
+étend le quota hebdomadaire et affiche les forfaits Claude Max/Ultra et OpenAI
+Pro 100/200/500. Le ZIP contient l’application universelle signée Developer ID
+avec sa signature Sparkle.
 Les versions antérieures à 1.0.7 restent dirigées vers une installation manuelle
 depuis la page de téléchargement.
 
 Pour une première installation avec configuration du pont API, téléchargez le
-[paquet 1.1.15](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.15/Quota-Display-1.1.15.pkg),
+[paquet 1.1.16](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.16/Quota-Display-1.1.16.pkg),
 puis ouvrez-le. Le paquet universel prend en charge Apple Silicon et Intel. Il
 installe le Companion et son pont API, puis configure leur démarrage à
 l’ouverture de session.
@@ -169,7 +170,7 @@ rester allumé et son pont API accessible; il conserve les sessions Codex et Cla
 et collecte leurs quotas.
 
 1. Téléchargez le ZIP de l’extension depuis la
-   [release Chrome 1.0.2](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.2),
+   [release Chrome 1.0.3](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.3),
    puis décompressez-le. Les [sources sont dans `chrome-extension/`](chrome-extension/).
 2. Ouvrez `chrome://extensions`, activez le **Mode développeur**, puis choisissez
    **Charger l’extension non empaquetée** et sélectionnez le dossier décompressé
@@ -226,9 +227,9 @@ révisions actuelles.
 
 ### Firmware précompilé
 
-Pour les crédits OpenAI et Claude, le Designer et les alertes Avion, téléchargez
-`quota-display-credits-2026.10.28-app.bin` et sa somme SHA-256 dans la
-[release firmware du 28 octobre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.10.28).
+Pour l’affichage hebdomadaire sans limite 5 h, les crédits API, le Designer et les
+alertes Avion, téléchargez `quota-display-weekly-2026.10.31-app.bin` et sa somme SHA-256 dans la
+[release firmware du 31 octobre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.10.31).
 Sur un écran déjà configuré, écrivez cette image application à **`0x10000`**
 pour conserver les réglages. Le Companion source doit utiliser la version 1.1.14
 ou une version plus récente pour fournir les soldes de crédits.
@@ -332,6 +333,8 @@ portail, sans effacement préalable.
   et rouge une source indisponible.
 - Lorsqu’un fournisseur est masqué ou indisponible, l’autre occupe
   automatiquement toute la largeur, sans reflash.
+- Lorsqu’une limite 5 h n’est pas fournie, sa section disparaît et la semaine
+  occupe toute la largeur de la carte. Une valeur fournie à 0 % reste affichée.
 - `NON FOURNI` signifie que le fournisseur n’a pas retourné cette fenêtre de
   quota; l’application n’invente alors aucune valeur.
 
@@ -462,8 +465,8 @@ Pour Claude, le pont privilégie le cache récent du Companion connecté à
 Claude Desktop. En son absence, il lit les quotas JSON avec la session Claude
 Code conservée dans le trousseau. Il n’exécute pas de requête de modèle et ne
 renouvelle pas les jetons des autres applications. Une session expirée doit
-être renouvelée dans Claude Code ou Claude Desktop. Les fenêtres absentes de
-la réponse restent « NON FOURNI ».
+être renouvelée dans Claude Code ou Claude Desktop. Les fenêtres absentes ne reçoivent aucune valeur inventée;
+la section 5 h disparaît lorsqu’elle n’est pas fournie.
 
 Consultez aussi [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), le
 [dépôt matériel LilyGO](https://github.com/Xinyuan-LilyGO/T-Display-S3-Long)

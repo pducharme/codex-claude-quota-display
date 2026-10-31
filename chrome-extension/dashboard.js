@@ -193,9 +193,10 @@ function providerCard(ctx, key, provider, [x, y, width, height], now, frame) {
   roundRect(ctx, [planX, y + 11, planWidth, 18], 9, C.cell);
   text(ctx, plan, [planX + 5, y + 14, planWidth - 10, 12], 9, accent, { align: "center", weight: 700 });
   circle(ctx, x + width - 13.5, y + 20.5, 3.5, provider?.status === "ok" ? C.green : provider?.status === "stale" ? C.amber : C.red);
-  const cellWidth = (width - 28) / 2;
-  quotaCell(ctx, "5 HEURES", provider?.five_hour, [x + 10, y + 38, cellWidth, 78], accent, 5 * 3600, 5, now);
-  quotaCell(ctx, "SEMAINE", provider?.weekly, [x + 18 + cellWidth, y + 38, cellWidth, 78], accent, 7 * 86400, 7, now);
+  const hasFiveHour = remaining(provider?.five_hour) !== null;
+  const cellWidth = hasFiveHour ? (width - 28) / 2 : width - 20;
+  if (hasFiveHour) quotaCell(ctx, "5 HEURES", provider.five_hour, [x + 10, y + 38, cellWidth, 78], accent, 5 * 3600, 5, now);
+  quotaCell(ctx, "SEMAINE", provider?.weekly, [x + 10 + (hasFiveHour ? cellWidth + 8 : 0), y + 38, cellWidth, 78], accent, 7 * 86400, 7, now);
   const count = resetCount(provider), bottom = y + 121;
   if (codex) {
     text(ctx, "RESETS:", [x + 10, bottom, 46, 12], 8, C.muted, { weight: 700 });
@@ -297,7 +298,7 @@ export function dashboardSummary(snapshot, { online = true, detail = null } = {}
     if (detail ? detail !== key : !visible[key]) continue;
     const provider = snapshot.providers?.[key], name = key === "codex" ? "Codex" : "Claude";
     if (detail) parts.push(`${name}, ${resetCount(provider) ?? "—"} resets en banque. ${resetRows(provider, now).join(". ")}.`);
-    else parts.push(`${name}, forfait ${typeof provider?.plan === "string" ? provider.plan : "inconnu"}, 5 heures ${remainingText(provider?.five_hour)}, semaine ${remainingText(provider?.weekly)}${key === "claude" ? `, Fable ${remainingText(provider?.fable_weekly)}` : ""}, ${resetCount(provider) ?? "—"} resets en banque.`);
+    else parts.push(`${name}, forfait ${typeof provider?.plan === "string" ? provider.plan : "inconnu"}${remaining(provider?.five_hour) !== null ? `, 5 heures ${remainingText(provider.five_hour)}` : ""}, semaine ${remainingText(provider?.weekly)}${key === "claude" ? `, Fable ${remainingText(provider?.fable_weekly)}` : ""}, ${resetCount(provider) ?? "—"} resets en banque.`);
     if (key === "claude") parts.push("Crédits API mensuels : montant utilisé / accordé; expiration en UTC.");
     parts.push(creditLines(key, provider).join(". "));
     if (provider?.credits?.status === "stale") parts.push("Crédits non actualisés : reconnectez Claude Console sur le Mac source.");

@@ -418,6 +418,14 @@ constexpr int providerCardWidth(bool codexVisible, bool claudeVisible) {
 static_assert(providerCardWidth(true, true) == 310);
 static_assert(providerCardWidth(true, false) == 626);
 
+constexpr int quotaCellWidth(int cardWidth, bool hasFiveHour) {
+  return hasFiveHour ? (cardWidth - 32) / 2 : cardWidth - 24;
+}
+static_assert(quotaCellWidth(310, false) == 286);
+static_assert(quotaCellWidth(626, false) == 602);
+static_assert(quotaCellWidth(310, true) == 139);
+static_assert(quotaCellWidth(626, true) == 297);
+
 void displayedProviders(bool &showCodex, bool &showClaude) {
   showCodex = displayCodex && providerAvailable(codex);
   showClaude = displayClaude && providerAvailable(claude);
@@ -433,7 +441,8 @@ void drawProviderCard(int x, int width, const char *name,
                       uint16_t panelColor, uint16_t accent, bool codexLogo,
                       int frame) {
   constexpr int y = CONTENT_TOP;
-  int cellWidth = (width - 32) / 2;
+  bool hasFiveHour = provider.fiveHour.available;
+  int cellWidth = quotaCellWidth(width, hasFiveHour);
 
   view->fillRoundRect(x, y, width, PANEL_HEIGHT, 11, panelColor);
   view->fillRoundRect(x, y, width, 4, 2, accent);
@@ -455,9 +464,11 @@ void drawProviderCard(int x, int width, const char *name,
       provider.status == "stale" ? COLOR_AMBER : COLOR_RED;
   view->fillCircle(x + width - 19, y + 19, 4, providerStatus);
 
-  drawQuotaCell(x + 12, y + 39, cellWidth, "5 HEURES",
-                provider.fiveHour, accent, 5UL * 3600UL, 5);
-  drawQuotaCell(x + 20 + cellWidth, y + 39, cellWidth, "SEMAINE",
+  if (hasFiveHour) {
+    drawQuotaCell(x + 12, y + 39, cellWidth, "5 HEURES",
+                  provider.fiveHour, accent, 5UL * 3600UL, 5);
+  }
+  drawQuotaCell(x + 12 + (hasFiveHour ? cellWidth + 8 : 0), y + 39, cellWidth, "SEMAINE",
                 provider.weekly, accent, 7UL * 24UL * 3600UL, 7);
   if (codexLogo) {
     drawCompactResets(x + 12, y + 125);

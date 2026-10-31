@@ -265,6 +265,45 @@ test('dashboard interaction follows provider visibility and detail navigation', 
   assert.ok(fills > 0);
 });
 
+test('missing five-hour quotas give weekly quotas the full card width', async () => {
+  const rendererSource = await readFile(new URL('./dashboard.js', import.meta.url), 'utf8');
+  const {drawDashboard, dashboardSummary} = await import(`data:text/javascript;base64,${Buffer.from(rendererSource).toString('base64')}`);
+  const cells = [], labels = [];
+  const ctx = new Proxy({
+    measureText: text => ({width: String(text).length * 7}),
+    roundRect(x, y, width, height) {if (height === 78) cells.push([x, y, width, height]);},
+    fillText(text) {labels.push(text);},
+  }, {get: (target, key) => key in target ? target[key] : () => {}});
+  const canvas = {getContext: () => ctx};
+  for (const key of ['codex', 'claude']) {
+    for (const both of [true, false]) {
+      const snapshot = {display: {codex: both || key === 'codex', claude: both || key === 'claude'}, providers: {
+        codex: {status: 'ok', five_hour: {used_percent: 0}, weekly: {used_percent: 25}},
+        claude: {status: 'ok', five_hour: {used_percent: 0}, weekly: {used_percent: 25}},
+      }};
+      for (const [fiveHour, supplied] of [[undefined, false], [null, false], [{}, false],
+        [{used_percent: null, resets_at: 1700003600}, false], [{used_percent: '0'}, false],
+        [{used_percent: 0}, true], [{used_percent: 100}, true], [{used_percent: null}, false]]) {
+        snapshot.providers[key].five_hour = fiveHour;
+        cells.length = labels.length = 0;
+        drawDashboard(canvas, snapshot, {now: 1700000000});
+        const x = both && key === 'claude' ? 324 : 16, width = both ? 300 : 608;
+        const expected = supplied
+          ? [[x + 10, 52, (width - 28) / 2, 78], [x + 18 + (width - 28) / 2, 52, (width - 28) / 2, 78]]
+          : [[x + 10, 52, width - 20, 78]];
+        assert.deepEqual(cells.filter(cell => cell[0] >= x && cell[0] < x + width), expected);
+        assert.equal(labels.filter(label => label === '5 HEURES').length, Number(supplied) + Number(both));
+        assert.equal(labels.filter(label => label === 'SEMAINE').length, both ? 2 : 1);
+        const name = key === 'codex' ? 'Codex' : 'Claude';
+        const summary = dashboardSummary(snapshot).match(new RegExp(`${name}, forfait[^.]*`))[0];
+        if (supplied) assert.match(summary, /5 heures (100|0)%/);
+        else assert.doesNotMatch(summary, /5 heures/);
+        assert.match(summary, /semaine 75%/);
+      }
+    }
+  }
+});
+
 test('Claude credits show monthly USD usage without inventing missing balances', async () => {
   const rendererSource = await readFile(new URL('./dashboard.js', import.meta.url), 'utf8');
   const {dashboardSummary} = await import(`data:text/javascript;base64,${Buffer.from(rendererSource).toString('base64')}`);

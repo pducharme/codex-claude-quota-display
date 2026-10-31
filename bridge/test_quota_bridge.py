@@ -504,14 +504,14 @@ time.sleep(3)
         windows = parse_codex_limits(result)
         self.assertEqual(windows["five_hour"]["used_percent"], 48)
         self.assertEqual(windows["weekly"]["used_percent"], 23)
-        self.assertEqual(windows["plan"], "Pro 20X")
+        self.assertEqual(windows["plan"], "Pro 200")
         self.assertEqual(
             parse_codex_limits({"rateLimits": {"planType": "plus"}})["plan"],
             "Plus",
         )
         self.assertEqual(
             parse_codex_limits({"rateLimits": {"planType": "prolite"}})["plan"],
-            "Pro 5X",
+            "Pro 100",
         )
         self.assertEqual(windows["banked_resets"]["available_count"], 2)
         self.assertEqual(
@@ -521,6 +521,15 @@ time.sleep(3)
             ],
             [1_805_000_000, 1_810_000_000],
         )
+
+    def test_codex_current_pro_tiers(self):
+        for plan, expected in (("prolite", "Pro 100"), ("pro", "Pro 200"),
+                               ("promax", "Pro 500"), ("plus", "Plus"),
+                               ("unknown", None), (None, None)):
+            with self.subTest(plan=plan):
+                windows = parse_codex_limits({"rateLimits": {"planType": plan}})
+                self.assertEqual(windows["plan"], expected)
+                self.assertIsNone(windows["five_hour"]["used_percent"])
 
     def test_claude_json_quota_windows_and_invalid_cli_cost_output(self):
         windows = parse_claude_api_usage({
@@ -552,7 +561,13 @@ time.sleep(3)
             }))
             windows = read_claude_desktop_cache(path, now=1_100)
             self.assertEqual(windows["five_hour"]["used_percent"], 12)
-            self.assertEqual(windows["plan"], "Max 5X")
+            self.assertEqual(windows["plan"], "Max")
+            cache = json.loads(path.read_text())
+            for plan, expected in (("Max 20X", "Ultra"), ("max 5x", "Max"),
+                                   ("Max", "Max"), ("Ultra", "Ultra"), (None, None)):
+                cache["plan"] = plan
+                path.write_text(json.dumps(cache))
+                self.assertEqual(read_claude_desktop_cache(path, now=1_100)["plan"], expected)
             with self.assertRaises(ValueError):
                 read_claude_desktop_cache(path, now=2_000)
 
@@ -575,7 +590,7 @@ time.sleep(3)
     def test_claude_api_fallback_and_expired_credentials(self, _authorized, opener, oauth, _cache):
         oauth.return_value = {"accessToken": "test-token", "expiresAt": (time.time() + 3600) * 1000,
                               "subscriptionType": "max", "rateLimitTier": "default_claude_max_5x"}
-        for tier, expected in (("20x", "Max 20X"), ("5x", "Max 5X")):
+        for tier, expected in (("20x", "Ultra"), ("5x", "Max")):
             opener.return_value.open.side_effect = [
                 io.BytesIO(b'{"five_hour":{"utilization":12}}'),
                 io.BytesIO(json.dumps({"organization": {
@@ -659,8 +674,11 @@ time.sleep(3)
         run.return_value.returncode = 0
         for subscription, tier, expected in (
             ("pro", "default_claude_pro", "Pro"),
-            ("max", "default_claude_max_5x", "Max 5X"),
-            ("max", "default_claude_max_20x", "Max 20X"),
+            ("max", "default_claude_max_5x", "Max"),
+            ("max", "default_claude_max_20x", "Ultra"),
+            ("max", "", "Max"),
+            ("ultra", "default_claude_ultra", "Ultra"),
+            ("ULTRA", "", "Ultra"),
         ):
             run.return_value.stdout = json.dumps(
                 {

@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 from designer import Designer
 
-APP_VERSION = "1.1.15"
+APP_VERSION = "1.1.16"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -219,8 +219,9 @@ def parse_codex_limits(result):
     windows = {key: value.copy() for key, value in EMPTY_WINDOWS.items()}
     windows["plan"] = {
         "plus": "Plus",
-        "prolite": "Pro 5X",
-        "pro": "Pro 20X",
+        "prolite": "Pro 100",
+        "pro": "Pro 200",
+        "promax": "Pro 500",
     }.get(limits.get("planType"))
     credits = limits.get("credits")
     windows["credits"] = None
@@ -354,8 +355,10 @@ def read_claude_plan(oauth=None):
     subscription = str(organization.get("subscription_type") or oauth.get("subscription_type")
                        or organization.get("organization_type") or oauth.get("subscriptionType")
                        or tier).lower()
+    if "ultra" in subscription or ("max" in subscription and "20x" in tier):
+        return "Ultra"
     if "max" in subscription:
-        return "Max 20X" if "20x" in tier else "Max 5X" if "5x" in tier else "Max"
+        return "Max"
     return "Pro" if "pro" in subscription else None
 
 
@@ -468,6 +471,9 @@ def read_claude_desktop_cache(
         raise ValueError("Claude Desktop quota cache has no usage windows")
     windows["plan"] = (
         value.get("plan") if isinstance(value.get("plan"), str) else None
+    )
+    windows["plan"] = {"max 5x": "Max", "max 20x": "Ultra"}.get(
+        (windows["plan"] or "").lower(), windows["plan"]
     )
     windows["banked_resets"] = parse_claude_banked_resets(value.get("cedar_ember"), now)
     return windows

@@ -609,12 +609,12 @@ private func claudePlanName(from root: [String: Any]) -> String? {
     let organization = root["organization"] as? [String: Any]
     let tier = (organization?["rate_limit_tier"] as? String)?.lowercased()
         ?? (root["rate_limit_tier"] as? String)?.lowercased()
-    let multiplier = ["20x", "5x"].first { tier?.hasSuffix("_\($0)") == true }
     let stated = (organization?["subscription_type"] as? String)
         ?? (root["subscription_type"] as? String)
         ?? (organization?["organization_type"] as? String)
     let lower = stated?.lowercased() ?? tier
     guard let lower else { return nil }
+    if lower.contains("ultra") || (lower.contains("max") && tier?.hasSuffix("_20x") == true) { return "Ultra" }
     let base = lower.contains("max") ? "Max"
         : lower.contains("team") ? "Team"
         : lower.contains("enterprise") ? "Enterprise"
@@ -622,7 +622,7 @@ private func claudePlanName(from root: [String: Any]) -> String? {
         : lower.contains("free") ? "Free"
         : lower.split(whereSeparator: { $0 == "_" || $0 == "-" })
             .map { $0.capitalized }.joined(separator: " ")
-    return multiplier.map { "\(base) \($0.uppercased())" } ?? base
+    return base
 }
 
 private func claudeDesktopQuotaSnapshot(from data: Data, plan: String? = nil) -> [String: Any]? {
@@ -1235,9 +1235,17 @@ private final class CompactStatusView: NSView {
          .foregroundColor: bridgeOnline ? NSColor.labelColor : NSColor.secondaryLabelColor]
     }
 
+    private func displayedLimits(codex: Bool) -> [StatusLimit] {
+        let provider = codex ? snapshot?.codex : snapshot?.claude
+        let limits = (codex ? codexLimits : claudeLimits).filter {
+            $0 != .fiveHour || provider?.fiveHour.remainingPercent != nil
+        }
+        return limits.isEmpty ? [.weekly] : limits
+    }
+
     func percentageText(codex: Bool) -> String {
         let provider = codex ? snapshot?.codex : snapshot?.claude
-        return (codex ? codexLimits : claudeLimits)
+        return displayedLimits(codex: codex)
             .map { compactRemainingText($0.window(in: provider), percent: false) }.joined(separator: "/") + "%"
     }
 
@@ -1247,7 +1255,7 @@ private final class CompactStatusView: NSView {
             if provider?.authenticationRequired == true {
                 return "\(codex ? "Codex" : "Claude") — connexion requise"
             }
-            let limits = (codex ? codexLimits : claudeLimits).map {
+            let limits = displayedLimits(codex: codex).map {
                 "\($0.title) : \(remainingText($0.window(in: provider))) restants"
             }.joined(separator: ", ")
             return "\(codex ? "Codex" : "Claude") — \(limits)"
@@ -1488,6 +1496,19 @@ private func dashboardPanelRects(
     )
 }
 
+private func dashboardQuotaRects(
+    in rect: NSRect,
+    fiveHour: QuotaWindow
+) -> (fiveHour: NSRect?, weekly: NSRect) {
+    let hasFiveHour = fiveHour.remainingPercent != nil
+    let width = hasFiveHour ? (rect.width - 28) / 2 : rect.width - 20
+    let first = NSRect(x: rect.minX + 10, y: rect.minY + 38, width: width, height: 78)
+    return (
+        hasFiveHour ? first : nil,
+        first.offsetBy(dx: hasFiveHour ? width + 8 : 0, dy: 0)
+    )
+}
+
 @MainActor
 private final class QuotaDashboardView: NSView {
     private let screenColor = NSColor(srgbRed: 7 / 255, green: 10 / 255, blue: 18 / 255, alpha: 1)
@@ -1659,12 +1680,14 @@ private final class QuotaDashboardView: NSView {
             parts.append("\(bankedResetProvider == "claude" ? "Claude" : "Codex"), \(resetProviderQuotas?.bankedResets.map(String.init) ?? "—") resets en banque. " + bankedResetRows(resetProviderQuotas).joined(separator: ". "))
         } else if showCodex {
             parts.append(creditLines(snapshot.codex, codex: true).joined(separator: ". "))
-            parts.append("Codex, forfait \(snapshot.codex.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.codex.fiveHour)), semaine \(remainingText(snapshot.codex.weekly)).")
+            let fiveHour = snapshot.codex.fiveHour.remainingPercent == nil ? "" : ", 5 heures \(remainingText(snapshot.codex.fiveHour))"
+            parts.append("Codex, forfait \(snapshot.codex.plan ?? "inconnu")\(fiveHour), semaine \(remainingText(snapshot.codex.weekly)).")
         }
         if showClaude && !showingBankedResets {
             parts.append("Crédits API mensuels : montant utilisé / accordé; expiration en UTC.")
             parts.append(creditLines(snapshot.claude, codex: false).joined(separator: ". "))
-            parts.append("Claude, forfait \(snapshot.claude.plan ?? "inconnu"), 5 heures \(remainingText(snapshot.claude.fiveHour)), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)), \(snapshot.claude.bankedResets.map(String.init) ?? "—") resets en banque.")
+            let fiveHour = snapshot.claude.fiveHour.remainingPercent == nil ? "" : ", 5 heures \(remainingText(snapshot.claude.fiveHour))"
+            parts.append("Claude, forfait \(snapshot.claude.plan ?? "inconnu")\(fiveHour), semaine \(remainingText(snapshot.claude.weekly)), Fable \(remainingText(snapshot.claude.fableWeekly)), \(snapshot.claude.bankedResets.map(String.init) ?? "—") resets en banque.")
         }
         if showClaude && snapshot.claude.authenticationRequired { parts.append("Claude : connexion requise.") }
         parts.append("API \(snapshot.apiAddress), \(apiOnline ? "en ligne" : "hors ligne"). Dernière actualisation \(dateText(snapshot.refreshedAt, timeOnly: true)).")
@@ -1795,20 +1818,21 @@ private final class QuotaDashboardView: NSView {
         statusColor(provider.status).setFill()
         NSBezierPath(ovalIn: NSRect(x: rect.maxX - 17, y: rect.minY + 17, width: 7, height: 7)).fill()
 
-        let cellGap: CGFloat = 8
-        let cellWidth = (rect.width - 28) / 2
-        drawQuotaCell(
-            label: "5 HEURES",
-            window: provider.fiveHour,
-            rect: NSRect(x: rect.minX + 10, y: rect.minY + 38, width: cellWidth, height: 78),
-            accent: accent,
-            durationSeconds: 5 * 3_600,
-            segmentCount: 5
-        )
+        let cells = dashboardQuotaRects(in: rect, fiveHour: provider.fiveHour)
+        if let fiveHourRect = cells.fiveHour {
+            drawQuotaCell(
+                label: "5 HEURES",
+                window: provider.fiveHour,
+                rect: fiveHourRect,
+                accent: accent,
+                durationSeconds: 5 * 3_600,
+                segmentCount: 5
+            )
+        }
         drawQuotaCell(
             label: "SEMAINE",
             window: provider.weekly,
-            rect: NSRect(x: rect.minX + 10 + cellWidth + cellGap, y: rect.minY + 38, width: cellWidth, height: 78),
+            rect: cells.weekly,
             accent: accent,
             durationSeconds: 7 * 86_400,
             segmentCount: 7
@@ -3690,7 +3714,7 @@ private struct QuotaMenu {
             )).connected
             let codexGood = codexState(from: CommandResult(status: 0, output: "Logged in using ChatGPT")).connected
             let codexWrongMode = codexState(from: CommandResult(status: 0, output: "Logged in using an API key")).connected
-            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 20X","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1791173954},{"expires_at":1791080428}]},"credits":{"balance":12345.67,"unlimited":false}},"claude":{"status":"ok","plan":"Max 20X","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1792684800},{"expires_at":1791080428}]},"credits":{"status":"ok","purchased":0,"monthly":199.18,"monthly_granted":200,"promotional":0,"expires_at":1795651200,"organization_id":"00000000-0000-4000-8000-000000000001"}}}}"#
+            let sample = #"{"api":{"status":"online","address":"192.168.1.252:8788"},"display":{"codex":true,"claude":false},"refresh":{"completed_at":1785776996},"providers":{"codex":{"status":"ok","plan":"Pro 200","five_hour":{"used_percent":null,"resets_at":null},"weekly":{"used_percent":7,"resets_at":1786172449},"fable_weekly":{"used_percent":null,"resets_at":null},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1791173954},{"expires_at":1791080428}]},"credits":{"balance":12345.67,"unlimited":false}},"claude":{"status":"ok","plan":"Ultra","five_hour":{"used_percent":0,"resets_at":null},"weekly":{"used_percent":15,"resets_at":1785859200},"fable_weekly":{"used_percent":28,"resets_at":1785859200},"banked_resets":{"available_count":2,"expirations":[{"expires_at":1792684800},{"expires_at":1791080428}]},"credits":{"status":"ok","purchased":0,"monthly":199.18,"monthly_granted":200,"promotional":0,"expires_at":1795651200,"organization_id":"00000000-0000-4000-8000-000000000001"}}}}"#
             let quotas = quotaSnapshot(from: Data(sample.utf8))
             precondition(creditLines(quotas?.codex, codex: true).first?.contains("12") == true)
             precondition(creditLines(quotas?.claude, codex: false).last == "UTILISÉ : 0.82$ / 200.00$ (USD) - exp. 26/11")
@@ -3800,6 +3824,9 @@ private struct QuotaMenu {
             let upgradedPlan = claudePlanName(from: ["organization": [
                 "organization_type": "claude_max", "rate_limit_tier": "default_claude_max_20x",
             ]])
+            precondition(claudePlanName(from: ["subscription_type": "ultra"]) == "Ultra")
+            precondition(claudePlanName(from: ["organization": ["subscription_type": "ULTRA"]]) == "Ultra")
+            precondition(claudePlanName(from: ["subscription_type": "max"]) == "Max")
             let upgradedQuotas = claudeDesktopQuotaSnapshot(from: Data(desktopLimitsSample.utf8), plan: upgradedPlan)
             let bridgeTestRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             let bridgeTestSource = bridgeTestRoot.appendingPathComponent("source.py")
@@ -3866,6 +3893,23 @@ private struct QuotaMenu {
             precondition(statusIconSize == 16)
             precondition(StatusLimit.selected(["weekly", "fiveHour", "weekly", "fableWeekly", "invalid"], codex: true) == [.fiveHour, .weekly])
             precondition(StatusLimit.selected([], codex: false) == [.weekly])
+            for width: CGFloat in [300, 608] {
+                let rect = NSRect(x: 16, y: 14, width: width, height: 158)
+                for used in [nil, 0, 100] as [Int?] {
+                    let cells = dashboardQuotaRects(in: rect, fiveHour: QuotaWindow(usedPercent: used, resetsAt: nil))
+                    if used == nil {
+                        precondition(cells.fiveHour == nil)
+                        precondition(cells.weekly == NSRect(x: 26, y: 52, width: width - 20, height: 78))
+                    } else {
+                        precondition(cells.fiveHour == NSRect(x: 26, y: 52, width: (width - 28) / 2, height: 78))
+                        precondition(cells.weekly == NSRect(x: 34 + (width - 28) / 2, y: 52, width: (width - 28) / 2, height: 78))
+                    }
+                }
+            }
+            precondition(statusView.percentageText(codex: true) == "93%")
+            precondition(statusView.percentageText(codex: false) == "100/85%")
+            precondition(!statusView.accessibilitySummary.contains("Codex — Limite 5 h"))
+            precondition(statusView.accessibilitySummary.contains("Claude — Limite 5 h : 100%"))
             for codexMask in 1..<4 {
                 for claudeMask in 1..<8 {
                     statusView.codexLimits = StatusLimit.allCases.enumerated().compactMap { index, limit in
@@ -3875,7 +3919,7 @@ private struct QuotaMenu {
                         claudeMask & (1 << index) != 0 ? limit : nil
                     }
                     for codex in [true, false] {
-                        let expected = (codex ? statusView.codexLimits : statusView.claudeLimits)
+                        let expected = (codex ? [.weekly] : statusView.claudeLimits)
                             .map { compactRemainingText($0.window(in: codex ? quotas?.codex : quotas?.claude), percent: false) }
                             .joined(separator: "/") + "%"
                         precondition(statusView.percentageText(codex: codex) == expected)
@@ -3953,6 +3997,10 @@ private struct QuotaMenu {
                 return frames[0] != nil && frames[1] != nil && frames[0] != frames[1] && frames[0] == frames[2]
             }
             dashboardView.snapshot = quotas
+            dashboardView.showClaude = false
+            precondition(!(dashboardView.accessibilityValue() as? String ?? "").contains("5 heures"))
+            dashboardView.showClaude = true
+            precondition((dashboardView.accessibilityValue() as? String ?? "").contains("5 heures 100%"))
             precondition(quotas?.codex.bankedResetExpirations == [1791080428, 1791173954])
             precondition(quotas?.claude.bankedResets == 2 && quotas?.claude.bankedResetExpirations == [1791080428, 1792684800])
             let resetRows = bankedResetRows(quotas?.codex, now: 1791080428 - 9000)
@@ -4032,9 +4080,9 @@ private struct QuotaMenu {
             guard
                 claudeGood, !claudeWrongMode, codexGood, !codexWrongMode,
                 quotas?.codex.weekly.remainingPercent == 93,
-                quotas?.codex.plan == "Pro 20X",
+                quotas?.codex.plan == "Pro 200",
                 quotas?.claude.fiveHour.remainingPercent == 100,
-                quotas?.claude.plan == "Max 20X",
+                quotas?.claude.plan == "Ultra",
                 quotas?.claude.fableWeekly.remainingPercent == 72,
                 quotas?.displayCodex == true, quotas?.displayClaude == false,
                 sleepingQuotas?.sleep == sleep, sleepResponsesValid,
@@ -4048,9 +4096,9 @@ private struct QuotaMenu {
                 (desktopQuotas?["weekly"] as? [String: Any])?["used_percent"] as? Int == 39,
                 (desktopQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 81,
                 (desktopLimitsQuotas?["fable_weekly"] as? [String: Any])?["used_percent"] as? Int == 65,
-                desktopQuotas?["plan"] as? String == "Max 5X",
+                desktopQuotas?["plan"] as? String == "Max",
                 desktopLimitsQuotas?["plan"] == nil,
-                upgradedQuotas?["plan"] as? String == "Max 20X",
+                upgradedQuotas?["plan"] as? String == "Ultra",
                 bridgeUpdated, installedBridgePathsFound,
                 installedBridgeURL(in: nil) == nil,
                 installedBridgeURL(in: Data("invalid plist".utf8)) == nil,
