@@ -1,4 +1,5 @@
 import {requestAPI, badgeState} from './api.js';
+import {sourceMode, connectWebService, disconnectWebService, acceptPlatformCredentials, readWebSnapshot, syncPlatformAuth} from './web-source.js';
 
 async function setBadge(snapshot, online) {
   const {badge} = await chrome.storage.local.get('badge');
@@ -14,7 +15,42 @@ async function setBadge(snapshot, online) {
 let pending = Promise.resolve();
 async function execute(message) {
   await chrome.storage.local.setAccessLevel({accessLevel: 'TRUSTED_CONTEXTS'});
-  const {connection} = await chrome.storage.local.get('connection');
+  await chrome.storage.session.setAccessLevel({accessLevel: 'TRUSTED_CONTEXTS'});
+  const settings = await chrome.storage.local.get(null);
+  const {connection} = settings;
+  if (message.type === 'connect-web') return connectWebService(message.value, settings);
+  if (message.type === 'disconnect-web') return disconnectWebService(message.value, settings);
+  if (message.type === 'platform-auth') {
+    const accepted = await acceptPlatformCredentials(message.credentials, message.sender, settings);
+    return {accepted};
+  }
+  if (message.type === 'cookie-change') {
+    const {webCaptures = {}} = await chrome.storage.session.get('webCaptures');
+    for (const key of message.services) delete webCaptures[key];
+    await chrome.storage.session.set({webCaptures});
+  }
+  if (message.type === 'permissions-change' && settings.platformCredentials &&
+      !await chrome.permissions.contains({origins: ['https://platform.openai.com/*', 'https://api.openai.com/*'], permissions: ['scripting']})) {
+    await chrome.storage.local.remove('platformCredentials');
+    delete settings.platformCredentials;
+  }
+  await syncPlatformAuth(settings);
+  if (sourceMode(settings) === 'web') {
+    if (message.type === 'display') {
+      const value = message.value;
+      if (!value || Object.keys(value).some(key => !['codex', 'claude'].includes(key)) ||
+          Object.values(value).some(shown => typeof shown !== 'boolean')) throw new Error('Réglage invalide. La veille nécessite un Companion Mac.');
+      const webDisplay = {...settings.webDisplay, ...value};
+      if (webDisplay.codex === false && webDisplay.claude === false) throw new Error('Gardez au moins un fournisseur visible.');
+      await chrome.storage.local.set({webDisplay});
+      settings.webDisplay = webDisplay;
+    }
+    const snapshot = await readWebSnapshot(settings, message.type === 'refresh');
+    const cached = {snapshot, source: 'web', online: true};
+    await chrome.storage.session.set({cached});
+    await setBadge(snapshot, true);
+    return cached;
+  }
   if (!connection) {
     await chrome.storage.session.remove('cached');
     await chrome.action.setBadgeText({text: ''});
@@ -54,8 +90,15 @@ function enqueue(message = {type: 'read'}) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('popup.html')) ||
-      !['read', 'refresh', 'display'].includes(message?.type)) return;
+  if (sender.id !== chrome.runtime.id) return;
+  if (message?.type === 'platform-auth') {
+    enqueue({type: 'platform-auth', credentials: message.credentials, sender}).then(respond, () => respond({accepted: false}));
+    return true;
+  }
+  let senderURL;
+  try { senderURL = new URL(sender.url); } catch { return; }
+  if (senderURL.protocol !== 'chrome-extension:' || senderURL.host !== chrome.runtime.id || senderURL.pathname !== '/popup.html' ||
+      !['read', 'refresh', 'display', 'connect-web', 'disconnect-web'].includes(message?.type)) return;
   enqueue(message).then(respond, error => respond({error: error.message}));
   return true;
 });
@@ -70,5 +113,26 @@ chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === 'quota-read') enqueue().catch(() => {});
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.connection || changes.badge)) enqueue().catch(() => {});
+  if (area === 'local' && (changes.connection || changes.badge || changes.sourceMode || changes.webConnected || changes.webDisplay)) enqueue().catch(() => {});
 });
+
+function sessionChanged(change) {
+  const {cookie, removed, cause} = change;
+  const metadata = ['_account', 'lastActiveOrg'].includes(cookie.name);
+  const loggedOut = removed && cause !== 'overwrite' && /session|auth/i.test(cookie.name);
+  if (!metadata && !loggedOut) return;
+  const domain = cookie.domain.replace(/^\./, '');
+  const services = domain === 'chatgpt.com' ? ['codex'] : domain === 'claude.ai' ? ['claude'] :
+    domain === 'platform.claude.com' ? ['claudeCredits'] : [];
+  if (services.length) enqueue({type: 'cookie-change', services}).catch(() => {});
+}
+let watchingCookies = false;
+function watchCookies() {
+  if (!watchingCookies && chrome.cookies?.onChanged) {
+    chrome.cookies.onChanged.addListener(sessionChanged);
+    watchingCookies = true;
+  }
+}
+watchCookies();
+chrome.permissions.onAdded.addListener(() => { watchCookies(); enqueue().catch(() => {}); });
+chrome.permissions.onRemoved.addListener(() => { enqueue({type: 'permissions-change'}).catch(() => {}); });

@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Quota Display — Companion",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "homepage_url": "https://github.com/pducharme/codex-claude-quota-display#installer-lextension-chrome",
-  "description": "Les quotas Codex et Claude de votre Companion Mac, dans Chrome. Client de l’API du Mac source.",
+  "description": "Vos quotas Codex et Claude dans Chrome, avec vos sessions web ou votre Companion Mac.",
   "minimum_chrome_version": "114",
   "permissions": ["storage", "alarms"],
+  "optional_permissions": ["cookies", "scripting"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {"service_worker": "background.js", "type": "module"},
   "action": {

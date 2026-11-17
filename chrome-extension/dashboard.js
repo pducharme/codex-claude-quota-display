@@ -258,11 +258,12 @@ export function drawDashboard(canvas, snapshot, { online = true, detail = null, 
   const statusColor = online ? C.green : C.red;
   circle(ctx, 25.5, 226.5, 3.5, statusColor);
   const status = `  -  ${online ? "En ligne" : "Hors ligne"}`;
-  const rawAddress = typeof snapshot?.api?.address === "string" ? snapshot.api.address : "port 8788";
-  const address = `[${rawAddress}]`, maxLength = Math.max(3, Math.floor((640 - 118 - status.length * 12) / 9));
+  const web = snapshot?.source_mode === "web";
+  const rawAddress = web ? "Sessions web" : typeof snapshot?.api?.address === "string" ? snapshot.api.address : "port 8788";
+  const address = `[${rawAddress}]`, maxLength = Math.max(3, Math.floor((640 - (web ? 154 : 118) - status.length * 12) / 9));
   const endpoint = address.length > maxLength ? `${address.slice(0, maxLength - 3)}...` : address;
   let apiX = 36;
-  for (const [value, scale, color] of [["API  ", 2, C.muted], [endpoint, 1.5, C.muted], [status, 2, statusColor]]) {
+  for (const [value, scale, color] of [[web ? "CHROME  " : "API  ", 2, C.muted], [endpoint, 1.5, C.muted], [status, 2, statusColor]]) {
     ctx.save();
     if (scale < 2) ctx.globalAlpha = 0.72;
     pixelText(ctx, value, [apiX, 219 + (scale < 2 ? 2 : 0), 640 - apiX - 22, 16], scale, color);
@@ -296,6 +297,7 @@ export function hitTest(x, y, snapshot, detail = null) {
 export function dashboardSummary(snapshot, { online = true, detail = null } = {}) {
   if (!snapshot) return `Chargement des quotas. API ${online ? "en ligne" : "hors ligne"}.`;
   const parts = [], visible = panels(snapshot), now = Math.floor(Date.now() / 1000);
+  const web = snapshot.source_mode === "web", location = web ? "dans Chrome" : "sur le Mac source";
   for (const key of ["codex", "claude"]) {
     if (detail ? detail !== key : !visible[key]) continue;
     const provider = snapshot.providers?.[key], name = key === "codex" ? "Codex" : "Claude";
@@ -304,11 +306,11 @@ export function dashboardSummary(snapshot, { online = true, detail = null } = {}
     parts.push("Crédits API mensuels : montant utilisé / accordé; expiration en UTC.");
     parts.push(creditLines(key, provider).join(". "));
     const credits = key === "codex" ? provider?.api_credits : provider?.credits;
-    if (credits?.status === "stale") parts.push(`Crédits non actualisés : reconnectez ${key === "codex" ? "OpenAI Platform" : "Claude Console"} sur le Mac source.`);
+    if (credits?.status === "stale") parts.push(`Crédits non actualisés : reconnectez ${key === "codex" ? "OpenAI Platform" : "Claude Console"} ${location}.`);
     if (typeof credits?.organization_id === "string") parts.push(`Organisation ${key === "codex" ? "API OpenAI" : "Console"} : ${credits.organization_id}.`);
-    if (provider?.error_reason === "authentication_required") parts.push(`${name} : connexion requise sur le Mac source.`);
+    if (provider?.error_reason === "authentication_required") parts.push(`${name} : connexion requise ${location}.`);
   }
   const address = typeof snapshot.api?.address === "string" ? snapshot.api.address : "port 8788";
-  parts.push(`API ${address}, ${online ? "en ligne" : "hors ligne"}. Dernière actualisation ${dateText(snapshot.refresh?.completed_at, true, now)}.`);
+  parts.push(`${web ? "Sessions web dans Chrome" : `API ${address}`}, ${online ? "en ligne" : "hors ligne"}. Dernière actualisation ${dateText(snapshot.refresh?.completed_at, true, now)}.`);
   return parts.join(" ");
 }

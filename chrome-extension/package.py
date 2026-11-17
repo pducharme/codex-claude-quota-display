@@ -9,6 +9,7 @@ manifest = json.loads((root / "manifest.json").read_text())
 files = [
     "manifest.json", "api.js", "background.js", "dashboard.js", "dashboard.css",
     "popup.html", "popup.js", "popup.css", "NOTICE.txt", "PRIVACY.md",
+    "web-providers.js", "web-source.js", "web-fetch.js", "platform-auth.js", "platform-forward.js",
     *sorted(set(manifest["icons"].values())),
 ]
 for name in files:

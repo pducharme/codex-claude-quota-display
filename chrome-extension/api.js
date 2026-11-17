@@ -57,7 +57,7 @@ export function remaining(window) {
 }
 
 export function badgeState(snapshot, selection = 'codex:five_hour', online = true) {
-  if (!online) return {text: '!', color: '#f87171', title: 'Quota Display — Mac source hors ligne'};
+  if (!online) return {text: '!', color: '#f87171', title: snapshot?.source_mode === 'web' ? 'Quota Display — données web indisponibles' : 'Quota Display — Mac source hors ligne'};
   if (selection === 'none') return {text: '', color: '#232e42', title: 'Quota Display'};
   const [name, limit] = selection.split(':');
   const provider = snapshot?.providers?.[name];

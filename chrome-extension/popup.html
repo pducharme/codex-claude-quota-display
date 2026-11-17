@@ -27,7 +27,37 @@
         </div>
         <details id="source-settings">
           <summary>API et connexions — Source des quotas</summary>
-          <form id="source-form">
+          <label>Source des quotas
+            <select id="source-mode">
+              <option value="web">Sessions web — sans Mac</option>
+              <option value="mac">Companion Mac</option>
+            </select>
+          </label>
+          <div id="web-connections">
+            <p>Connectez-vous une fois, puis fermez les onglets. L’extension actualise les quotas en arrière-plan toutes les cinq minutes. Aucun Mac requis. Chaque accès est facultatif.</p>
+            <div class="service-row" role="group" aria-label="Quotas Codex">
+              <span>Codex · quotas <small id="state-codex"></small></span>
+              <button id="connect-codex" type="button">Connecter</button>
+              <button id="disconnect-codex" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Quotas Claude">
+              <span>Claude · quotas <small id="state-claude"></small></span>
+              <button id="connect-claude" type="button">Connecter</button>
+              <button id="disconnect-claude" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Crédits API OpenAI">
+              <span>OpenAI · crédits API <small id="state-openaiCredits"></small></span>
+              <button id="connect-openaiCredits" type="button">Connecter</button>
+              <button id="disconnect-openaiCredits" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Crédits API Claude">
+              <span>Claude · crédits API <small id="state-claudeCredits"></small></span>
+              <button id="connect-claudeCredits" type="button">Connecter</button>
+              <button id="disconnect-claudeCredits" type="button" hidden>Déconnecter</button>
+            </div>
+            <p class="hint">Pour les crédits API OpenAI, le jeton de session est conservé dans ce profil Chrome et supprimé avec Déconnecter. Ce mode ne pilote pas les mini-écrans. Déconnecter retire l’accès de l’extension sans fermer votre session sur le site.</p>
+          </div>
+          <form id="source-form" hidden>
             <p>Sur le Mac source : <strong>Paramètres → API et connexions → Copier la configuration API</strong>.</p>
             <label>Configuration copiée du Mac (facultatif)
               <textarea id="import" rows="2" spellcheck="false" autocomplete="off" placeholder="Adresse: …&#10;Jeton: …"></textarea>
@@ -50,7 +80,7 @@
         </details>
         <details>
           <summary>Affichage</summary>
-          <p>Ces choix sont partagés avec le Mac source et ses mini-écrans.</p>
+          <p id="display-scope">Ces choix s’appliquent uniquement à Chrome.</p>
           <div class="actions">
             <label class="check"><input id="show-codex" type="checkbox">Afficher Codex</label>
             <label class="check"><input id="show-claude" type="checkbox">Afficher Claude</label>
@@ -66,7 +96,7 @@
             </select>
           </label>
         </details>
-        <details>
+        <details id="sleep-settings" hidden>
           <summary>Mini-écrans — Veille</summary>
           <form id="sleep-form">
             <label class="check"><input id="sleep-enabled" type="checkbox">Activer la veille quotidienne</label>
@@ -79,7 +109,7 @@
           </form>
           <p class="hint">Le Designer et les connexions aux services s’ouvrent depuis le Companion Mac.</p>
         </details>
-        <p id="about" class="hint">Quota Display pour Chrome · client du Companion Mac</p>
+        <p id="about" class="hint">Quota Display pour Chrome</p>
       </div>
     </details>
   </main>

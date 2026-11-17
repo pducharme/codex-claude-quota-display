@@ -29,6 +29,9 @@ textarea { resize: vertical; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hours { grid-template-columns: 90px 90px 1fr; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.service-row { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 9px 0; }
+.service-row > span { flex: 1; min-width: 175px; }
+.service-row small { display: block; color: #a5b3c8; margin-top: 3px; }
 [hidden] { display: none !important; }
 body.standalone { max-height: none; }
 @media (max-width: 639px) { body { width: 100%; } .fields { grid-template-columns: 1fr; gap: 0; } .hours { grid-template-columns: 1fr 1fr; gap: 10px; } .hours label:last-child { grid-column: 1 / -1; } }

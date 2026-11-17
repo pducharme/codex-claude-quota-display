@@ -2,26 +2,43 @@
 
 **Nom :** Quota Display — Companion
 
-**Résumé :** Les quotas Codex et Claude de votre Companion Mac, dans Chrome. Client de l’API du Mac source.
+**Résumé :** Vos quotas Codex, Claude et crédits API dans Chrome, via vos sessions web ou un Companion Mac.
 
 **Description :**
 
-Retrouvez les quotas de votre Companion Mac directement dans Chrome, avec la même présentation que son tableau de bord.
+Suivez vos quotas Codex et Claude directement dans Chrome. Le mode sessions web
+fonctionne sans Mac. Le mode Companion Mac reste disponible pour retrouver les
+données de votre installation existante.
 
-- Pourcentages disponibles sur les périodes de 5 heures et de la semaine, selon les données fournies par le Mac.
+- Pourcentages disponibles sur les périodes de 5 heures et de la semaine, lorsque fournis par le compte.
 - Forfaits, compte à rebours des remises à zéro et quota Fable lorsque disponible.
-- Resets en banque et dates d’expiration fournies par chaque compte.
-- Crédits OpenAI Work/Codex et crédits API Claude en USD, avec le montant mensuel utilisé / accordé et son expiration lorsque fournis par le Companion Mac 1.1.14 ou plus récent.
-- Pourcentage au choix sur l’icône de l’extension et ouverture dans une fenêtre permanente.
-- Actualisation à la demande, affichage des fournisseurs et réglage de veille des mini-écrans via le Mac source.
+- Resets en banque et dates d’expiration, en lecture seule.
+- Crédits OpenAI Work/Codex et crédits API OpenAI et Claude en USD, avec le montant mensuel utilisé / accordé et son expiration.
+- Pourcentage au choix sur l’icône de l’extension et fenêtre permanente.
+- Actualisation automatique et à la demande, avec indication des données non actualisées.
 
-Un Mac avec le Companion Quota Display et son API accessible est requis. Copiez sa configuration API dans les paramètres de l’extension, puis autorisez l’accès à ce Mac. Utilisez un réseau local ou un VPN de confiance.
+**Sessions web :** connectez les services souhaités depuis les paramètres de
+l’extension. Chaque accès est facultatif. Connectez-vous une fois aux sites
+officiels, puis fermez les onglets : les quotas sont actualisés en arrière-plan
+toutes les cinq minutes. Une session expirée demande une reconnexion. Ce mode
+affiche uniquement les données dans Chrome et ne pilote pas les mini-écrans.
 
-L’extension est uniquement cliente du Companion Mac. Elle ne se connecte pas directement aux comptes Codex ou Claude : l’authentification, la collecte des quotas et le Designer restent gérés sur le Mac. Les réglages d’affichage et de veille sont partagés avec les autres clients et mini-écrans de cette source.
+**Companion Mac :** copiez sa configuration API dans les paramètres et autorisez
+l’accès au Mac source. Utilisez un réseau local ou un VPN de confiance. Dans ce
+mode, les choix d’affichage et les réglages de veille sont partagés avec le Mac
+et ses mini-écrans; le Designer reste dans le Companion.
 
-L’adresse du Mac et sa clé API restent dans le stockage local du profil Chrome. L’extension n’intègre aucun service de publicité ni de télémétrie et ne lit ni les pages consultées ni les conversations.
+Vos préférences restent dans ce profil Chrome, sans synchronisation avec Google.
+Les lectures du mode web se limitent aux quotas et crédits des services autorisés.
+Les sessions Codex et Claude utilisent les cookies gérés par Chrome. Pour les
+crédits API OpenAI, le jeton de session Platform est conservé localement afin de
+lire le solde sans onglet ouvert; il est supprimé avec Déconnecter. Aucune
+conversation ni historique de navigation n’est collecté; aucun service
+publicitaire ou de télémétrie n’est intégré.
 
-Les captures utilisent l’interface réelle de l’extension avec des données de démonstration. Les forfaits, quotas et resets disponibles dépendent du compte et des données renvoyées par le Mac.
+Les forfaits, quotas, resets et crédits disponibles dépendent du compte et des
+données fournies par le service. Les crédits API liés à ChatGPT Pro sont distincts
+des crédits Work/Codex; le premier montant accordé peut être calculé au prorata.
 
 **Catégorie suggérée :** Productivité
 

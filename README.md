@@ -176,6 +176,8 @@ sur la source : tous les Companions et mini-écrans adoptent le même affichage.
 
 ## Installer l’extension Chrome
 
+### Version publiée 1.0.4 — Companion Mac
+
 L’extension reprend le tableau de bord du Companion : quotas, forfaits, Fable,
 mascottes animées, resets en banque et soldes de crédits. Cliquez sur une carte pour consulter les
 dates des resets, puis appuyez sur **Échap** pour revenir. Le Mac source doit
@@ -215,6 +217,33 @@ mises à jour du Companion restent gérés sur le Mac.
 Pour vérifier le client avec Node.js : `node --test chrome-extension/test.mjs`.
 Pour créer le ZIP du Web Store et son SHA-256 :
 `python3 chrome-extension/package.py` (sortie dans `dist/`).
+
+### Chrome 1.1.0 en préparation — sessions web sans Mac
+
+Cette version n’est pas encore publiée; le lien de téléchargement ci-dessus
+reste celui de la 1.0.4. Le mode autonome est implémenté, mais son parcours de
+connexion complet doit encore être validé dans Chrome réel avant diffusion.
+
+Dans **Paramètres → API et connexions — Source des quotas**, choisissez
+**Sessions web — sans Mac**, puis **Connecter** pour chaque service souhaité :
+quotas Codex, quotas Claude, crédits API OpenAI et crédits API Claude. Chaque
+accès est facultatif. Connectez-vous sur les sites officiels et attendez que
+l’extension indique **À jour**; vous pouvez ensuite fermer leurs onglets.
+L’extension relit les données en arrière-plan toutes les cinq minutes tant que
+Chrome fonctionne. Si une session expire, utilisez **Reconnecter**.
+
+La permission facultative **cookies** sert à identifier le compte ou
+l’organisation et à détecter les changements de session. Les cookies restent
+gérés par Chrome. Pour les crédits API OpenAI, **scripting** autorise uniquement
+la capture initiale de la session Platform, arrêtée après réussite ou après dix
+minutes. Son jeton reste dans le stockage local réservé aux contextes de
+l’extension, sans synchronisation Google ni affichage dans le tableau de bord.
+**Déconnecter** supprime ce jeton et retire les accès devenus inutiles.
+
+L’option **Companion Mac** conserve le fonctionnement décrit plus haut. Le mode
+web s’applique uniquement à Chrome : il ne fournit aucune donnée aux mini-écrans
+et ne modifie pas leurs réglages de veille. Les choix d’affichage sont locaux à
+Chrome dans ce mode.
 
 ## Designer
 

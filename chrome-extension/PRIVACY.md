@@ -1,62 +1,86 @@
 # Confidentialité — Quota Display pour Chrome
 
-Dernière mise à jour : 27 octobre 2026.
+Dernière mise à jour : 17 novembre 2026.
 
-Quota Display pour Chrome affiche les quotas fournis par le Companion installé
-sur votre Mac. L’extension est uniquement cliente de cette API.
+Quota Display affiche vos quotas et crédits Codex et Claude. Vous choisissez
+entre les sessions web de ce profil Chrome et l’API d’un Companion Mac.
 
 ## Données utilisées
 
-- L’adresse du Mac source et sa clé API sont enregistrées dans
-  `chrome.storage.local`, dans votre profil Chrome, sans synchronisation avec
-  votre compte Google. La préférence du pourcentage affiché sur l’icône y est
-  aussi conservée.
-- Les quotas, forfaits, soldes de crédits, identifiant d’organisation Console,
-  états des fournisseurs, dates de remise à zéro ou d’expiration et réglages
-  reçus du Mac sont conservés temporairement dans `chrome.storage.session` pour
-  afficher le tableau de bord, y compris les dernières données si le Mac devient
-  inaccessible. Ce cache disparaît à la fin de la session du navigateur.
-- L’extension ne lit pas vos identifiants OpenAI ou Anthropic, vos sessions OAuth,
-  vos conversations, vos pages visitées ni votre historique de navigation. Les
-  connexions aux fournisseurs restent gérées par le Companion Mac.
+- Le mode choisi, les services autorisés, les préférences d’affichage et, si vous
+  utilisez un Companion Mac, son adresse et sa clé API sont conservés dans
+  `chrome.storage.local`. Ces données ne sont pas synchronisées avec Google.
+- Les quotas, forfaits, soldes de crédits, identifiants de compte ou d’organisation,
+  états de connexion et dates de remise à zéro ou d’expiration sont conservés
+  temporairement dans `chrome.storage.session`. Ce cache disparaît à la fin de
+  la session du navigateur. Les dernières valeurs peuvent rester visibles avec
+  une indication lorsqu’elles ne sont plus actualisées.
+- En mode sessions web, la connexion initiale s’effectue sur les sites officiels.
+  Vous pouvez ensuite fermer les onglets. Pour les quotas Codex et Claude et les
+  crédits Claude, l’extension utilise les cookies gérés par Chrome. Le jeton
+  d’accès ChatGPT nécessaire aux quotas Codex reste uniquement en mémoire
+  pendant la lecture; il n’est pas enregistré dans le stockage de l’extension.
+- Pour les crédits API OpenAI, une lecture ponctuelle de la page de facturation
+  récupère le jeton de session OpenAI Platform et l’organisation sélectionnée.
+  Ce jeton est conservé dans `chrome.storage.local`, sans synchronisation avec
+  Google, pour permettre les lectures après fermeture de l’onglet et redémarrage
+  de Chrome. Il est supprimé lorsque vous déconnectez ce service. Il sert
+  uniquement aux requêtes de lecture prévues vers `api.openai.com`, sans suivre
+  les redirections. Il n’est jamais envoyé au Companion Mac ni affiché dans
+  le tableau de bord ou ses erreurs.
+- L’extension ne collecte ni vos conversations, ni votre historique de navigation,
+  ni le contenu des autres pages que vous consultez.
 
 ## Communications et permissions
 
-Les requêtes réseau de l’extension vont uniquement à l’adresse du Mac que vous
-avez configurée. Elles contiennent la clé API de ce Companion dans l’en-tête
-`Authorization`. Aucun service de collecte, de publicité, de suivi ou de
-télémétrie n’est intégré à l’extension. Aucune donnée n’est vendue ou transmise
-par l’extension à un service tiers.
+En mode sessions web, l’extension demande votre autorisation séparément pour
+ChatGPT (`chatgpt.com`), Claude (`claude.ai`), OpenAI Platform
+(`platform.openai.com` et `api.openai.com`) et Claude Console
+(`platform.claude.com`), selon les services que vous connectez. La permission
+`cookies` permet de retrouver les sessions et organisations concernées dans ce
+profil. Pour OpenAI Platform, la permission `scripting` permet uniquement la
+capture initiale de la session sur la page de facturation autorisée; cette
+capture est désactivée ensuite. Aucun code distant n’est téléchargé pour être
+exécuté par l’extension.
 
-La permission de stockage conserve la configuration et le cache. La permission
-`alarms` permet de relire les quotas en arrière-plan. L’accès HTTP ou HTTPS à
-l’hôte choisi est demandé lorsque vous enregistrez la configuration du Mac;
-l’extension n’injecte aucun script dans les sites que vous consultez.
+L’extension lit les routes de quotas et de crédits prévues en arrière-plan,
+toutes les cinq minutes, même si les onglets sont fermés. Si une session expire,
+elle vous invite à vous reconnecter. Elle n’effectue aucun achat, ne consomme
+aucun reset et ne modifie aucun réglage de votre abonnement. Les choix
+d’affichage de ce mode s’appliquent uniquement à Chrome; il ne transmet rien
+aux mini-écrans.
 
-Lorsque vous demandez une actualisation ou modifiez l’affichage des fournisseurs
-ou la veille des mini-écrans, l’extension transmet cette commande au Mac source.
-Les réglages d’affichage et de veille s’appliquent aussi à ses autres clients et
-mini-écrans. Les éventuels diagnostics du Companion Mac suivent ses propres
-réglages, indépendamment de l’extension.
+En mode Companion Mac, les requêtes vont à l’adresse que vous avez configurée,
+avec sa clé API dans l’en-tête `Authorization`. L’accès HTTP ou HTTPS à cet hôte
+est demandé lors de l’enregistrement. Les commandes d’actualisation, d’affichage
+et de veille sont transmises au Mac; les réglages d’affichage et de veille sont
+partagés avec ses autres clients et mini-écrans. Les diagnostics du Companion
+suivent ses propres réglages, indépendamment de l’extension.
 
-La commande **Copier la configuration API** place l’adresse et la clé dans votre
-presse-papiers uniquement lorsque vous la choisissez. Si vous configurez une
-adresse HTTP, le jeton et les données transitent sans chiffrement applicatif.
-Une adresse HTTPS utilise le chiffrement de cette connexion. Utilisez l’API HTTP
-sur un réseau de confiance ou un VPN et n’exposez pas son port sur Internet.
+Les permissions `storage` et `alarms` servent à conserver la configuration et
+à actualiser les données en arrière-plan. Aucun service publicitaire, de suivi
+ou de télémétrie n’est intégré. Les données ne sont ni vendues ni utilisées
+pour d’autres fonctions que l’affichage demandé.
 
-L’utilisation des données par Quota Display respecte la Politique relative aux
-données utilisateur du Chrome Web Store, y compris ses exigences d’utilisation
-limitée. Les données servent uniquement aux fonctions décrites ci-dessus et ne
-sont utilisées ni pour la publicité ni pour évaluer la solvabilité d’une personne.
+**Copier la configuration API** place l’adresse et la clé du Companion dans
+votre presse-papiers uniquement lorsque vous le demandez. Avec une adresse HTTP,
+ces données circulent sans chiffrement applicatif. Utilisez un réseau de
+confiance ou un VPN, ou une adresse HTTPS; n’exposez pas le port HTTP sur Internet.
+
+L’utilisation des données respecte la Politique relative aux données utilisateur
+du Chrome Web Store, y compris ses exigences d’utilisation limitée.
 
 ## Suppression et contact
 
-**Paramètres → API et connexions → Déconnecter** supprime de l’extension l’adresse,
-la clé et le cache des quotas, puis retire sa permission d’accès à cet hôte. Cela
-ne modifie pas les comptes ni les réglages du Mac source. Désinstaller
-l’extension supprime son stockage Chrome, y compris les préférences restantes.
+**Déconnecter** un service web retire son activation, ses données en cache et
+son éventuel jeton enregistré, puis révoque les permissions qui ne sont plus
+utilisées par une autre connexion. Cela ne ferme pas votre session sur le site officiel.
+**Déconnecter** le Companion supprime son adresse, sa clé et son cache, puis
+retire les permissions qui ne sont plus utilisées. Changer de mode conserve
+les connexions enregistrées, mais l’extension lit seulement la source choisie.
+Désinstaller l’extension supprime son stockage Chrome.
 
-Pour toute question ou demande liée à cette politique, ouvrez une demande sur
-les [issues du projet](https://github.com/pducharme/codex-claude-quota-display/issues).
-Ne joignez jamais votre clé API à une demande publique.
+Pour toute question ou demande, utilisez les
+[issues du projet](https://github.com/pducharme/codex-claude-quota-display/issues).
+Ne joignez jamais de clé API, de jeton de session ou de données personnelles
+à une demande publique.
