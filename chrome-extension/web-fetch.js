@@ -85,7 +85,19 @@ export async function fetchWebService(key, {fetcher = fetch, cookies = globalThi
     if (!organization) throw failure('authentication_required');
     const path = key === 'claude' ? '/usage?cedar_ember=1&skip_spend=1' : '/prepaid/credits';
     const body = await jsonGET(fetcher, `${origin}/api/organizations/${organization}${path}`);
-    return {identity: organization, data: key === 'claude' ? parseClaudeUsage(body, nowSeconds) : parseClaudeCredits(body, organization, nowSeconds)};
+    const data = key === 'claude' ? parseClaudeUsage(body, nowSeconds) : parseClaudeCredits(body, organization, nowSeconds);
+    if (key === 'claude' && !data.plan) {
+      try {
+        // Web usage omits the subscription; resolve it only for the selected organization.
+        const organizations = await jsonGET(fetcher, 'https://claude.ai/api/organizations');
+        const selected = Array.isArray(organizations) && organizations.length <= 1000
+          ? organizations.find(value => uuid(value?.uuid) === organization) : null;
+        if (selected) data.plan = parseClaudeUsage({...body, organization: selected}, nowSeconds).plan;
+      } catch (error) {
+        if (error.reason === 'authentication_required') throw error;
+      }
+    }
+    return {identity: organization, data};
   } catch (error) {
     if (['authentication_required', 'rate_limited', 'unavailable'].includes(error?.reason)) throw error;
     throw failure('unavailable');

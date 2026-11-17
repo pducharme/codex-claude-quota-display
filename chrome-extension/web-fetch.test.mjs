@@ -111,16 +111,54 @@ test('Claude and Console use only their organization metadata cookie and automat
     ['claude', 'https://claude.ai', '/usage?cedar_ember=1&skip_spend=1', {seven_day: {utilization: 12}}],
     ['claudeCredits', 'https://platform.claude.com', '/prepaid/credits', {currency: 'USD', amount_without_scoped_credits: 500, promo_tranches: []}],
   ]) {
-    const {fetcher, calls} = mockFetch([response(payload)]);
+    const {fetcher, calls} = mockFetch([response(payload), ...(key === 'claude' ? [response([])] : [])]);
     const cookies = {get: async details => {
       assert.deepEqual(details, {url: origin, name: 'lastActiveOrg'});
       return {value: account};
     }};
     assert.equal((await fetchWebService(key, {fetcher, cookies}, now)).identity, account);
     assert.equal(calls[0].url, `${origin}/api/organizations/${account}${path}`);
-    assert.equal(calls[0].options.credentials, 'include');
-    assert.deepEqual(calls[0].options.headers, {Accept: 'application/json'});
+    assert.equal(calls.length, key === 'claude' ? 2 : 1);
+    for (const call of calls) {
+      assert.equal(call.options.credentials, 'include');
+      assert.deepEqual(call.options.headers, {Accept: 'application/json'});
+    }
   }
+});
+
+test('Claude resolves Ultra from the selected organization when usage omits the subscription', async () => {
+  const {fetcher, calls} = mockFetch([response({seven_day: {utilization: 12}}), response([
+    {uuid: secondAccount, rate_limit_tier: 'default_claude_max_5x'},
+    {uuid: account, rate_limit_tier: 'default_claude_max_20x', name: 'private-secret', settings: {private: 'private-secret'}},
+  ])]);
+  const result = await fetchWebService('claude', {fetcher, cookies: cookie(account)}, now);
+  assert.deepEqual(calls.map(call => call.url), [
+    `https://claude.ai/api/organizations/${account}/usage?cedar_ember=1&skip_spend=1`,
+    'https://claude.ai/api/organizations',
+  ]);
+  assert.equal(result.identity, account);
+  assert.equal(result.data.plan, 'Ultra');
+  assert.equal(result.data.weekly.used_percent, 12);
+  assert.doesNotMatch(JSON.stringify(result), /private-secret|settings/);
+});
+
+test('Claude keeps quotas if optional plan metadata is unavailable and never adopts another organization', async () => {
+  for (const metadata of [response([]), response([{uuid: secondAccount, rate_limit_tier: 'default_claude_max_20x'}]),
+    response({unexpected: 'private-secret'}), response({}, 503), new Error('private-secret')]) {
+    const {fetcher} = mockFetch([response({seven_day: {utilization: 12}}), metadata]);
+    const {data} = await fetchWebService('claude', {fetcher, cookies: cookie(account)}, now);
+    assert.equal(data.status, 'ok');
+    assert.equal(data.plan, null);
+    assert.equal(data.weekly.used_percent, 12);
+  }
+  const expired = mockFetch([response({seven_day: {utilization: 12}}), response({}, 401)]);
+  await assert.rejects(fetchWebService('claude', {fetcher: expired.fetcher, cookies: cookie(account)}, now), reason('authentication_required'));
+});
+
+test('Claude does not fetch extra metadata when usage already identifies the plan', async () => {
+  const {fetcher, calls} = mockFetch([response({seven_day: {utilization: 12}, subscription_type: 'ultra'})]);
+  assert.equal((await fetchWebService('claude', {fetcher, cookies: cookie(account)}, now)).data.plan, 'Ultra');
+  assert.equal(calls.length, 1);
 });
 
 test('missing or malformed Claude organization never guesses an account or creates a request', async () => {
