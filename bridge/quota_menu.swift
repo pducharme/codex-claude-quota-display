@@ -8,6 +8,97 @@ import SQLite3
 import Sparkle
 import WebKit
 
+private func openAICreditSnapshot(_ body: Any, now: Int = Int(Date().timeIntervalSince1970)) -> [String: Any]? {
+    guard let body = body as? [String: Any],
+          let organization = body["organization_id"] as? String,
+          organization.range(of: #"\Aorg-[A-Za-z0-9]{1,124}\z"#, options: .regularExpression) != nil,
+          let grants = body["grants"] as? [[String: Any]], grants.count <= 1000 else { return nil }
+    var filtered: [[String: Any]] = []
+    for grant in grants {
+        guard let id = grant["id"] as? String else { return nil }
+        guard id.hasPrefix("chatgpt_api_credits_promo_") else { continue }
+        var entry: [String: Any] = [:]
+        for field in ["grant_amount", "used_amount", "effective_at", "expires_at"] {
+            let maximum = field.hasSuffix("_at") ? Double(UInt32.max) : 1e12
+            guard let number = grant[field] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite, number.doubleValue >= 0, number.doubleValue <= maximum else { return nil }
+            entry[field] = number
+        }
+        guard (entry["used_amount"] as! NSNumber).doubleValue <= (entry["grant_amount"] as! NSNumber).doubleValue,
+              (entry["effective_at"] as! NSNumber).doubleValue < (entry["expires_at"] as! NSNumber).doubleValue else { return nil }
+        for field in ["is_scheduled", "is_held_for_prepaid_transition"] {
+            guard let flag = grant[field] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else { return nil }
+            entry[field] = flag.boolValue
+        }
+        filtered.append(entry)
+    }
+    return ["updated_at": now, "organization_id": organization, "grants": filtered]
+}
+
+private final class OpenAICreditsWindow: NSWindowController, WKScriptMessageHandler {
+    // shortcut: observe Platform's private billing response until OpenAI offers a public grants API.
+    static let captureScript = #"""
+    (() => {
+      if (location.origin !== "https://platform.openai.com") return;
+      const originalFetch = window.fetch;
+      window.fetch = function(input, init) {
+        const pending = originalFetch.apply(this, arguments);
+        pending.then(response => {
+          const url = new URL(input instanceof Request ? input.url : input, location.href);
+          const method = init?.method || (input instanceof Request ? input.method : "GET");
+          if (method.toUpperCase() !== "GET" || url.href !== "https://api.openai.com/v1/dashboard/billing/credit_grants" || response.status !== 200) return;
+          const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+          const organization_id = headers.get("OpenAI-Organization");
+          response.clone().text().then(text => {
+            if (new TextEncoder().encode(text).byteLength > 1048576) return;
+            const body = JSON.parse(text);
+            if (!Array.isArray(body.grants?.data) || body.grants.data.length > 1000) return;
+            const grants = body.grants.data.map(grant => Object.fromEntries(
+              ["id", "grant_amount", "used_amount", "effective_at", "expires_at", "is_scheduled", "is_held_for_prepaid_transition"].map(key => [key, grant[key]])));
+            window.webkit.messageHandlers.openAICredits.postMessage({organization_id, grants});
+          }).catch(() => {});
+        }).catch(() => {});
+        return pending;
+      };
+    })();
+    """#
+    private let webView: WKWebView
+    private let receive: ([String: Any]) -> Bool
+
+    init(receive: @escaping ([String: Any]) -> Bool) {
+        self.receive = receive
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.userContentController.addUserScript(WKUserScript(source: Self.captureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 740),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        panel.title = "Crédits API — Connectez OpenAI Platform et sélectionnez l’organisation liée"
+        panel.isReleasedWhenClosed = false
+        panel.contentView = webView
+        panel.center()
+        super.init(window: panel)
+        configuration.userContentController.add(self, name: "openAICredits")
+        webView.load(URLRequest(url: URL(string: "https://platform.openai.com/settings/organization/billing/credit-grants")!))
+    }
+    required init?(coder: NSCoder) { nil }
+
+    func refresh() {
+        guard !webView.isLoading else { return }
+        if window?.isVisible == true, webView.url?.path != "/settings/organization/billing/credit-grants" { return }
+        webView.load(URLRequest(url: URL(string: "https://platform.openai.com/settings/organization/billing/credit-grants")!))
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        let origin = message.frameInfo.securityOrigin
+        guard message.frameInfo.isMainFrame, origin.protocol == "https", origin.host == "platform.openai.com",
+              let value = openAICreditSnapshot(message.body) else { return }
+        window?.title = receive(value)
+            ? "Crédits API — Solde synchronisé avec Quota Display"
+            : "Crédits API — Échec de l’enregistrement du solde"
+    }
+}
+
 private final class DesignerWindow: NSWindowController, WKNavigationDelegate {
     private let webView: WKWebView
     private let origin: URL
@@ -700,32 +791,34 @@ private struct ProviderQuotas {
     let bankedResetExpirations: [Int]
     var authenticationRequired = false
     var credits: [String: Any]? = nil
+    var apiCredits: [String: Any]? = nil
 }
 
 private func creditLines(_ provider: ProviderQuotas?, codex: Bool) -> [String] {
-    let credits = provider?.credits
+    let credits = codex ? (provider?.apiCredits?["currency"] as? String == "USD" ? provider?.apiCredits : nil) : provider?.credits
     func number(_ amount: Any?, dollars: Bool = true) -> String {
         guard let value = amount as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
               value.doubleValue.isFinite, value.doubleValue >= 0 else { return "—" }
         let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: codex ? "fr_CA" : "en_US_POSIX")
+        formatter.locale = Locale(identifier: codex && !dollars ? "fr_CA" : "en_US_POSIX")
         formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = codex
+        formatter.usesGroupingSeparator = codex && !dollars
         formatter.minimumFractionDigits = codex && !dollars ? 0 : 2
         formatter.maximumFractionDigits = 2
         return (formatter.string(from: value) ?? "—") + (dollars ? "$" : "")
     }
-    if codex { return ["CRÉDITS OPENAI : " + (credits?["unlimited"] as? Bool == true ? "ILLIMITÉS" : number(credits?["balance"], dollars: false))] }
     let stale = credits?["status"] as? String == "stale" ? "≈ " : ""
-    var purchased = "\(stale)API ACHETÉS : \(number(credits?["purchased"])) (USD)"
-    if (credits?["promotional"] as? NSNumber)?.doubleValue ?? 0 > 0 { purchased += " · PROMO \(number(credits?["promotional"]))" }
+    var purchased = codex
+        ? "CRÉDITS OPENAI : " + (provider?.credits?["unlimited"] as? Bool == true ? "ILLIMITÉS" : number(provider?.credits?["balance"], dollars: false))
+        : "\(stale)API ACHETÉS : \(number(credits?["purchased"])) (USD)"
+    if !codex, (credits?["promotional"] as? NSNumber)?.doubleValue ?? 0 > 0 { purchased += " · PROMO \(number(credits?["promotional"]))" }
     let granted = (credits?["monthly_granted"] as? NSNumber)?.doubleValue ?? 0
     let remaining = (credits?["monthly"] as? NSNumber)?.doubleValue
-    var monthly = "\(stale)MENSUEL RESTANT : \(number(credits?["monthly"])) (USD)"
+    var monthly = "\(stale)\(codex ? "API" : "MENSUEL RESTANT") : \(number(credits?["monthly"])) (USD)"
     if granted > 0 {
         let used = number(credits?["monthly"]) != "—" && number(credits?["monthly_granted"]) != "—"
             ? remaining.flatMap { $0 <= granted ? granted - $0 : nil } : nil
-        monthly = "\(stale)UTILISÉ : \(number(used)) / \(number(credits?["monthly_granted"])) (USD)"
+        monthly = "\(stale)\(codex ? "API" : "UTILISÉ") : \(number(used)) / \(number(credits?["monthly_granted"])) (USD)"
     }
     if let expiry = credits?["expires_at"] as? Int {
         let formatter = DateFormatter()
@@ -1083,7 +1176,8 @@ private func providerQuotas(_ value: Any?) -> ProviderQuotas? {
         bankedResetExpirations: (resets?["expirations"] as? [[String: Any]] ?? [])
             .compactMap { $0["expires_at"] as? Int }.filter { $0 > 0 }.sorted(),
         authenticationRequired: value["error_reason"] as? String == "authentication_required",
-        credits: value["credits"] as? [String: Any]
+        credits: value["credits"] as? [String: Any],
+        apiCredits: value["api_credits"] as? [String: Any]
     )
 }
 
@@ -1633,7 +1727,10 @@ private final class QuotaDashboardView: NSView {
         bankedResetsButton.frame = showingBankedResets ? bounds : panels.codex ?? .zero
         let label = showingBankedResets ? "Cliquer n’importe où pour revenir aux quotas" : "Codex : voir les dates d’expiration des resets en banque"
         bankedResetsButton.toolTip = label + "\n" + creditLines(snapshot?.codex, codex: true).joined(separator: "\n")
-        bankedResetsButton.setAccessibilityLabel(label)
+            + "\nCrédits API mensuels : montant utilisé / accordé; expiration en UTC."
+            + ((snapshot?.codex.apiCredits?["organization_id"] as? String).map { "\nOrganisation OpenAI : \($0)" } ?? "")
+            + (snapshot?.codex.apiCredits?["status"] as? String == "stale" ? "\nCrédits non actualisés : reconnectez OpenAI Platform sur le Mac source." : "")
+        bankedResetsButton.setAccessibilityLabel(bankedResetsButton.toolTip)
         bankedResetsButton.keyEquivalent = showingBankedResets ? "\u{1b}" : ""
         claudeResetsButton.isHidden = showingBankedResets || panels.claude == nil
         claudeResetsButton.frame = panels.claude ?? .zero
@@ -1680,6 +1777,8 @@ private final class QuotaDashboardView: NSView {
             parts.append("\(bankedResetProvider == "claude" ? "Claude" : "Codex"), \(resetProviderQuotas?.bankedResets.map(String.init) ?? "—") resets en banque. " + bankedResetRows(resetProviderQuotas).joined(separator: ". "))
         } else if showCodex {
             parts.append(creditLines(snapshot.codex, codex: true).joined(separator: ". "))
+            parts.append("Crédits API mensuels : montant utilisé / accordé; expiration en UTC.")
+            if snapshot.codex.apiCredits?["status"] as? String == "stale" { parts.append("Crédits non actualisés : reconnectez OpenAI Platform sur le Mac source.") }
             let fiveHour = snapshot.codex.fiveHour.remainingPercent == nil ? "" : ", 5 heures \(remainingText(snapshot.codex.fiveHour))"
             parts.append("Codex, forfait \(snapshot.codex.plan ?? "inconnu")\(fiveHour), semaine \(remainingText(snapshot.codex.weekly)).")
         }
@@ -1846,9 +1945,10 @@ private final class QuotaDashboardView: NSView {
             drawResetCount(label: compactLabel, count: compactCount, rect: rect, accent: accent)
         }
         for (index, line) in creditLines(provider, codex: codex).enumerated() {
+            let credits = codex && index == 1 ? provider.apiCredits : provider.credits
             drawText(line, in: NSRect(x: rect.minX + 10, y: rect.minY + 135 + CGFloat(index * 12), width: rect.width - 20, height: 12),
                      font: .monospacedDigitSystemFont(ofSize: 9, weight: .medium),
-                     color: provider.credits?["status"] as? String == "stale" ? amberColor : accent)
+                     color: credits?["status"] as? String == "stale" ? amberColor : accent)
         }
     }
 
@@ -2102,6 +2202,8 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var quotaRetry: DispatchWorkItem?
     private var refreshingClaudeDesktop = false
     private var refreshingClaudeConsoleCredits = false
+    private var openAICreditsWindow: OpenAICreditsWindow?
+    private let openAIPlatformItem = NSMenuItem(title: "Connecter OpenAI Platform…", action: nil, keyEquivalent: "")
     private let claudeConsoleItem = NSMenuItem(title: "Autoriser Claude Console via Chrome…", action: nil, keyEquivalent: "")
     private var claudeDesktopCredential: ClaudeDesktopCredential?
     private var autoPrompted = Set<String>()
@@ -2138,6 +2240,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         }
         claudeActionItem.isEnabled = claudeVisible
         claudeConsoleItem.isEnabled = claudeVisible && !configuredBridgeSource.remote
+        openAIPlatformItem.isEnabled = !configuredBridgeSource.remote
         if !claudeVisible { claudeStatus.title = "Claude : masqué" }
     }
 
@@ -2225,6 +2328,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         checkAuthentication(autoPrompt: true)
         refreshClaudeDesktopIfAuthorized()
         refreshClaudeConsoleCredits()
+        refreshOpenAICredits()
         loadAutoLaunchState()
         loadQuotas()
         let iconTimer = Timer(timeInterval: 0.9, target: self, selector: #selector(animateProviderIcons), userInfo: nil, repeats: true)
@@ -2239,6 +2343,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 self?.checkAuthentication(autoPrompt: true)
                 self?.refreshClaudeDesktopIfAuthorized()
                 self?.refreshClaudeConsoleCredits()
+                self?.refreshOpenAICredits()
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -2349,6 +2454,10 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         let reconnectCodex = NSMenuItem(title: "Reconnecter Codex…", action: #selector(loginCodex), keyEquivalent: "")
         reconnectCodex.target = self
         connections.addItem(reconnectCodex)
+        openAIPlatformItem.target = self
+        openAIPlatformItem.action = #selector(connectOpenAIPlatform)
+        openAIPlatformItem.toolTip = "Connectez l’organisation API liée à votre abonnement. Les montants et dates des crédits mensuels sont partagés avec vos clients."
+        connections.addItem(openAIPlatformItem)
         connections.addItem(.separator())
         connections.addItem(claudeStatus)
         claudeActionItem.target = self
@@ -3285,6 +3394,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
 
     @objc private func refreshQuotas() {
         refreshClaudeConsoleCredits()
+        refreshOpenAICredits()
         setRefreshAnimation(true)
         if !configuredBridgeSource.remote && claudeVisible && !claudeAuthenticationRequired && claudeDesktopAuthorized {
             refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
@@ -3299,6 +3409,38 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         guard !configuredBridgeSource.remote, claudeVisible, !claudeAuthenticationRequired, claudeDesktopAuthorized else { return }
         refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
             self?.triggerRefresh()
+        }
+    }
+
+    @objc private func connectOpenAIPlatform() {
+        refreshOpenAICredits(show: true)
+    }
+
+    private func refreshOpenAICredits(show: Bool = false) {
+        guard !configuredBridgeSource.remote else { return }
+        let cache = appSupportURL.appendingPathComponent("openai-api-credits.json")
+        guard show || FileManager.default.fileExists(atPath: cache.path) else { return }
+        if let reader = openAICreditsWindow {
+            reader.refresh()
+        } else {
+            openAICreditsWindow = OpenAICreditsWindow { [weak self] value in
+                guard let self, !self.configuredBridgeSource.remote else { return false }
+                do {
+                    try FileManager.default.createDirectory(at: self.appSupportURL, withIntermediateDirectories: true)
+                    let data = try JSONSerialization.data(withJSONObject: value)
+                    try self.writePrivate(String(decoding: data, as: UTF8.self), to: cache)
+                    self.loadQuotas()
+                    return true
+                } catch {
+                    QuotaDiagnostics.shared.capture("openai_api_credits", failure: QuotaDiagnostics.failure(error), remote: false)
+                    return false
+                }
+            }
+        }
+        if show {
+            NSApp.activate(ignoringOtherApps: true)
+            openAICreditsWindow?.showWindow(nil)
+            openAICreditsWindow?.window?.makeKeyAndOrderFront(nil)
         }
     }
 
@@ -3736,6 +3878,47 @@ private struct QuotaMenu {
             let monthlyCreditLine = creditLines(creditProvider, codex: false).last!
             precondition(monthlyCreditLine == "≈ UTILISÉ : 200.00$ / 200.00$ (USD) - exp. 26/11")
             precondition((monthlyCreditLine as NSString).size(withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)]).width <= 280)
+            var apiProvider = quotas!.codex
+            let codexCreditLine = creditLines(apiProvider, codex: true).first
+            precondition(creditLines(apiProvider, codex: true).last == "API : — (USD)")
+            apiProvider.apiCredits = ["currency": "USD", "monthly": 96, "monthly_granted": 96, "expires_at": 1795965002]
+            for (remaining, used) in [(96.0, "0.00$"), (95.18, "0.82$"), (0.0, "96.00$")] {
+                apiProvider.apiCredits?["monthly"] = remaining
+                precondition(creditLines(apiProvider, codex: true).last == "API : \(used) / 96.00$ (USD) - exp. 29/11")
+                precondition(creditLines(apiProvider, codex: true).first == codexCreditLine)
+            }
+            for missing: Any in [NSNull(), -1, 97, true, "96", Double.nan, Double.infinity] {
+                apiProvider.apiCredits?["monthly"] = missing
+                precondition(creditLines(apiProvider, codex: true).last == "API : — / 96.00$ (USD) - exp. 29/11")
+            }
+            apiProvider.apiCredits = ["currency": "USD", "status": "stale", "monthly": 0, "monthly_granted": 500, "expires_at": 1795965002]
+            let apiLine = creditLines(apiProvider, codex: true).last!
+            precondition(apiLine == "≈ API : 500.00$ / 500.00$ (USD) - exp. 29/11")
+            precondition((apiLine as NSString).size(withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)]).width <= 280)
+            apiProvider.apiCredits?["currency"] = "CAD"
+            precondition(creditLines(apiProvider, codex: true).last == "API : — (USD)")
+            let apiGrant: [String: Any] = ["id": "chatgpt_api_credits_promo_test", "grant_amount": 96,
+                "used_amount": 0, "effective_at": 1794685271.079104, "expires_at": 1795965002,
+                "is_scheduled": false, "is_held_for_prepaid_transition": false, "private": "test-secret"]
+            let apiBody: [String: Any] = ["organization_id": "org-test", "grants": [apiGrant, ["id": "purchased"]], "token": "test-secret"]
+            let apiSnapshot = openAICreditSnapshot(apiBody, now: 1794900000)!
+            precondition((apiSnapshot["grants"] as? [[String: Any]])?.count == 1)
+            precondition(!String(decoding: try! JSONSerialization.data(withJSONObject: apiSnapshot), as: UTF8.self).contains("test-secret"))
+            precondition(openAICreditSnapshot(["organization_id": "org-test", "grants": []]) != nil)
+            precondition(openAICreditSnapshot(["organization_id": "bad", "grants": [apiGrant]]) == nil)
+            for field in ["grant_amount", "used_amount", "effective_at", "expires_at"] {
+                for bad: Any in [true, -1, "96", Double.infinity, Double.nan, 1e15] {
+                    var invalid = apiGrant
+                    invalid[field] = bad
+                    precondition(openAICreditSnapshot(["organization_id": "org-test", "grants": [invalid]]) == nil)
+                }
+            }
+            for (field, bad): (String, Any) in [("used_amount", 97), ("expires_at", 1794685271), ("is_scheduled", 0), ("is_held_for_prepaid_transition", "false")] {
+                var invalid = apiGrant
+                invalid[field] = bad
+                precondition(openAICreditSnapshot(["organization_id": "org-test", "grants": [invalid]]) == nil)
+            }
+            precondition(providerQuotas(["api_credits": ["currency": "USD", "monthly": 96]])?.apiCredits?["monthly"] as? Int == 96)
             let consoleBody: [String: Any] = ["organization_id": "00000000-0000-4000-8000-000000000001",
                 "credits": ["currency": "USD", "amount_without_scoped_credits": 0, "sessionKey": "test-secret",
                     "promo_tranches": [["currency": "USD", "remaining_amount_minor_units": 8765,

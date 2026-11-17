@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 from designer import Designer
 
-APP_VERSION = "1.1.16"
+APP_VERSION = "1.1.17"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -317,6 +317,51 @@ def read_claude_console_credits(path=None, now=None):
                 "organization_id": organization, "currency": "USD", "purchased": purchased / 100,
                 "monthly": monthly / 100, "monthly_granted": granted / 100,
                 "promotional": promotional / 100, "expires_at": min(expirations, default=None)}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        return None
+
+
+def read_openai_api_credits(path=None, now=None):
+    """Read the Mac's filtered ChatGPT subscription grants, separate from Codex credits."""
+    path = path or Path.home() / "Library/Application Support/Quota Display/openai-api-credits.json"
+    now = int(time.time() if now is None else now)
+    try:
+        value = json.loads(Path(path).read_text())
+        updated = value["updated_at"]
+        organization = value["organization_id"]
+        if (type(updated) is not int or not 0 <= updated <= now
+                or not isinstance(organization, str) or not organization.startswith("org-")
+                or not 5 <= len(organization) <= 128 or not organization.isascii()
+                or not organization[4:].isalnum()):
+            return None
+
+        def number(amount, maximum):
+            if type(amount) not in (int, float) or not 0 <= amount <= maximum or not math.isfinite(amount):
+                raise ValueError("Invalid API credit value")
+            return amount
+
+        grants = value["grants"]
+        if not isinstance(grants, list) or len(grants) > 1000:
+            return None
+        monthly, granted, expirations = 0, 0, []
+        for grant in grants:
+            initial = number(grant["grant_amount"], 1e12)
+            used = number(grant["used_amount"], 1e12)
+            effective = number(grant["effective_at"], 4294967295)
+            expiry = number(grant["expires_at"], 4294967295)
+            scheduled = grant["is_scheduled"]
+            held = grant["is_held_for_prepaid_transition"]
+            if type(scheduled) is not bool or type(held) is not bool or used > initial or expiry <= effective:
+                return None
+            if scheduled or held or effective > now or expiry <= now:
+                continue
+            monthly += initial - used
+            granted += initial
+            expirations.append(int(expiry))
+        number(granted, 1e12)
+        return {"status": "ok" if now - updated <= 900 else "stale", "updated_at": updated,
+                "organization_id": organization, "currency": "USD", "monthly": monthly,
+                "monthly_granted": granted, "expires_at": min(expirations, default=None)}
     except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         return None
 
@@ -1035,6 +1080,8 @@ class QuotaState:
         if refresh["enabled"]:
             path = self.display_path.with_name("claude-console-credits.json") if self.display_path else None
             providers["claude"]["credits"] = read_claude_console_credits(path)
+            path = self.display_path.with_name("openai-api-credits.json") if self.display_path else None
+            providers["codex"]["api_credits"] = read_openai_api_credits(path)
         return {
             "version": 1,
             "app_version": APP_VERSION,

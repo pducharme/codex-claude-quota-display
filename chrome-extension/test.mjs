@@ -323,6 +323,40 @@ test('Claude credits show monthly USD usage without inventing missing balances',
   assert.ok(summary({promotional: 5}).includes('PROMO 5.00$'));
 });
 
+test('OpenAI API credits stay separate from Codex credits and retain the actual grant', async () => {
+  const rendererSource = await readFile(new URL('./dashboard.js', import.meta.url), 'utf8');
+  const {dashboardSummary, drawDashboard} = await import(`data:text/javascript;base64,${Buffer.from(rendererSource).toString('base64')}`);
+  const apiCredits = {currency: 'USD', monthly: 95.18, monthly_granted: 96, expires_at: 1795965002};
+  const snapshot = api_credits => ({...quotas, display: {codex: true, claude: false}, providers: {
+    codex: {...quotas.providers.codex, credits: {balance: 12345.67}, api_credits},
+  }});
+  const summary = overrides => dashboardSummary(snapshot({...apiCredits, ...overrides}));
+  assert.ok(summary({}).includes('API : 0.82$ / 96.00$ (USD) - exp. 29/11'));
+  assert.match(summary({}), /CRÉDITS OPENAI : 12\s345,67/);
+  assert.doesNotMatch(summary({}), /200\.00/);
+  assert.ok(summary({monthly: 96}).includes('API : 0.00$ / 96.00$ (USD)'));
+  assert.ok(summary({monthly: 0}).includes('API : 96.00$ / 96.00$ (USD)'));
+  for (const monthly of [null, undefined, -1, 97, true, '95.18', NaN, Infinity]) {
+    assert.ok(summary({monthly}).includes('API : — / 96.00$ (USD)'), String(monthly));
+  }
+  assert.ok(summary({monthly_granted: null}).includes('API : 95.18$ (USD)'));
+  assert.ok(summary({monthly: 0, monthly_granted: 0}).includes('API : 0.00$ (USD)'));
+  for (const credits of [undefined, null, {...apiCredits, currency: 'CAD'}]) {
+    assert.ok(dashboardSummary(snapshot(credits)).includes('API : — (USD)'));
+  }
+  assert.ok(summary({status: 'stale'}).includes('≈ API : 0.82$ / 96.00$ (USD)'));
+  assert.match(summary({status: 'stale'}), /reconnectez OpenAI Platform sur le Mac source/);
+  assert.doesNotMatch(summary({status: 'stale'}), /Claude Console/);
+  const labels = [];
+  const ctx = new Proxy({
+    measureText: text => ({width: String(text).length * 4}),
+    fillText(text) {labels.push({text, color: this.fillStyle});},
+  }, {get: (target, key) => key in target ? target[key] : () => {}});
+  drawDashboard({getContext: () => ctx}, snapshot({...apiCredits, status: 'stale'}));
+  assert.notEqual(labels.find(label => label.text.startsWith('CRÉDITS OPENAI')).color,
+    labels.find(label => label.text.startsWith('≈ API')).color);
+});
+
 test('manifest is a client-only MV3 package with optional host access', async () => {
   const manifest = JSON.parse(await readFile(new URL('./manifest.json', import.meta.url), 'utf8'));
   assert.equal(manifest.manifest_version, 3);

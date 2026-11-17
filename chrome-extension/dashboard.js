@@ -166,17 +166,19 @@ function quotaCell(ctx, label, window, [x, y, width, height], accent, duration, 
 }
 
 function creditLines(key, provider) {
-  const credits = provider?.credits;
+  const codex = key === "codex";
+  const credits = codex ? (provider?.api_credits?.currency === "USD" ? provider.api_credits : null) : provider?.credits;
   const number = (value, dollars = true) => finite(value) && value >= 0
-    ? value.toLocaleString(key === "codex" ? "fr-CA" : "en-US", { useGrouping: key === "codex", minimumFractionDigits: key === "codex" && !dollars ? 0 : 2, maximumFractionDigits: 2 }) + (dollars ? "$" : "") : "—";
-  if (key === "codex") return [`CRÉDITS OPENAI : ${credits?.unlimited === true ? "ILLIMITÉS" : number(credits?.balance, false)}`];
+    ? value.toLocaleString(codex && !dollars ? "fr-CA" : "en-US", { useGrouping: codex && !dollars, minimumFractionDigits: codex && !dollars ? 0 : 2, maximumFractionDigits: 2 }) + (dollars ? "$" : "") : "—";
   const stale = credits?.status === "stale" ? "≈ " : "";
-  const purchased = `${stale}API ACHETÉS : ${number(credits?.purchased)} (USD)${credits?.promotional > 0 ? ` · PROMO ${number(credits.promotional)}` : ""}`;
+  const purchased = codex
+    ? `CRÉDITS OPENAI : ${provider?.credits?.unlimited === true ? "ILLIMITÉS" : number(provider?.credits?.balance, false)}`
+    : `${stale}API ACHETÉS : ${number(credits?.purchased)} (USD)${credits?.promotional > 0 ? ` · PROMO ${number(credits.promotional)}` : ""}`;
   const expiry = finite(credits?.expires_at) ? ` - exp. ${new Date(credits.expires_at * 1000).toLocaleDateString("fr-FR", {day: "2-digit", month: "2-digit", timeZone: "UTC"})}` : "";
   const used = finite(credits?.monthly) && finite(credits?.monthly_granted) && credits.monthly >= 0 && credits.monthly <= credits.monthly_granted ? credits.monthly_granted - credits.monthly : null;
   const monthly = credits?.monthly_granted > 0
-    ? `UTILISÉ : ${number(used)} / ${number(credits.monthly_granted)} (USD)`
-    : `MENSUEL RESTANT : ${number(credits?.monthly)} (USD)`;
+    ? `${codex ? "API" : "UTILISÉ"} : ${number(used)} / ${number(credits.monthly_granted)} (USD)`
+    : `${codex ? "API" : "MENSUEL RESTANT"} : ${number(credits?.monthly)} (USD)`;
   return [purchased, `${stale}${monthly}${expiry}`];
 }
 
@@ -210,7 +212,7 @@ function providerCard(ctx, key, provider, [x, y, width, height], now, frame) {
     pixelText(ctx, remainingText(provider?.fable_weekly), [x + compactWidth - 38, bottom - 1, 28, 13], 1, quotaColor(remaining(provider?.fable_weekly)), "right");
     text(ctx, `RESETS: ${count ?? "—"} ›`, [x + width - 100, y + 120, 90, 14], 9, accent, { align: "right", mono: true, weight: 700 });
   }
-  creditLines(key, provider).forEach((line, index) => text(ctx, line, [x + 10, y + 135 + index * 12, width - 20, 12], 9, provider?.credits?.status === "stale" ? C.amber : accent));
+  creditLines(key, provider).forEach((line, index) => text(ctx, line, [x + 10, y + 135 + index * 12, width - 20, 12], 9, (codex && index === 1 ? provider?.api_credits : provider?.credits)?.status === "stale" ? C.amber : accent));
 }
 
 function bankedDetail(ctx, key, provider, now, frame, detailOffset) {
@@ -299,10 +301,11 @@ export function dashboardSummary(snapshot, { online = true, detail = null } = {}
     const provider = snapshot.providers?.[key], name = key === "codex" ? "Codex" : "Claude";
     if (detail) parts.push(`${name}, ${resetCount(provider) ?? "—"} resets en banque. ${resetRows(provider, now).join(". ")}.`);
     else parts.push(`${name}, forfait ${typeof provider?.plan === "string" ? provider.plan : "inconnu"}${remaining(provider?.five_hour) !== null ? `, 5 heures ${remainingText(provider.five_hour)}` : ""}, semaine ${remainingText(provider?.weekly)}${key === "claude" ? `, Fable ${remainingText(provider?.fable_weekly)}` : ""}, ${resetCount(provider) ?? "—"} resets en banque.`);
-    if (key === "claude") parts.push("Crédits API mensuels : montant utilisé / accordé; expiration en UTC.");
+    parts.push("Crédits API mensuels : montant utilisé / accordé; expiration en UTC.");
     parts.push(creditLines(key, provider).join(". "));
-    if (provider?.credits?.status === "stale") parts.push("Crédits non actualisés : reconnectez Claude Console sur le Mac source.");
-    if (typeof provider?.credits?.organization_id === "string") parts.push(`Organisation Console : ${provider.credits.organization_id}.`);
+    const credits = key === "codex" ? provider?.api_credits : provider?.credits;
+    if (credits?.status === "stale") parts.push(`Crédits non actualisés : reconnectez ${key === "codex" ? "OpenAI Platform" : "Claude Console"} sur le Mac source.`);
+    if (typeof credits?.organization_id === "string") parts.push(`Organisation ${key === "codex" ? "API OpenAI" : "Console"} : ${credits.organization_id}.`);
     if (provider?.error_reason === "authentication_required") parts.push(`${name} : connexion requise sur le Mac source.`);
   }
   const address = typeof snapshot.api?.address === "string" ? snapshot.api.address : "port 8788";

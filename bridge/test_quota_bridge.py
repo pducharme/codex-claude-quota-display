@@ -32,6 +32,7 @@ from quota_bridge import (
     read_codex,
     read_claude_desktop_cache,
     read_claude_console_credits,
+    read_openai_api_credits,
     read_claude_plan,
     read_weather,
     rain_summary,
@@ -40,6 +41,90 @@ from quota_bridge import (
 
 
 class QuotaParsingTest(unittest.TestCase):
+    def test_openai_api_credits_preserve_actual_grants_and_codex_balance(self):
+        grant = {"grant_amount": 96, "used_amount": 0, "effective_at": 900.125,
+                 "expires_at": 5000, "is_scheduled": False, "is_held_for_prepaid_transition": False}
+        cache = {"updated_at": 1000, "organization_id": "org-Example123", "grants": [grant],
+                 "session_key": "test-secret"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "openai-api-credits.json"
+            self.assertIsNone(read_openai_api_credits(path, now=1000))
+            path.write_text(json.dumps(cache))
+            parsed = read_openai_api_credits(path, now=1000)
+            self.assertEqual(parsed, {"status": "ok", "updated_at": 1000,
+                "organization_id": "org-Example123", "currency": "USD", "monthly": 96,
+                "monthly_granted": 96, "expires_at": 5000})
+            self.assertNotIn("test-secret", json.dumps(parsed))
+            self.assertEqual(read_openai_api_credits(path, now=1900)["status"], "ok")
+            self.assertEqual(read_openai_api_credits(path, now=1901)["status"], "stale")
+            state = QuotaState(display_path=Path(directory) / "display.json")
+            state.providers["codex"].update(parse_codex_limits({"rateLimits": {
+                "credits": {"balance": "12345.67", "unlimited": False}}}))
+            with patch("quota_bridge.time.time", return_value=1000):
+                provider = state.payload()["providers"]["codex"]
+            self.assertEqual(provider["api_credits"], parsed)
+            self.assertEqual(provider["credits"], {"balance": 12345.67, "unlimited": False})
+            self.assertNotIn("api_credits", state.providers["codex"])
+            Path(directory, "source-host").write_text("192.0.2.10")
+            self.assertNotIn("api_credits", state.payload()["providers"]["codex"])
+
+            for used in (0, 0.82, 96):
+                cache["grants"] = [dict(grant, used_amount=used)]
+                path.write_text(json.dumps(cache))
+                parsed = read_openai_api_credits(path, now=1000)
+                self.assertEqual(parsed["monthly"], 96 - used)
+                self.assertEqual(parsed["monthly_granted"], 96)
+            cache["grants"] = [dict(grant, grant_amount=0)]
+            path.write_text(json.dumps(cache))
+            self.assertEqual(read_openai_api_credits(path, now=1000)["monthly"], 0)
+
+    def test_openai_api_credits_use_only_active_available_grants(self):
+        grant = {"grant_amount": 96, "used_amount": 12.5, "effective_at": 900.125,
+                 "expires_at": 5000, "is_scheduled": False, "is_held_for_prepaid_transition": False}
+        cache = {"updated_at": 1000, "organization_id": "org-Example123", "grants": [
+            grant, dict(grant, grant_amount=4, used_amount=1, expires_at=4000),
+            dict(grant, effective_at=1001), dict(grant, expires_at=1000),
+            dict(grant, is_scheduled=True), dict(grant, is_held_for_prepaid_transition=True)]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "openai-api-credits.json"
+            path.write_text(json.dumps(cache))
+            parsed = read_openai_api_credits(path, now=1000)
+            self.assertEqual((parsed["monthly"], parsed["monthly_granted"], parsed["expires_at"]), (86.5, 100, 4000))
+            parsed = read_openai_api_credits(path, now=5000)
+            self.assertEqual((parsed["monthly"], parsed["monthly_granted"], parsed["expires_at"]), (0, 0, None))
+            cache["grants"] = []
+            path.write_text(json.dumps(cache))
+            parsed = read_openai_api_credits(path, now=1000)
+            self.assertEqual((parsed["monthly"], parsed["monthly_granted"], parsed["expires_at"]), (0, 0, None))
+
+    def test_openai_api_credits_reject_malformed_snapshots(self):
+        grant = {"grant_amount": 96, "used_amount": 0, "effective_at": 900.125,
+                 "expires_at": 5000, "is_scheduled": False, "is_held_for_prepaid_transition": False}
+        cache = {"updated_at": 1000, "organization_id": "org-Example123", "grants": [grant]}
+        invalid = [None, True, -1, "96", float("nan"), float("inf"), 10**400]
+        overrides = [{"updated_at": value} for value in (True, -1, 1001, 1000.0)]
+        overrides += [{"organization_id": value} for value in (None, "bad", "org-", "org-é", "org-abc\n", "org-" + "a" * 125)]
+        overrides += [{"grants": value} for value in (None, {}, [None], [grant] * 1001)]
+        for field in ("grant_amount", "used_amount", "effective_at", "expires_at"):
+            overrides += [{"grants": [dict(grant, **{field: value})]} for value in invalid]
+        for field in ("is_scheduled", "is_held_for_prepaid_transition"):
+            overrides += [{"grants": [dict(grant, **{field: value})]} for value in (None, 0, 1, "false")]
+        overrides += [{"grants": [dict(grant, **item)]} for item in (
+            {"grant_amount": 1e12 + 1}, {"used_amount": 97}, {"expires_at": 900},
+            {"expires_at": 4294967296}, {"effective_at": 4294967296})]
+        overrides += [{"grants": [dict(grant, grant_amount=1e12)] * 2}]
+        overrides += [{"grants": [{key: value for key, value in grant.items() if key != field}]}
+                      for field in grant]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "openai-api-credits.json"
+            for override in overrides:
+                with self.subTest(override=override):
+                    path.write_text(json.dumps(dict(cache, **override)))
+                    self.assertIsNone(read_openai_api_credits(path, now=1000))
+            for malformed in ("{", "[]", "null"):
+                path.write_text(malformed)
+                self.assertIsNone(read_openai_api_credits(path, now=1000))
+
     def test_openai_credits_are_separate_from_limits_and_reset_credits(self):
         credits = {"balance": "12345.67", "unlimited": False, "hasCredits": True}
         result = {"rateLimits": {"credits": {"balance": "999"}},

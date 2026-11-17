@@ -2,6 +2,37 @@
     <channel>
         <title>Quota Display</title>
         <item>
+            <title>1.1.17</title>
+            <pubDate>Tue, 17 Nov 2026 09:06:40 -0500</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:minimumUpdateVersion>1.0.7</sparkle:minimumUpdateVersion>
+            <sparkle:criticalUpdate sparkle:version="1.1.11"/>
+            <sparkle:version>1.1.17</sparkle:version>
+            <sparkle:shortVersionString>1.1.17</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>Quota Display 1.1.17 — crédits API mensuels OpenAI</h2>
+<ul>
+  <li>Affiche les crédits API mensuels liés à l’abonnement ChatGPT, séparément des crédits Work/Codex : montant utilisé / réellement accordé en USD et date d’expiration UTC.</li>
+  <li>Pour les afficher, choisissez « Paramètres → API et connexions → Connexions → Connecter OpenAI Platform… » sur le Mac source, puis connectez-vous à l’organisation liée à votre abonnement.</li>
+  <li>Reprend le montant accordé par OpenAI : le premier versement peut être proratisé, sans présumer un solde de 200 $.</li>
+  <li>Actualise les crédits toutes les cinq minutes. Une donnée inconnue reste « — »; après quinze minutes sans lecture réussie, le dernier solde est marqué « ≈ ».</li>
+  <li>Partage les montants, dates et l’identifiant de l’organisation avec Chrome 1.0.4 et le firmware du 17 novembre 2026. La session OpenAI Platform reste dans le stockage WebKit du Mac source.</li>
+</ul>
+<p>Le lecteur dépend de la réponse de facturation privée d’OpenAI Platform. Reconnectez la fenêtre si la session expire. Les crédits Claude et les préférences existantes sont conservés. Le firmware est fourni séparément; son installation sur les mini-écrans reste à effectuer.</p>
+<p>Application universelle Intel et Apple Silicon, avec les signatures Developer ID et Sparkle existantes. Le paquet d’installation n’est pas notarié par Apple.</p>
+]]></description>
+            <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.17/Quota-Display-1.1.17.zip" length="3631212" type="application/octet-stream" sparkle:edSignature="yuTd02XEOm8BvoJB9pBoOBhbdTUEStOFvL/kYOJVY9xYtvFf2v8EiNk/sp9fTbHzZABlDqMMS19hbrKjJJuHDQ=="/>
+        </item>
+        <item>
+            <title>Installation manuelle du Companion 1.1.17</title>
+            <pubDate>Tue, 17 Nov 2026 09:06:40 -0500</pubDate>
+            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
+            <sparkle:version>1.1.17</sparkle:version>
+            <sparkle:shortVersionString>1.1.17</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description>Les versions antérieures à 1.0.7 doivent être réinstallées depuis la page de téléchargement. Leurs préférences et leur source de quotas doivent être conservées.</description>
+        </item>
+        <item>
             <title>1.1.16</title>
             <pubDate>Sat, 31 Oct 2026 19:16:07 -0400</pubDate>
             <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
@@ -22,15 +53,7 @@
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.16/Quota-Display-1.1.16.zip" length="3611943" type="application/octet-stream" sparkle:edSignature="L9TAWYgm6LK6UG6Gu193KPdiGodQeO8596OXqaQl4Lr5lgvnjPGw8fG/GfEVk0HiAa+9c1oJIQPx1QT9i/MMAg=="/>
         </item>
-        <item>
-            <title>Installation manuelle du Companion 1.1.16</title>
-            <pubDate>Sat, 31 Oct 2026 19:16:07 -0400</pubDate>
-            <link>https://github.com/pducharme/codex-claude-quota-display/releases/latest</link>
-            <sparkle:version>1.1.16</sparkle:version>
-            <sparkle:shortVersionString>1.1.16</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description>Les versions antérieures à 1.0.7 doivent être réinstallées depuis la page de téléchargement. Leurs préférences et leur source de quotas doivent être conservées.</description>
-        </item>
+
         <item>
             <title>1.1.15</title>
             <pubDate>Wed, 28 Oct 2026 09:54:17 -0400</pubDate>
@@ -52,7 +75,6 @@
 ]]></description>
             <enclosure url="https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.15/Quota-Display-1.1.15.zip" length="3607937" type="application/octet-stream" sparkle:edSignature="20c9eYGJsQ5UhQeGDQMXYx36vyB6tE/LPsQovfV2ui5fNlbFMdnyK3lLC/6ui7vMMvC/Fspt4IgXWn68Q+v4Aw=="/>
         </item>
-
         <item>
             <title>1.1.14</title>
             <pubDate>Tue, 27 Oct 2026 23:31:42 -0400</pubDate>

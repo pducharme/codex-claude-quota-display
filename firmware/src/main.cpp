@@ -133,7 +133,7 @@ struct Provider {
   Window weekly;
   Window fableWeekly;
   String creditLines[2];
-  bool creditsStale = false;
+  bool creditsStale[2] = {};
   bool creditsAvailable = false;
 };
 
@@ -483,7 +483,7 @@ void drawProviderCard(int x, int width, const char *name,
     int maxCharacters = (width - 24) / 6;
     if (line.length() > maxCharacters) line = line.substring(0, maxCharacters - 3) + "...";
     text(x + 12, y + 141 + index * 14, line,
-         provider.creditsStale ? COLOR_AMBER : accent, 1);
+         provider.creditsStale[index] ? COLOR_AMBER : accent, 1);
   }
 }
 
@@ -1075,33 +1075,38 @@ void readProvider(JsonObjectConst providers, const char *name,
   provider.fableWeekly = jsonWindow(source["fable_weekly"]);
   JsonObjectConst credits = source["credits"].as<JsonObjectConst>();
   provider.creditsAvailable = !credits.isNull();
-  provider.creditsStale = credits["status"] == "stale";
-  provider.creditLines[1] = "";
-  if (strcmp(name, "codex") == 0) {
+  provider.creditsStale[0] = credits["status"] == "stale";
+  bool codex = strcmp(name, "codex") == 0;
+  if (codex) {
     provider.creditLines[0] = "CREDITS OPENAI: " +
         (credits["unlimited"] == true ? String("ILLIMITES") : creditAmount(credits["balance"], false));
+    credits = source["api_credits"]["currency"] == "USD"
+        ? source["api_credits"].as<JsonObjectConst>() : JsonObjectConst();
+    provider.creditsAvailable = provider.creditsAvailable || !credits.isNull();
   } else {
-    String prefix = provider.creditsStale ? "~ " : "";
+    String prefix = provider.creditsStale[0] ? "~ " : "";
     provider.creditLines[0] = prefix + "API ACHETES: " + creditAmount(credits["purchased"]) + " (USD)";
     if ((credits["promotional"] | 0.0) > 0) provider.creditLines[0] += " PROMO " + creditAmount(credits["promotional"]);
-    double granted = credits["monthly_granted"] | 0.0;
-    double remaining = credits["monthly"] | -1.0;
-    provider.creditLines[1] = prefix + "MENSUEL RESTANT: " + creditAmount(credits["monthly"]) + " (USD)";
-    if (granted > 0) {
-      String used = creditAmount(credits["monthly"]) != "--" &&
-                    creditAmount(credits["monthly_granted"]) != "--" && remaining <= granted
-          ? String(granted - remaining, 2) + "$" : "--";
-      provider.creditLines[1] = prefix + "UTILISE: " + used + " / " +
-          creditAmount(credits["monthly_granted"]) + " (USD)";
-    }
-    if (credits["expires_at"].is<uint32_t>()) {
-      time_t epoch = credits["expires_at"].as<uint32_t>();
-      struct tm utc;
-      gmtime_r(&epoch, &utc);
-      char expiry[18];
-      strftime(expiry, sizeof(expiry), " - exp. %d/%m", &utc);
-      provider.creditLines[1] += expiry;
-    }
+  }
+  provider.creditsStale[1] = credits["status"] == "stale";
+  String prefix = provider.creditsStale[1] ? "~ " : "";
+  double granted = credits["monthly_granted"] | 0.0;
+  double remaining = credits["monthly"] | -1.0;
+  provider.creditLines[1] = prefix + (codex ? "API: " : "MENSUEL RESTANT: ") + creditAmount(credits["monthly"]) + " (USD)";
+  if (granted > 0) {
+    String used = creditAmount(credits["monthly"]) != "--" &&
+                  creditAmount(credits["monthly_granted"]) != "--" && remaining <= granted
+        ? String(granted - remaining, 2) + "$" : "--";
+    provider.creditLines[1] = prefix + (codex ? "API: " : "UTILISE: ") + used + " / " +
+        creditAmount(credits["monthly_granted"]) + " (USD)";
+  }
+  if (credits["expires_at"].is<uint32_t>()) {
+    time_t epoch = credits["expires_at"].as<uint32_t>();
+    struct tm utc;
+    gmtime_r(&epoch, &utc);
+    char expiry[18];
+    strftime(expiry, sizeof(expiry), " - exp. %d/%m", &utc);
+    provider.creditLines[1] += expiry;
   }
 }
 

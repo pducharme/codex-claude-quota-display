@@ -7,8 +7,8 @@ de l’API : un Mac source conserve les sessions et collecte les quotas.
 
 [Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
 
-[Télécharger le Companion macOS](https://github.com/pducharme/codex-claude-quota-display/releases/latest)
-· [Télécharger l’extension Chrome 1.0.3](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.3)
+[Télécharger le Companion macOS 1.1.17](https://github.com/pducharme/codex-claude-quota-display/releases/tag/v1.1.17)
+· [Télécharger l’extension Chrome 1.0.4](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.4)
 · [Installer l’extension](#installer-lextension-chrome)
 · [Confidentialité de l’extension](chrome-extension/PRIVACY.md)
 
@@ -22,8 +22,9 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
 - Quotas restants sur 5 heures et sur la semaine.
 - Forfaits Codex et Claude, quotas Fable et resets Codex/Claude en banque lorsque les
   fournisseurs les rendent disponibles.
-- Crédits OpenAI Work/Codex, crédits API Claude achetés et solde mensuel lié au
-  forfait Claude, avec son montant accordé et son expiration (UTC).
+- Crédits OpenAI Work/Codex, crédits API Claude achetés et crédits API mensuels
+  liés aux abonnements ChatGPT et Claude : montant utilisé / accordé en USD et
+  expiration (UTC).
 - Jauges réelles accompagnées de segments indiquant où la consommation devrait
   théoriquement se situer dans la période.
 - Companion natif dans la barre de menus macOS.
@@ -72,15 +73,15 @@ Le projet contient quatre parties :
 - Codex.app et/ou Claude Desktop installés et connectés.
 
 Pour mettre à jour un Companion déjà installé, utilisez **Paramètres → Mises à
-jour → Vérifier les mises à jour…**. La version 1.1.16 masque les limites 5 h non fournies,
-étend le quota hebdomadaire et affiche les forfaits Claude Max/Ultra et OpenAI
-Pro 100/200/500. Le ZIP contient l’application universelle signée Developer ID
+jour → Vérifier les mises à jour…**. La version 1.1.17 ajoute les crédits API
+mensuels OpenAI, séparément des crédits Work/Codex, avec le montant utilisé /
+réellement accordé et l’expiration UTC. Le ZIP contient l’application universelle signée Developer ID
 avec sa signature Sparkle.
 Les versions antérieures à 1.0.7 restent dirigées vers une installation manuelle
 depuis la page de téléchargement.
 
 Pour une première installation avec configuration du pont API, téléchargez le
-[paquet 1.1.16](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.16/Quota-Display-1.1.16.pkg),
+[paquet 1.1.17](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.17/Quota-Display-1.1.17.pkg),
 puis ouvrez-le. Le paquet universel prend en charge Apple Silicon et Intel. Il
 installe le Companion et son pont API, puis configure leur démarrage à
 l’ouverture de session.
@@ -119,6 +120,18 @@ minutes sans lecture réussie, le dernier solde est marqué **≈**; reconnectez
 Console si nécessaire. Un solde non fourni reste **—**, jamais un zéro supposé.
 Les clients Chrome et les mini-écrans lisent ces valeurs par l’API existante et
 nécessitent leurs versions prenant en charge l’affichage des crédits.
+
+Pour les crédits API mensuels OpenAI (Companion 1.1.17 et Chrome 1.0.4), choisissez
+**Paramètres → API et connexions → Connexions → Connecter OpenAI Platform…** sur le Mac source. Connectez-vous dans
+la fenêtre et sélectionnez l’organisation liée à l’abonnement ChatGPT. La session
+reste dans le stockage WebKit local; les montants, dates et l’identifiant de
+l’organisation sont transmis aux clients, sans la session. La ligne **API** affiche le montant utilisé / réellement accordé en USD
+et l’expiration UTC, séparément des crédits Work/Codex. Le premier versement peut
+être proratisé : aucun solde de 200 $ n’est présumé. La page est relue toutes les
+cinq minutes; **≈** signale un solde non actualisé depuis quinze minutes et **—**
+une donnée inconnue. Ce lecteur dépend de la réponse privée de facturation de
+Platform; reconnectez cette fenêtre si la session expire. Les mini-écrans doivent
+utiliser le firmware du 17 novembre 2026 ou une version plus récente.
 
 Par défaut, le menu montre seulement le tableau de bord et une ligne
 **Paramètres**. Les réglages sont regroupés dans **Affichage** (fournisseurs,
@@ -170,7 +183,7 @@ rester allumé et son pont API accessible; il conserve les sessions Codex et Cla
 et collecte leurs quotas.
 
 1. Téléchargez le ZIP de l’extension depuis la
-   [release Chrome 1.0.3](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.3),
+   [release Chrome 1.0.4](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.4),
    puis décompressez-le. Les [sources sont dans `chrome-extension/`](chrome-extension/).
 2. Ouvrez `chrome://extensions`, activez le **Mode développeur**, puis choisissez
    **Charger l’extension non empaquetée** et sélectionnez le dossier décompressé
@@ -227,12 +240,14 @@ révisions actuelles.
 
 ### Firmware précompilé
 
-Pour l’affichage hebdomadaire sans limite 5 h, les crédits API, le Designer et les
-alertes Avion, téléchargez `quota-display-weekly-2026.10.31-app.bin` et sa somme SHA-256 dans la
-[release firmware du 31 octobre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.10.31).
+Pour les crédits API mensuels OpenAI, téléchargez `quota-display-openai-2026.11.17-app.bin`
+et sa somme SHA-256 dans la
+[release firmware du 17 novembre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.11.17).
 Sur un écran déjà configuré, écrivez cette image application à **`0x10000`**
-pour conserver les réglages. Le Companion source doit utiliser la version 1.1.14
-ou une version plus récente pour fournir les soldes de crédits.
+pour conserver les réglages. Le Companion source doit utiliser la version 1.1.17
+ou une version plus récente et être connecté à OpenAI Platform pour fournir ces
+soldes. L’affichage hebdomadaire adaptatif, les crédits Claude, le Designer et les
+alertes Avion restent pris en charge.
 
 La [version firmware du 20 septembre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.09.20)
 inclut les réglages web tactiles et désactive la DEL de charge clignotante dès
@@ -240,9 +255,9 @@ le démarrage, y compris pendant la veille. La charge de la batterie reste activ
 Les deux images et leurs sommes SHA-256 sont disponibles dans cette release,
 indépendamment des mises à jour de l’application Mac.
 
-L’image complète se trouve dans
-[`firmware/releases/quota-display-full.bin`](firmware/releases/quota-display-full.bin)
-et doit être écrite à l’adresse `0x0` :
+Pour une première installation, téléchargez cette
+[image complète `quota-display-openai-2026.11.17-full.bin`](https://github.com/pducharme/codex-claude-quota-display/releases/download/firmware-2026.11.17/quota-display-openai-2026.11.17-full.bin)
+et écrivez-la à l’adresse `0x0` depuis le dossier de téléchargement :
 
 ```sh
 python3 -m venv .venv
@@ -250,7 +265,7 @@ python3 -m venv .venv
 python -m pip install esptool
 SERIAL_PORT=/dev/cu.usbmodemXXXX
 python -m esptool --chip esp32s3 --port "$SERIAL_PORT" \
-  write_flash 0x0 firmware/releases/quota-display-full.bin
+  write_flash 0x0 quota-display-openai-2026.11.17-full.bin
 ```
 
 Remplacez la valeur de `SERIAL_PORT` par le port USB détecté sur votre
@@ -261,7 +276,7 @@ application à `0x10000` afin de conserver le Wi-Fi, la clé et l’horaire de v
 
 ```sh
 python -m esptool --chip esp32s3 --port "$SERIAL_PORT" \
-  write_flash 0x10000 firmware/releases/quota-display.bin
+  write_flash 0x10000 quota-display-openai-2026.11.17-app.bin
 ```
 
 N’utilisez pas l’image complète à `0x0` pour cette mise à jour : elle recouvre

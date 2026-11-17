@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Client tests and Web Store package
         run: |
-          node --test chrome-extension/test.mjs
+          node --test chrome-extension/test.mjs bridge/test_openai_capture.mjs
           python3 chrome-extension/package.py
 
   python:
