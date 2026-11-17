@@ -255,10 +255,11 @@ export function drawDashboard(canvas, snapshot, { online = true, detail = null, 
   pixelText(ctx, `Dernière actualisation : ${dateText(snapshot?.refresh?.completed_at, true, now)}`, [20, 187, 569, 12], 1.5, C.muted, "right");
   ctx.fillStyle = C.track;
   ctx.fillRect(20, 208, 600, 1);
-  const statusColor = online ? C.green : C.red;
-  circle(ctx, 25.5, 226.5, 3.5, statusColor);
-  const status = `  -  ${online ? "En ligne" : "Hors ligne"}`;
   const web = snapshot?.source_mode === "web";
+  const needsConnection = web && snapshot?.web_services && Object.keys(snapshot.web_services).length === 0;
+  const statusColor = needsConnection ? C.muted : online ? C.green : C.red;
+  circle(ctx, 25.5, 226.5, 3.5, statusColor);
+  const status = `  -  ${needsConnection ? "A connecter" : online ? "En ligne" : "Hors ligne"}`;
   const rawAddress = web ? "Sessions web" : typeof snapshot?.api?.address === "string" ? snapshot.api.address : "port 8788";
   const address = `[${rawAddress}]`, maxLength = Math.max(3, Math.floor((640 - (web ? 154 : 118) - status.length * 12) / 9));
   const endpoint = address.length > maxLength ? `${address.slice(0, maxLength - 3)}...` : address;
@@ -311,6 +312,7 @@ export function dashboardSummary(snapshot, { online = true, detail = null } = {}
     if (provider?.error_reason === "authentication_required") parts.push(`${name} : connexion requise ${location}.`);
   }
   const address = typeof snapshot.api?.address === "string" ? snapshot.api.address : "port 8788";
-  parts.push(`${web ? "Sessions web dans Chrome" : `API ${address}`}, ${online ? "en ligne" : "hors ligne"}. Dernière actualisation ${dateText(snapshot.refresh?.completed_at, true, now)}.`);
+  const needsConnection = web && snapshot.web_services && Object.keys(snapshot.web_services).length === 0;
+  parts.push(`${web ? "Sessions web dans Chrome" : `API ${address}`}, ${needsConnection ? "aucun service connecté" : online ? "en ligne" : "hors ligne"}. Dernière actualisation ${dateText(snapshot.refresh?.completed_at, true, now)}.`);
   return parts.join(" ");
 }

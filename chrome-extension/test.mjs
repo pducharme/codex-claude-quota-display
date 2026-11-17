@@ -243,6 +243,7 @@ test('dashboard interaction follows provider visibility and detail navigation', 
   assert.equal(hitTest(NaN, 30, quotas), null);
   assert.match(dashboardSummary(quotas), /Codex.*77%/);
   assert.match(dashboardSummary(quotas, {online: false}), /hors ligne/);
+  assert.match(dashboardSummary({source_mode: 'web', providers: {}, web_services: {}}), /aucun service connecté/);
   assert.doesNotMatch(dashboardSummary(claudeOnly), /Codex/);
   const resets = {...quotas, providers: {...quotas.providers, codex: {
     ...quotas.providers.codex, error_reason: 'authentication_required',

@@ -9,6 +9,7 @@ let connection = null, busy = false, sourceRevision = 0, lastRead = 0;
 let sourceMode = 'web', webConnected = {};
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const detachedWindow = location.search.includes('window') || location.search.includes('settings');
+document.documentElement.classList.toggle('standalone', detachedWindow);
 document.body.classList.toggle('standalone', detachedWindow);
 $('window').hidden = detachedWindow;
 
@@ -128,6 +129,13 @@ function details(name) {
 }
 for (const name of ['codex', 'claude']) $(`${name}-details`).onclick = () => details(name);
 $('back').onclick = () => details(null);
+for (const section of document.querySelectorAll('.settings-content > details')) {
+  section.addEventListener('toggle', () => {
+    if (section.open) for (const other of document.querySelectorAll('.settings-content > details')) {
+      if (other !== section) other.open = false;
+    }
+  });
+}
 for (const id of ['refresh', 'canvas-refresh']) $(id).onclick = () => action('refresh');
 document.addEventListener('keydown', event => {
   if (detail && event.key === 'Escape') { event.preventDefault(); details(null); }
@@ -266,10 +274,9 @@ if (connection) {
   if (sourceMode === 'mac' && cached?.source === connection.baseURL) snapshot = cached.snapshot;
 }
 if (sourceMode === 'web' ? !Object.values(webConnected).some(Boolean) : !connection) {
-  $('settings').open = $('source-settings').open = true;
-  status(sourceMode === 'web' ? 'Connectez les services à lire dans ce profil Chrome.' : 'Connectez l’extension au Companion du Mac source.');
+  status(sourceMode === 'web' ? 'Connectez vos comptes dans Paramètres → API et connexions.' : 'Configurez le Companion dans Paramètres → API et connexions.');
 }
-if (location.search.includes('settings')) $('settings').open = true;
+if (location.search.includes('settings')) $('settings').open = $('source-settings').open = true;
 applySettings(); paint(); await read();
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;

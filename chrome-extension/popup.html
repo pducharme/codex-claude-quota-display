@@ -21,12 +21,34 @@
     <details id="settings">
       <summary>Paramètres</summary>
       <div class="settings-content">
-        <div class="actions">
-          <button id="refresh">Actualiser les quotas</button>
-          <button id="window">Fenêtre permanente ↗</button>
-        </div>
+        <button id="refresh" class="menu-action">Actualiser les quotas</button>
+        <details id="display-settings">
+          <summary>Affichage</summary>
+          <div class="submenu-content">
+            <p id="display-scope" class="hint">Ces choix s’appliquent uniquement à Chrome.</p>
+            <label class="check"><input id="show-codex" type="checkbox">Afficher Codex</label>
+            <label class="check"><input id="show-claude" type="checkbox">Afficher Claude</label>
+            <button id="window" class="menu-action">Fenêtre permanente ↗</button>
+          </div>
+        </details>
+        <details id="badge-settings">
+          <summary>Icône Chrome</summary>
+          <div class="submenu-content">
+            <label>Pourcentage sur l’icône
+              <select id="badge">
+                <option value="codex:five_hour">Codex — 5 heures</option>
+                <option value="codex:weekly">Codex — semaine</option>
+                <option value="claude:five_hour">Claude — 5 heures</option>
+                <option value="claude:weekly">Claude — semaine</option>
+                <option value="claude:fable_weekly">Claude — Fable</option>
+                <option value="none">Masquer le pourcentage</option>
+              </select>
+            </label>
+          </div>
+        </details>
         <details id="source-settings">
-          <summary>API et connexions — Source des quotas</summary>
+          <summary>API et connexions</summary>
+          <div class="submenu-content">
           <label>Source des quotas
             <select id="source-mode">
               <option value="web">Sessions web — sans Mac</option>
@@ -34,7 +56,7 @@
             </select>
           </label>
           <div id="web-connections">
-            <p>Connectez-vous une fois, puis fermez les onglets. L’extension actualise les quotas en arrière-plan toutes les cinq minutes. Aucun Mac requis. Chaque accès est facultatif.</p>
+            <p class="hint">Connexion initiale, puis actualisation en arrière-plan. Vous pouvez fermer les onglets.</p>
             <div class="service-row" role="group" aria-label="Quotas Codex">
               <span>Codex · quotas <small id="state-codex"></small></span>
               <button id="connect-codex" type="button">Connecter</button>
@@ -55,7 +77,10 @@
               <button id="connect-claudeCredits" type="button">Connecter</button>
               <button id="disconnect-claudeCredits" type="button" hidden>Déconnecter</button>
             </div>
-            <p class="hint">Pour les crédits API OpenAI, le jeton de session est conservé dans ce profil Chrome et supprimé avec Déconnecter. Ce mode ne pilote pas les mini-écrans. Déconnecter retire l’accès de l’extension sans fermer votre session sur le site.</p>
+            <details class="connection-info">
+              <summary>Confidentialité des connexions</summary>
+              <p class="hint">Le jeton de session OpenAI Platform reste dans ce profil Chrome et est supprimé avec Déconnecter. Les quotas sont lus toutes les cinq minutes. Ce mode ne pilote pas les mini-écrans. Déconnecter retire l’accès de l’extension sans fermer votre session sur le site.</p>
+            </details>
           </div>
           <form id="source-form" hidden>
             <p>Sur le Mac source : <strong>Paramètres → API et connexions → Copier la configuration API</strong>.</p>
@@ -77,24 +102,7 @@
               <button id="disconnect" type="button">Déconnecter</button>
             </div>
           </form>
-        </details>
-        <details>
-          <summary>Affichage</summary>
-          <p id="display-scope">Ces choix s’appliquent uniquement à Chrome.</p>
-          <div class="actions">
-            <label class="check"><input id="show-codex" type="checkbox">Afficher Codex</label>
-            <label class="check"><input id="show-claude" type="checkbox">Afficher Claude</label>
           </div>
-          <label>Pourcentage sur l’icône Chrome
-            <select id="badge">
-              <option value="codex:five_hour">Codex — 5 heures</option>
-              <option value="codex:weekly">Codex — semaine</option>
-              <option value="claude:five_hour">Claude — 5 heures</option>
-              <option value="claude:weekly">Claude — semaine</option>
-              <option value="claude:fable_weekly">Claude — Fable</option>
-              <option value="none">Masquer le pourcentage</option>
-            </select>
-          </label>
         </details>
         <details id="sleep-settings" hidden>
           <summary>Mini-écrans — Veille</summary>

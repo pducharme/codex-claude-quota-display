@@ -108,6 +108,7 @@ test('web mode works without a Mac connection and never falls back to a saved Ma
   let result = await h.send({type: 'read'});
   assert.equal(result.snapshot.source_mode, 'web');
   assert.equal(result.snapshot.refresh.enabled, true);
+  assert.equal(result.snapshot.refresh.completed_at, null);
   assert.equal(h.calls.length, 0);
   h.local.sourceMode = 'web';
   h.local.connection = {baseURL: 'http://mac.local:8788', token: 'mac-token-0123456789'};
@@ -115,6 +116,7 @@ test('web mode works without a Mac connection and never falls back to a saved Ma
   h.allow('codex'); codexNetwork(h);
   result = await h.send({type: 'read'});
   assert.equal(result.snapshot.providers.codex.five_hour.used_percent, 23);
+  assert.equal(result.snapshot.refresh.completed_at, h.now);
   assert.ok(h.calls.every(call => new URL(call.url).hostname === 'chatgpt.com'));
   assert.equal(h.session.cached.source, 'web');
 });
