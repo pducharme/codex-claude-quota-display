@@ -2,14 +2,15 @@
 
 **Nom :** Quota Display — Companion
 
-**Résumé :** Vos quotas Codex, Claude et crédits API dans Chrome, via vos sessions web ou un Companion Mac.
+**Résumé :** Vos quotas Codex, Claude, Gemini et Grok dans Chrome, via vos sessions web ou un Companion Mac.
 
 **Description :**
 
-Suivez vos quotas Codex et Claude directement dans Chrome. Le mode sessions web
+Suivez vos quotas Codex, Claude, Google Gemini et Grok directement dans Chrome. Le mode sessions web
 fonctionne sans Mac. Le mode Companion Mac reste disponible pour retrouver les
 données de votre installation existante.
 
+- Une flèche ouvre la deuxième page avec les quotas Gemini sur cinq heures et sur la semaine et les requêtes Grok restantes pour chaque mode.
 - Pourcentages disponibles sur les périodes de 5 heures et de la semaine, lorsque fournis par le compte.
 - Forfaits, compte à rebours des remises à zéro et quota Fable lorsque disponible.
 - Resets en banque et dates d’expiration, en lecture seule.
@@ -30,7 +31,7 @@ et ses mini-écrans; le Designer reste dans le Companion.
 
 Vos préférences restent dans ce profil Chrome, sans synchronisation avec Google.
 Les lectures du mode web se limitent aux quotas et crédits des services autorisés.
-Les sessions Codex et Claude utilisent les cookies gérés par Chrome. Pour les
+Les lectures Codex, Claude, Gemini et Grok utilisent les cookies gérés par Chrome. Pour les
 crédits API OpenAI, le jeton de session Platform est conservé localement afin de
 lire le solde sans onglet ouvert; il est supprimé avec Déconnecter. Aucune
 conversation ni historique de navigation n’est collecté; aucun service

@@ -1,12 +1,8 @@
-# Chrome Web Store — notes préparatoires pour la 1.1.0
-
-Version en préparation, non publiée. Le parcours complet de connexion et de
-lecture après fermeture des onglets reste à valider dans Chrome réel avant
-soumission. Ces notes décrivent l’implémentation et les vérifications à effectuer.
+# Chrome Web Store — notes pour la version 1.2.0
 
 ## Objectif unique
 
-Afficher les quotas et crédits Codex et Claude dans Chrome, au choix depuis les
+Afficher les quotas de Codex, Claude, Gemini et Grok ainsi que les crédits API OpenAI et Claude, au choix depuis les
 sessions web de ce profil ou l’API d’un Companion Mac. Les connexions, le badge
 et les réglages d’affichage servent uniquement cet objectif.
 
@@ -27,9 +23,9 @@ relit l’API du Mac; la collecte auprès des fournisseurs reste alors sur le Ma
 
 **cookies, facultative** — Identifie le compte ChatGPT (`_account`) ou
 l’organisation Claude (`lastActiveOrg`) et détecte les changements de session.
-Les cookies d’authentification restent gérés par Chrome et ne sont pas copiés
+Pour Gemini et Grok, une empreinte de session permet d’identifier un changement de compte. Les cookies d’authentification restent gérés par Chrome et ne sont pas copiés
 dans le stockage de l’extension. Les lectures HTTPS autorisées les utilisent
-pour les quotas Codex/Claude et les crédits Claude. Le jeton d’accès ChatGPT
+pour les quotas Codex, Claude, Gemini et Grok et les crédits Claude. Le jeton d’accès ChatGPT
 obtenu pour les quotas Codex reste en mémoire pendant la lecture.
 
 **scripting, facultative** — Sert uniquement à la connexion explicite aux crédits
@@ -39,7 +35,7 @@ Elle est arrêtée après la capture, la déconnexion ou dix minutes. Il n’y a
 script permanent de collecte dans les onglets et aucune clé API statique à saisir.
 
 **Hôtes HTTP/HTTPS optionnels** — L’accès est demandé uniquement aux services
-choisis : `chatgpt.com`, `claude.ai`, `platform.claude.com`, ou
+choisis : `chatgpt.com`, `claude.ai`, `platform.claude.com`, `gemini.google.com`, `grok.com`, ou
 `platform.openai.com` et `api.openai.com` pour les crédits OpenAI. Les routes de
 session, quotas et crédits prévues sont lues en arrière-plan, sans achat ni
 consommation de reset. En mode Companion, l’utilisateur choisit une adresse
@@ -50,7 +46,7 @@ déconnexion ou au changement de Mac.
 ## Code distant
 
 **Non.** Tout le JavaScript et les assets sont inclus dans l’extension. Les
-réponses JSON sont traitées comme des données; aucun code distant n’est chargé
+réponses JSON et les blocs de quotas incorporés à la page Utilisation de Gemini sont traités comme des données; aucun code distant n’est chargé
 ou exécuté par l’extension.
 
 ## Données et confidentialité
@@ -103,7 +99,4 @@ dans les captures ou instructions publiques.
 6. Vérifier que l’affichage et la veille du mode Companion sont partagés avec le
    Mac et ses mini-écrans. En mode web, les choix sont propres à Chrome et aucune
    donnée ni commande de veille n’est transmise aux mini-écrans.
-
-Les vérifications logicielles ne constituent pas une validation de ces parcours
-avec les comptes réels dans une extension installée. La release Chrome 1.0.4
-publiée reste le client du Companion Mac; ces instructions préparent la 1.1.0.
+7. Ouvrir la deuxième page avec la flèche sous les cartes. Avec un compte connecté, vérifier les deux périodes Gemini et les compteurs Grok par mode. Les sites des fournisseurs peuvent être fermés lors de l’actualisation.
