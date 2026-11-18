@@ -1,17 +1,18 @@
 # Quota Display
 
-Quota Display permet de suivre ses quotas depuis Chrome, la barre de menus du Mac ou un mini-écran tactile LILYGO T-Display S3 Long.
+Suivez les quotas de **Codex**, **Claude**, **Google Gemini** et **Grok** depuis Chrome,
+la barre de menus du Mac ou un mini-écran tactile LILYGO T-Display S3 Long. La flèche
+du tableau de bord permet de passer de Codex et Claude à Gemini et Grok.
 
-**Dans la prochaine version**, une flèche ouvre la deuxième page du tableau de bord sur les trois appareils. Gemini y affiche le quota restant sur cinq heures et sur la semaine. Grok indique les requêtes restantes et la durée de la limite pour chaque mode. Codex et Claude restent sur la première page.
-
-**Chrome 1.2.0 fonctionne aussi sans Mac.** Connectez les services voulus dans les paramètres de l’extension, puis fermez leurs onglets. Tant que Chrome fonctionne, les quotas sont actualisés en arrière-plan toutes les cinq minutes. Le mode **Companion Mac** reste disponible pour retrouver les données de son Mac source. C’est ce dernier qui alimente les mini-écrans.
-
-Ces nouveautés sont en préparation pour le Companion 1.1.18, Chrome 1.2.0 et le firmware 2026.11.17.2. Les téléchargements ci-dessous correspondent aux versions déjà publiées.
+**Chrome peut fonctionner seul.** Connectez les services voulus, puis fermez leurs
+onglets. L’extension actualise les quotas toutes les cinq minutes tant que Chrome
+fonctionne. Vous pouvez aussi la relier à un Companion Mac qui alimente vos mini-écrans.
 
 [Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
 
-[Télécharger le Companion macOS 1.1.17](https://github.com/pducharme/codex-claude-quota-display/releases/tag/v1.1.17)
-· [Télécharger l’extension Chrome 1.0.4](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.4)
+[Télécharger le Companion macOS 1.1.18](https://github.com/pducharme/codex-claude-quota-display/releases/tag/v1.1.18)
+· [Télécharger l’extension Chrome 1.2.0](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.2.0)
+· [Télécharger le firmware 2026.11.17.2](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.11.17.2)
 · [Installer l’extension](#installer-lextension-chrome)
 · [Confidentialité de l’extension](chrome-extension/PRIVACY.md)
 
@@ -22,7 +23,13 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
 
 ## Fonctionnalités
 
-- Quotas restants sur 5 heures et sur la semaine.
+![Deuxième page de l’extension Chrome, avec les jauges Gemini et les compteurs Grok par mode. Données d’exemple.](docs/assets/gemini-grok-chrome.jpg)
+
+- **Gemini** affiche les pourcentages restants sur cinq heures et sur la semaine,
+  ainsi que le délai avant chaque remise à zéro lorsque Google le fournit.
+- **Grok** affiche le nombre de requêtes restantes sur le total et la durée de la
+  limite pour chacun des modes fournis par le compte (Rapide, Expert, Lourd et Auto).
+- **Codex et Claude** affichent les quotas restants sur cinq heures et sur la semaine.
 - Forfaits Codex et Claude, quotas Fable et resets Codex/Claude en banque lorsque les
   fournisseurs les rendent disponibles.
 - Crédits OpenAI Work/Codex, crédits API Claude achetés et crédits API mensuels
@@ -35,7 +42,7 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
   permanente, mode toujours au premier plan et pourcentage restant dans la
   barre des menus.
 - Mode source locale ou client d’une autre instance Quota Display sur le réseau.
-- Extension Chrome cliente du Mac source, avec le même tableau de bord animé.
+- Extension Chrome avec le même tableau de bord que le Mac, des connexions facultatives par service et une fenêtre permanente.
 - Mini-écran tactile avec vue détaillée, météo sur cinq jours et actualisation
   par glissement.
 - Veille quotidienne des mini-écrans, avec horaire réglable dans le Companion.
@@ -46,18 +53,20 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
 
 ## Architecture
 
-Un Mac agit comme source et garde les sessions des fournisseurs localement. Son
-pont API transmet uniquement les quotas, les soldes de crédits, les heures de remise à zéro et les
-données météo aux autres appareils :
+En mode autonome, Chrome lit les quotas directement auprès des fournisseurs autorisés dans ce profil.
+Pour partager les quotas entre appareils, choisissez un Mac source. Le Companion y lit les sessions
+locales et transmet les quotas et crédits aux clients via son API.
 
 ```text
-Codex.app + Claude Desktop
-            │
-       Companion source
-            │ API locale :8788
-            ├── mini-écran ESP32
-            ├── autres Companions macOS
-            └── extension Chrome
+Sessions web dans Chrome ──► Extension Chrome autonome
+
+Codex, Claude, Gemini et Grok sur le Mac source
+                    │
+              Companion Mac
+                    │ API locale :8788
+                    ├── mini-écrans ESP32
+                    ├── autres Companions macOS
+                    └── extension Chrome en mode Companion Mac
 ```
 
 Le projet contient quatre parties :
@@ -65,7 +74,15 @@ Le projet contient quatre parties :
 - `bridge/quota_menu.swift` : Companion macOS natif;
 - `bridge/quota_bridge.py` : pont API local;
 - `firmware/` : firmware PlatformIO du T-Display S3 Long;
-- `chrome-extension/` : Companion Chrome, client de l’API du Mac source.
+- `chrome-extension/` : Companion Chrome autonome ou client de l’API du Mac source.
+
+Pour Gemini et Grok sur le Mac source, utilisez **Paramètres → API et connexions →
+Connexions → Autoriser Gemini/Grok via Chrome…**, après connexion au site dans Chrome.
+Sélectionnez le fichier Cookies du profil connecté et autorisez Chrome Safe Storage.
+Seuls les cookies du service choisi sont lus en mémoire; seuls les quotas filtrés
+sont transmis aux clients. Fermer les onglets est possible. **Déconnecter** retire
+l’autorisation et le cache du Companion. Dans Chrome autonome, chaque service
+possède son propre bouton **Connecter**.
 
 ## Installer le Companion macOS
 
@@ -73,18 +90,15 @@ Le projet contient quatre parties :
 
 - macOS 13 ou une version plus récente;
 - Python 3.9 ou plus récent (Python.org, Homebrew ou outils de ligne de commande Apple);
-- Codex.app et/ou Claude Desktop installés et connectés.
+- sur le Mac source, connectez les services à suivre. Pour Gemini et Grok, utilisez le profil Google Chrome de votre choix.
 
 Pour mettre à jour un Companion déjà installé, utilisez **Paramètres → Mises à
-jour → Vérifier les mises à jour…**. La version 1.1.17 ajoute les crédits API
-mensuels OpenAI, séparément des crédits Work/Codex, avec le montant utilisé /
-réellement accordé et l’expiration UTC. Le ZIP contient l’application universelle signée Developer ID
-avec sa signature Sparkle.
+jour → Vérifier les mises à jour…**. La version 1.1.18 ajoute la page Gemini et Grok ainsi que leur partage par l’API du Mac source. Le ZIP contient l’application universelle signée Developer ID pour les mises à jour Sparkle.
 Les versions antérieures à 1.0.7 restent dirigées vers une installation manuelle
 depuis la page de téléchargement.
 
 Pour une première installation avec configuration du pont API, téléchargez le
-[paquet 1.1.17](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.17/Quota-Display-1.1.17.pkg),
+[paquet 1.1.18](https://github.com/pducharme/codex-claude-quota-display/releases/download/v1.1.18/Quota-Display-1.1.18.pkg),
 puis ouvrez-le. Le paquet universel prend en charge Apple Silicon et Intel. Il
 installe le Companion et son pont API, puis configure leur démarrage à
 l’ouverture de session.
@@ -100,7 +114,7 @@ puis rouvrez le paquet. Leur installation se lance avec `xcode-select --install`
 Après l’installation :
 
 1. Ouvrez **Quota Display** dans la barre de menus.
-2. Vérifiez que Codex.app est connecté avec un compte ChatGPT.
+2. Si vous suivez Codex, vérifiez que Codex.app est connecté avec un compte ChatGPT.
 3. Dans **Paramètres → API et connexions → Connexions**, choisissez **Autoriser Claude Desktop…** si vous
    utilisez Claude. macOS peut demander l’accès à `Claude Safe Storage`.
    Choisissez **Toujours autoriser** pour conserver cet accès. Depuis la 1.0.25,
@@ -157,8 +171,7 @@ contenu. Le séparateur reste visible lorsque les deux fournisseurs sont affich�
 
 Une seule installation peut servir plusieurs mini-écrans et Companions :
 
-1. Sur le Mac source, connectez Codex.app et Claude Desktop, puis autorisez les
-   fournisseurs dans **Connexions**.
+1. Sur le Mac source, connectez les services à suivre dans **Paramètres → API et connexions → Connexions**.
 2. Choisissez **Copier la configuration API**.
 3. Sur chaque Companion client, ouvrez **Source des quotas…**, puis saisissez
    l’adresse et le jeton copiés.
@@ -179,45 +192,29 @@ sur la source : tous les Companions et mini-écrans adoptent le même affichage.
 
 ## Installer l’extension Chrome
 
-L’extension reprend le tableau de bord du Companion : quotas, forfaits, Fable,
-mascottes animées, resets en banque et soldes de crédits. Cliquez sur une carte pour consulter les
-dates des resets, puis appuyez sur **Échap** pour revenir. Le Mac source doit
-rester allumé et son pont API accessible; il conserve les sessions Codex et Claude
-et collecte leurs quotas.
+L’extension 1.2.0 reprend les deux pages du Companion, les forfaits, les crédits
+API et le détail des resets en banque. La flèche sous les cartes change de page.
+Vous pouvez aussi ouvrir une fenêtre permanente et choisir un quota Codex ou Claude pour le badge Chrome.
 
-1. Téléchargez le ZIP de l’extension depuis la
-   [release Chrome 1.0.4](https://github.com/pducharme/codex-claude-quota-display/releases/tag/chrome-v1.0.4),
-   puis décompressez-le. Les [sources sont dans `chrome-extension/`](chrome-extension/).
-2. Ouvrez `chrome://extensions`, activez le **Mode développeur**, puis choisissez
-   **Charger l’extension non empaquetée** et sélectionnez le dossier décompressé
-   contenant `manifest.json` — ou le dossier `chrome-extension/` de ce dépôt.
-   Les mises à jour automatiques depuis le Chrome Web Store dépendent de la
-   validation de Google; le ZIP de cette release permet une installation manuelle.
-3. Épinglez **Quota Display — Companion** dans le menu des extensions de Chrome,
-   puis cliquez sur son icône.
-4. Sur le Mac source, choisissez **Paramètres → API et connexions → Copier la
-   configuration API**.
-5. Dans les paramètres de l’extension, collez les deux lignes **Adresse:** et
-   **Jeton:**, puis choisissez **Enregistrer et connecter**. Autorisez Chrome à
-   accéder à l’hôte choisi.
+1. Téléchargez et décompressez le [ZIP Chrome 1.2.0](https://github.com/pducharme/codex-claude-quota-display/releases/download/chrome-v1.2.0/Quota-Display-Chrome-1.2.0.zip).
+2. Ouvrez `chrome://extensions`, activez **Mode développeur**, choisissez **Charger l’extension non empaquetée** et sélectionnez le dossier qui contient `manifest.json`.
+3. Épinglez **Quota Display — Companion**, ouvrez son icône, puis **Paramètres → API et connexions → Source des quotas**.
 
-**Paramètres** permet d’actualiser les quotas sur le Mac source, d’ouvrir une
-fenêtre permanente et de choisir la limite affichée en pourcentage sur l’icône
-Chrome. Les réglages **Affichage** et **Mini-écrans — Veille** sont enregistrés
-sur la source et partagés avec ses autres clients et mini-écrans. La fenêtre
-Chrome ne propose pas le mode natif « toujours au premier plan ».
+**Sessions web — sans Mac.** Choisissez **Connecter** pour chaque service voulu.
+Chrome demande l’accès à ce site. Connectez-vous si nécessaire et attendez
+**À jour**. Vous pouvez ensuite fermer les onglets. Les quotas sont relus en
+arrière-plan toutes les cinq minutes. Les crédits API OpenAI et Claude ont chacun
+leur propre connexion. Les choix d’affichage sont propres à ce profil Chrome.
 
-L’adresse et la clé API sont conservées dans `chrome.storage.local`, dans ce
-profil Chrome, sans synchronisation. L’extension contacte uniquement le Mac
-configuré; elle ne contient ni télémétrie ni suivi de navigation. Consultez sa
-[politique de confidentialité](chrome-extension/PRIVACY.md). Utilisez l’API HTTP
-uniquement sur un réseau de confiance ou un VPN, sans exposer le port sur Internet. Le Designer, les
-connexions aux fournisseurs et services, ainsi que les fonctions système et les
-mises à jour du Companion restent gérés sur le Mac.
+**Companion Mac.** Sur le Mac source, utilisez **Paramètres → API et connexions →
+Copier la configuration API**. Dans l’extension, choisissez **Companion Mac**,
+collez la configuration et cliquez sur **Enregistrer et connecter**. Le Mac doit
+être joignable sur votre réseau ou VPN. Il fournit alors les mêmes valeurs à
+Chrome et aux mini-écrans, y compris Gemini et Grok à partir du Companion 1.1.18.
 
-Pour vérifier le client avec Node.js : `node --test chrome-extension/test.mjs`.
-Pour créer le ZIP du Web Store et son SHA-256 :
-`python3 chrome-extension/package.py` (sortie dans `dist/`).
+Le ZIP GitHub permet l’installation manuelle. La distribution par le Chrome Web Store
+suit le processus de validation de Google. Les autorisations et le stockage des
+sessions sont détaillés dans la [politique de confidentialité](chrome-extension/PRIVACY.md).
 
 ## Designer
 
@@ -243,23 +240,13 @@ révisions actuelles.
 
 ### Firmware précompilé
 
-Pour les crédits API mensuels OpenAI, téléchargez `quota-display-openai-2026.11.17-app.bin`
-et sa somme SHA-256 dans la
-[release firmware du 17 novembre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.11.17).
-Sur un écran déjà configuré, écrivez cette image application à **`0x10000`**
-pour conserver les réglages. Le Companion source doit utiliser la version 1.1.17
-ou une version plus récente et être connecté à OpenAI Platform pour fournir ces
-soldes. L’affichage hebdomadaire adaptatif, les crédits Claude, le Designer et les
-alertes Avion restent pris en charge.
-
-La [version firmware du 20 septembre 2026](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.09.20)
-inclut les réglages web tactiles et désactive la DEL de charge clignotante dès
-le démarrage, y compris pendant la veille. La charge de la batterie reste active.
-Les deux images et leurs sommes SHA-256 sont disponibles dans cette release,
-indépendamment des mises à jour de l’application Mac.
+La [release firmware 2026.11.17.2](https://github.com/pducharme/codex-claude-quota-display/releases/tag/firmware-2026.11.17.2)
+contient les deux images et leurs empreintes SHA-256. Pour afficher Gemini et Grok,
+utilisez le Companion 1.1.18 ou plus récent et autorisez les deux services sur le Mac source.
+L’écran reçoit les quotas par Wi-Fi.
 
 Pour une première installation, téléchargez cette
-[image complète `quota-display-openai-2026.11.17-full.bin`](https://github.com/pducharme/codex-claude-quota-display/releases/download/firmware-2026.11.17/quota-display-openai-2026.11.17-full.bin)
+[image complète `quota-display-gemini-grok-2026.11.17.2-full.bin`](https://github.com/pducharme/codex-claude-quota-display/releases/download/firmware-2026.11.17.2/quota-display-gemini-grok-2026.11.17.2-full.bin)
 et écrivez-la à l’adresse `0x0` depuis le dossier de téléchargement :
 
 ```sh
@@ -268,7 +255,7 @@ python3 -m venv .venv
 python -m pip install esptool
 SERIAL_PORT=/dev/cu.usbmodemXXXX
 python -m esptool --chip esp32s3 --port "$SERIAL_PORT" \
-  write_flash 0x0 quota-display-openai-2026.11.17-full.bin
+  write_flash 0x0 quota-display-gemini-grok-2026.11.17.2-full.bin
 ```
 
 Remplacez la valeur de `SERIAL_PORT` par le port USB détecté sur votre
@@ -279,7 +266,7 @@ application à `0x10000` afin de conserver le Wi-Fi, la clé et l’horaire de v
 
 ```sh
 python -m esptool --chip esp32s3 --port "$SERIAL_PORT" \
-  write_flash 0x10000 quota-display-openai-2026.11.17-app.bin
+  write_flash 0x10000 quota-display-gemini-grok-2026.11.17.2-app.bin
 ```
 
 N’utilisez pas l’image complète à `0x0` pour cette mise à jour : elle recouvre
@@ -343,8 +330,7 @@ portail, sans effacement préalable.
   Le Companion offre la même vue au clic. Les resets Claude sont lus depuis le
   compte Claude Desktop autorisé sur le Mac source; une lecture indisponible
   affiche `—`, jamais un faux zéro. Cette vue ne consomme aucun reset.
-- Glissez vers la gauche pour afficher la météo; glissez vers la droite pour
-  revenir aux quotas.
+- Depuis Codex et Claude, touchez la flèche en bas à droite ou glissez vers la gauche pour afficher Gemini et Grok. La flèche en bas à gauche ramène à Codex et Claude. Un autre glissement vers la gauche mène à la météo dans la disposition par défaut.
 - Tirez brièvement depuis le bord supérieur pour forcer une actualisation
   Codex et Claude sur la source.
 - Un point vert indique une lecture valide, orange une dernière valeur conservée
@@ -475,7 +461,7 @@ l’accès à un élément synthétique et qu’un binaire non autorisé reste r
 ## Avis
 
 Quota Display est un projet indépendant, sans affiliation avec OpenAI,
-Anthropic ou LILYGO. Les noms et marques appartiennent à leurs propriétaires
+Anthropic, Google, xAI ou LILYGO. Les noms et marques appartiennent à leurs propriétaires
 respectifs. Les intégrations reposent sur les sessions locales des applications
 et peuvent nécessiter une adaptation si leurs interfaces changent.
 

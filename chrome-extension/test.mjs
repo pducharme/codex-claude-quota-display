@@ -155,13 +155,18 @@ test('sleep rejects invalid hours, identical bounds and unknown IANA zones', () 
 
 test('background restricts messages, caches successful reads and never reuses another source', async () => {
   const originalChrome = globalThis.chrome, originalFetch = globalThis.fetch;
-  const local = {}, session = {}, actions = {}, listeners = {};
+  const local = {sourceMode: 'mac'}, session = {}, actions = {}, listeners = {};
   const event = name => ({addListener(listener) {listeners[name] = listener;}});
   function storage(values) {
     return {
-      async get(key) {return {[key]: values[key]};},
+      async get(key) {
+        if (key == null) return structuredClone(values);
+        const keys = typeof key === 'string' ? [key] : Array.isArray(key) ? key : Object.keys(key);
+        return structuredClone(Object.fromEntries(keys.map(name => [name, Object.hasOwn(values, name) ? values[name] :
+          typeof key === 'object' && !Array.isArray(key) ? key[name] : undefined])));
+      },
       async set(value) {Object.assign(values, value);},
-      async remove(key) {delete values[key];},
+      async remove(key) {for (const name of Array.isArray(key) ? key : [key]) delete values[name];},
       async setAccessLevel(value) {assert.equal(value.accessLevel, 'TRUSTED_CONTEXTS');},
     };
   }
@@ -177,10 +182,15 @@ test('background restricts messages, caches successful reads and never reuses an
       async setTitle(value) {actions.title = value.title;},
     },
     alarms: {async create() {}, onAlarm: event('alarm')},
+    permissions: {async contains() {return false;}, onAdded: event('permissions-added'), onRemoved: event('permissions-removed')},
+    cookies: {onChanged: event('cookie-changed')},
+    scripting: {async getRegisteredContentScripts() {return [];}, async unregisterContentScripts() {}},
+    tabs: {async query() {return [];}, async sendMessage() {}},
   };
   const apiURL = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
   const background = (await readFile(new URL('./background.js', import.meta.url), 'utf8'))
-    .replace("'./api.js'", JSON.stringify(apiURL));
+    .replace("'./api.js'", JSON.stringify(apiURL))
+    .replace("'./web-source.js'", JSON.stringify(new URL('./web-source.js', import.meta.url).href));
   try {
     await import(`data:text/javascript;base64,${Buffer.from(background).toString('base64')}`);
     const sender = {id: 'test-extension', url: 'chrome-extension://test-extension/popup.html'};
@@ -231,8 +241,14 @@ test('dashboard interaction follows provider visibility and detail navigation', 
   assert.equal(hitTest(30, 30, quotas, 'codex'), 'back');
   assert.equal(hitTest(-1, 30, quotas), null);
   assert.equal(hitTest(NaN, 30, quotas), null);
+  assert.equal(hitTest(40, 193, quotas, null, 0), 'page');
+  assert.equal(hitTest(40, 193, quotas, null, 1), 'page');
+  assert.equal(hitTest(400, 30, quotas, null, 1), null);
+  assert.match(dashboardSummary(quotas, {page: 1}), /Page 2.*Gemini.*Grok/);
+  assert.doesNotMatch(dashboardSummary(quotas, {page: 1}), /Codex|Claude/);
   assert.match(dashboardSummary(quotas), /Codex.*77%/);
   assert.match(dashboardSummary(quotas, {online: false}), /hors ligne/);
+  assert.match(dashboardSummary({source_mode: 'web', providers: {}, web_services: {}}), /aucun service connecté/);
   assert.doesNotMatch(dashboardSummary(claudeOnly), /Codex/);
   const resets = {...quotas, providers: {...quotas.providers, codex: {
     ...quotas.providers.codex, error_reason: 'authentication_required',
@@ -260,6 +276,8 @@ test('dashboard interaction follows provider visibility and detail navigation', 
   assert.match(dashboardSummary(credits), /Crédits non actualisés/);
   assert.match(dashboardSummary(quotas), /CRÉDITS OPENAI : —/);
   drawDashboard(canvas, credits);
+  drawDashboard(canvas, quotas, {page: 1});
+  drawDashboard(canvas, {providers: {grok: {limits: [{label: 'RAPIDE', remaining: 30, total: 30, duration_seconds: 86400, used_percent: 0}]}}}, {page: 1});
   assert.equal(canvas.width, 640);
   assert.equal(canvas.height, 250);
   assert.ok(fills > 0);
@@ -357,11 +375,12 @@ test('OpenAI API credits stay separate from Codex credits and retain the actual 
     labels.find(label => label.text.startsWith('≈ API')).color);
 });
 
-test('manifest is a client-only MV3 package with optional host access', async () => {
+test('manifest supports autonomous and Mac modes with optional session access', async () => {
   const manifest = JSON.parse(await readFile(new URL('./manifest.json', import.meta.url), 'utf8'));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.type, 'module');
   assert.deepEqual(manifest.permissions, ['storage', 'alarms']);
+  assert.deepEqual(manifest.optional_permissions, ['cookies', 'scripting']);
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   assert.equal(manifest.host_permissions, undefined);
   assert.equal(manifest.content_scripts, undefined);

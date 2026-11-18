@@ -16,18 +16,84 @@
       <button id="claude-details" class="dashboard-action" aria-label="Voir les resets Claude en banque"></button>
       <button id="back" class="dashboard-action" aria-label="Revenir aux quotas" hidden></button>
       <button id="canvas-refresh" class="dashboard-action" aria-label="Actualiser les quotas"></button>
+      <button id="quota-page" class="dashboard-action" aria-label="Afficher Gemini et Grok"></button>
     </div>
     <p id="status" role="status" aria-live="polite" hidden></p>
     <details id="settings">
       <summary>Paramètres</summary>
       <div class="settings-content">
-        <div class="actions">
-          <button id="refresh">Actualiser les quotas</button>
-          <button id="window">Fenêtre permanente ↗</button>
-        </div>
+        <button id="refresh" class="menu-action">Actualiser les quotas</button>
+        <details id="display-settings">
+          <summary>Affichage</summary>
+          <div class="submenu-content">
+            <p id="display-scope" class="hint">Ces choix s’appliquent uniquement à Chrome.</p>
+            <label class="check"><input id="show-codex" type="checkbox">Afficher Codex</label>
+            <label class="check"><input id="show-claude" type="checkbox">Afficher Claude</label>
+            <button id="window" class="menu-action">Fenêtre permanente ↗</button>
+          </div>
+        </details>
+        <details id="badge-settings">
+          <summary>Icône Chrome</summary>
+          <div class="submenu-content">
+            <label>Pourcentage sur l’icône
+              <select id="badge">
+                <option value="codex:five_hour">Codex — 5 heures</option>
+                <option value="codex:weekly">Codex — semaine</option>
+                <option value="claude:five_hour">Claude — 5 heures</option>
+                <option value="claude:weekly">Claude — semaine</option>
+                <option value="claude:fable_weekly">Claude — Fable</option>
+                <option value="none">Masquer le pourcentage</option>
+              </select>
+            </label>
+          </div>
+        </details>
         <details id="source-settings">
-          <summary>API et connexions — Source des quotas</summary>
-          <form id="source-form">
+          <summary>API et connexions</summary>
+          <div class="submenu-content">
+          <label>Source des quotas
+            <select id="source-mode">
+              <option value="web">Sessions web — sans Mac</option>
+              <option value="mac">Companion Mac</option>
+            </select>
+          </label>
+          <div id="web-connections">
+            <p class="hint">Connexion initiale, puis actualisation en arrière-plan. Vous pouvez fermer les onglets.</p>
+            <div class="service-row" role="group" aria-label="Quotas Gemini">
+              <span>Gemini · quotas <small id="state-gemini"></small></span>
+              <button id="connect-gemini" type="button">Connecter</button>
+              <button id="disconnect-gemini" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Quotas Grok">
+              <span>Grok · quotas <small id="state-grok"></small></span>
+              <button id="connect-grok" type="button">Connecter</button>
+              <button id="disconnect-grok" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Quotas Codex">
+              <span>Codex · quotas <small id="state-codex"></small></span>
+              <button id="connect-codex" type="button">Connecter</button>
+              <button id="disconnect-codex" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Quotas Claude">
+              <span>Claude · quotas <small id="state-claude"></small></span>
+              <button id="connect-claude" type="button">Connecter</button>
+              <button id="disconnect-claude" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Crédits API OpenAI">
+              <span>OpenAI · crédits API <small id="state-openaiCredits"></small></span>
+              <button id="connect-openaiCredits" type="button">Connecter</button>
+              <button id="disconnect-openaiCredits" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Crédits API Claude">
+              <span>Claude · crédits API <small id="state-claudeCredits"></small></span>
+              <button id="connect-claudeCredits" type="button">Connecter</button>
+              <button id="disconnect-claudeCredits" type="button" hidden>Déconnecter</button>
+            </div>
+            <details class="connection-info">
+              <summary>Confidentialité des connexions</summary>
+              <p class="hint">Le jeton de session OpenAI Platform reste dans ce profil Chrome et est supprimé avec Déconnecter. Les quotas sont lus toutes les cinq minutes. Ce mode ne pilote pas les mini-écrans. Déconnecter retire l’accès de l’extension sans fermer votre session sur le site.</p>
+            </details>
+          </div>
+          <form id="source-form" hidden>
             <p>Sur le Mac source : <strong>Paramètres → API et connexions → Copier la configuration API</strong>.</p>
             <label>Configuration copiée du Mac (facultatif)
               <textarea id="import" rows="2" spellcheck="false" autocomplete="off" placeholder="Adresse: …&#10;Jeton: …"></textarea>
@@ -47,26 +113,9 @@
               <button id="disconnect" type="button">Déconnecter</button>
             </div>
           </form>
-        </details>
-        <details>
-          <summary>Affichage</summary>
-          <p>Ces choix sont partagés avec le Mac source et ses mini-écrans.</p>
-          <div class="actions">
-            <label class="check"><input id="show-codex" type="checkbox">Afficher Codex</label>
-            <label class="check"><input id="show-claude" type="checkbox">Afficher Claude</label>
           </div>
-          <label>Pourcentage sur l’icône Chrome
-            <select id="badge">
-              <option value="codex:five_hour">Codex — 5 heures</option>
-              <option value="codex:weekly">Codex — semaine</option>
-              <option value="claude:five_hour">Claude — 5 heures</option>
-              <option value="claude:weekly">Claude — semaine</option>
-              <option value="claude:fable_weekly">Claude — Fable</option>
-              <option value="none">Masquer le pourcentage</option>
-            </select>
-          </label>
         </details>
-        <details>
+        <details id="sleep-settings" hidden>
           <summary>Mini-écrans — Veille</summary>
           <form id="sleep-form">
             <label class="check"><input id="sleep-enabled" type="checkbox">Activer la veille quotidienne</label>
@@ -79,7 +128,7 @@
           </form>
           <p class="hint">Le Designer et les connexions aux services s’ouvrent depuis le Companion Mac.</p>
         </details>
-        <p id="about" class="hint">Quota Display pour Chrome · client du Companion Mac</p>
+        <p id="about" class="hint">Quota Display pour Chrome</p>
       </div>
     </details>
   </main>

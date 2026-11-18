@@ -1,86 +1,102 @@
-# Chrome Web Store — notes de soumission
+# Chrome Web Store — notes pour la version 1.2.0
 
 ## Objectif unique
 
-Afficher dans Chrome les quotas Codex et Claude fournis par l’API du Companion
-installé sur le Mac choisi par l’utilisateur, avec actualisation et réglages
-d’affichage associés.
+Afficher les quotas de Codex, Claude, Gemini et Grok ainsi que les crédits API OpenAI et Claude, au choix depuis les
+sessions web de ce profil ou l’API d’un Companion Mac. Les connexions, le badge
+et les réglages d’affichage servent uniquement cet objectif.
 
 ## Justification des permissions
 
-**storage** — Conserve dans le profil Chrome l’adresse du Mac source, son jeton
-API et la préférence du badge. Le dernier état des quotas est gardé dans le
-stockage de session pour afficher les dernières données si le Mac devient
-inaccessible. Aucune synchronisation Google n’est utilisée.
+**storage** — Conserve localement le mode, les services connectés, les préférences
+et, selon le mode, l’adresse et la clé du Companion Mac ou le jeton de session
+OpenAI Platform. Ce jeton permet de lire les crédits API sans garder un onglet
+ouvert; il est validé avant enregistrement et supprimé à la déconnexion. Le
+stockage local et de session est réservé aux contextes de l’extension
+(`TRUSTED_CONTEXTS`), inaccessible aux scripts de contenu. Les jetons Platform
+ne sont jamais renvoyés au tableau de bord. Aucune synchronisation Google.
 
-**alarms** — Relit les quotas du Mac configuré environ une fois par minute afin
-de tenir le badge à jour lorsque le tableau de bord est fermé. La collecte
-auprès des fournisseurs reste exécutée sur le Mac.
+**alarms** — Réveille le service worker environ une fois par minute pour tenir
+le badge à jour. Le mode web relit les fournisseurs toutes les cinq minutes,
+même si leurs onglets sont fermés, tant que Chrome fonctionne. Le mode Companion
+relit l’API du Mac; la collecte auprès des fournisseurs reste alors sur le Mac.
 
-**Hôtes HTTP/HTTPS optionnels** — Chaque utilisateur choisit son Mac source,
-avec une adresse IP ou un nom d’hôte inconnu à l’avance. Les motifs HTTP/HTTPS
-sont déclarés comme permissions optionnelles; l’accès est demandé uniquement
-pour l’hôte choisi lors de la configuration. L’extension appelle seulement
-`/v1/quotas`, `/v1/refresh` et `/v1/display`. Elle ne lit pas les pages visitées
-et n’y injecte aucun script. L’ancienne permission est retirée lors d’un
-changement d’hôte ou d’une déconnexion.
+**cookies, facultative** — Identifie le compte ChatGPT (`_account`) ou
+l’organisation Claude (`lastActiveOrg`) et détecte les changements de session.
+Pour Gemini et Grok, une empreinte de session permet d’identifier un changement de compte. Les cookies d’authentification restent gérés par Chrome et ne sont pas copiés
+dans le stockage de l’extension. Les lectures HTTPS autorisées les utilisent
+pour les quotas Codex, Claude, Gemini et Grok et les crédits Claude. Le jeton d’accès ChatGPT
+obtenu pour les quotas Codex reste en mémoire pendant la lecture.
+
+**scripting, facultative** — Sert uniquement à la connexion explicite aux crédits
+API OpenAI. Sur `platform.openai.com`, une capture ponctuelle relève le jeton de
+session et l’organisation d’une lecture réussie de la page de facturation.
+Elle est arrêtée après la capture, la déconnexion ou dix minutes. Il n’y a aucun
+script permanent de collecte dans les onglets et aucune clé API statique à saisir.
+
+**Hôtes HTTP/HTTPS optionnels** — L’accès est demandé uniquement aux services
+choisis : `chatgpt.com`, `claude.ai`, `platform.claude.com`, `gemini.google.com`, `grok.com`, ou
+`platform.openai.com` et `api.openai.com` pour les crédits OpenAI. Les routes de
+session, quotas et crédits prévues sont lues en arrière-plan, sans achat ni
+consommation de reset. En mode Companion, l’utilisateur choisit une adresse
+inconnue à l’avance; l’extension appelle seulement `/v1/quotas`, `/v1/refresh`
+et `/v1/display`. Une permission d’hôte devenue inutile est retirée à la
+déconnexion ou au changement de Mac.
 
 ## Code distant
 
 **Non.** Tout le JavaScript et les assets sont inclus dans l’extension. Les
-réponses JSON du Mac sont traitées comme des données; aucun code distant n’est
-chargé ou exécuté.
+réponses JSON et les blocs de quotas incorporés à la page Utilisation de Gemini sont traités comme des données; aucun code distant n’est chargé
+ou exécuté par l’extension.
 
 ## Données et confidentialité
 
 Politique publique :
-<https://github.com/pducharme/codex-claude-quota-display/blob/main/chrome-extension/PRIVACY.md>
+[Confidentialité de Quota Display](https://github.com/pducharme/codex-claude-quota-display/blob/main/chrome-extension/PRIVACY.md).
 
-- Déclarer les **informations d’authentification** : le jeton API du Mac est
-  enregistré localement et transmis uniquement au serveur choisi par
-  l’utilisateur dans l’en-tête `Authorization`.
-- Déclarer le **contenu de site Web** pour les réponses de l’API : quotas,
-  forfaits, états, dates de remise à zéro et réglages. Ces données restent dans
-  le cache de session Chrome et servent au tableau de bord et au badge.
+- Déclarer les **informations d’authentification** : clé API du Mac, session
+  OpenAI Platform enregistrée localement, et accès aux sessions web autorisées.
+  Les secrets sont transmis uniquement au service concerné; les erreurs et
+  le tableau de bord ne les affichent pas.
+- Déclarer le **contenu de site Web** pour les quotas, forfaits, états, dates de
+  remise à zéro, identifiants de compte ou d’organisation et réglages utilisés.
+  Les données normalisées sont gardées dans le cache de session Chrome.
 - Déclarer les **informations financières et de paiement** pour les soldes de
-  crédits API et les montants mensuels. Les numéros de carte et moyens de paiement
-  ne sont jamais reçus; seuls les soldes normalisés par le Mac sont affichés.
-- Aucun historique de navigation, suivi des pages, identifiant de connexion,
-  session OAuth, conversation, numéro de carte ou coordonnée bancaire n’est lu par l’extension.
-  Aucun service de publicité, de télémétrie ou de collecte du développeur n’est
-  intégré. Aucune vente de données ni utilisation pour la publicité ou la
-  solvabilité.
+  crédits API et les montants mensuels. L’extension n’utilise aucun numéro de
+  carte ni moyen de paiement; elle affiche les montants et dates des crédits.
+- Aucun historique de navigation ni conversation n’est collecté. Aucun service
+  publicitaire, de télémétrie ou de collecte du développeur n’est intégré.
+  Aucune vente de données ni utilisation pour la publicité ou la solvabilité.
 - Ne pas déclarer « aucune donnée traitée » ou « toutes les communications sont
-  chiffrées ». Une adresse HTTP choisie par l’utilisateur transmet la clé et les
-  données sans chiffrement applicatif; utiliser un réseau local ou un VPN de
-  confiance. HTTPS utilise le chiffrement du serveur configuré.
-- Déconnecter supprime l’adresse, le jeton et le cache, puis retire l’accès à
-  l’hôte. Désinstaller supprime aussi les préférences restantes.
+  chiffrées » : une adresse HTTP de Companion transmet la clé et les données sans
+  chiffrement applicatif. Utiliser un réseau de confiance, un VPN ou HTTPS.
+- **Déconnecter** retire les données et le jeton éventuel du service ainsi que
+  les permissions inutilisées. Cela ne ferme pas la session sur le site officiel.
+  Changer de mode conserve les connexions, mais seule la source choisie est lue.
+  Désinstaller supprime le stockage Chrome de l’extension.
 
-Le client communique uniquement avec un serveur fourni par l’utilisateur. La
-[FAQ officielle, questions 15 et 16](https://developer.chrome.com/docs/webstore/program-policies/user-data-faq)
-décrit l’exception applicable aux clients de protocole à serveur choisi et aux
-échanges avec un programme natif sur le même ordinateur.
+## Instructions de validation avant soumission
 
-## Prérequis et instructions de test
+Le mode web ne nécessite aucun Mac ni compte auprès du développeur. Les comptes
+des fournisseurs doivent disposer des quotas ou crédits à vérifier; une donnée
+non fournie reste inconnue. N’inclure aucune véritable clé ni donnée personnelle
+dans les captures ou instructions publiques.
 
-L’extension nécessite un Companion Quota Display configuré et actif sur un Mac
-accessible depuis Chrome. Elle ne demande aucun compte auprès du développeur.
-Chrome peut fonctionner sur un autre ordinateur. Les connexions Codex/Claude,
-le Designer et les intégrations restent gérés par le Companion Mac.
-
-1. Installer et configurer le Companion depuis le
-   [dépôt du projet](https://github.com/pducharme/codex-claude-quota-display).
-2. Sur le Mac : **Paramètres → API et connexions → Copier la configuration API**.
-3. Dans l’extension : **Paramètres → API et connexions**, coller la configuration,
-   puis choisir **Enregistrer et connecter** et autoriser l’hôte configuré.
-4. Avec le Companion Mac 1.1.14, connecter Claude Console sur le Mac source pour
-   vérifier aussi les crédits achetés et mensuels. Vérifier les quotas, les resets
-   en banque, le badge, l’actualisation et la fenêtre permanente. Les valeurs de quota et de reset dépendent des données
-   fournies par les comptes du Mac source.
-5. Vérifier les réglages de visibilité et de veille : ils sont partagés avec le
-   Mac source et ses mini-écrans. Déconnecter termine la connexion côté Chrome.
-
-Ne fournir dans la fiche, les captures ou les instructions publiques aucune
-adresse privée d’installation ni véritable clé API. Le réviseur doit disposer
-d’un Mac source compatible ou d’un environnement de test séparé.
+1. Dans **Paramètres → API et connexions — Source des quotas**, choisir
+   **Sessions web — sans Mac** et connecter séparément les services souhaités.
+   Autoriser les accès proposés et terminer la connexion sur les sites officiels.
+2. Pour OpenAI Platform, sélectionner l’organisation liée à l’abonnement et
+   attendre l’état **À jour**. Vérifier les montants utilisés / accordés et
+   l’expiration UTC, séparément des crédits Work/Codex; le premier crédit mensuel
+   peut être proratisé.
+3. Fermer les onglets des fournisseurs. Vérifier que le tableau de bord et le badge
+   continuent à s’actualiser après cinq minutes, puis après un redémarrage de Chrome.
+4. Vérifier la reconnexion après expiration, les données inconnues ou périmées,
+   puis **Déconnecter** et la suppression des accès et du jeton Platform.
+5. Sélectionner **Companion Mac**, copier la configuration API du Mac et choisir
+   **Enregistrer et connecter**. Vérifier quotas, crédits, badge et fenêtre
+   permanente avec le Companion source actif.
+6. Vérifier que l’affichage et la veille du mode Companion sont partagés avec le
+   Mac et ses mini-écrans. En mode web, les choix sont propres à Chrome et aucune
+   donnée ni commande de veille n’est transmise aux mini-écrans.
+7. Ouvrir la deuxième page avec la flèche sous les cartes. Avec un compte connecté, vérifier les deux périodes Gemini et les compteurs Grok par mode. Les sites des fournisseurs peuvent être fermés lors de l’actualisation.

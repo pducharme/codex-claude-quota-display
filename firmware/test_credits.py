@@ -20,6 +20,7 @@ struct String : std::string {
   using std::string::string;
   using std::string::operator=;
   String(const std::string &value) : std::string(value) {}
+  String(uint32_t value) : std::string(std::to_string(value)) {}
   String(double value, int decimals) {
     char text[64]; snprintf(text, sizeof(text), "%.*f", decimals, value); assign(text);
   }
@@ -66,6 +67,19 @@ int main() {
   assert(provider.creditLines[0] == "~ API ACHETES: 0.00$ (USD)");
   assert(provider.creditLines[1] == "~ UTILISE: 0.82$ / 200.00$ (USD) - exp. 26/11");
   assert(provider.creditsStale[0] && provider.creditsStale[1]);
+  assert(!deserializeJson(document, R"({"grok":{"status":"ok","plan":"Gratuit","limits":[
+    {"label":"RAPIDE","remaining":30,"total":30,"duration_seconds":86400,"used_percent":0},
+    {"label":"LOURD","remaining":20,"total":20,"duration_seconds":7200,"used_percent":0}]}})"));
+  readProvider(document.as<JsonObjectConst>(), "grok", provider);
+  assert(provider.limitCount == 2 && provider.limitLabels[0] == "RAPIDE 24H");
+  assert(provider.limitLabels[1] == "LOURD 2H" && provider.limitCounts[0] == "30/30");
+  document["grok"]["limits"][0]["remaining"] = 31;
+  readProvider(document.as<JsonObjectConst>(), "grok", provider);
+  assert(provider.limitCount == 1);
+  document.remove("grok");
+  readProvider(document.as<JsonObjectConst>(), "grok", provider);
+  assert(provider.limitCount == 0);
+
 }
 """
 with tempfile.TemporaryDirectory() as directory:
