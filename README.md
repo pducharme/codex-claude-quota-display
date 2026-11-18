@@ -1,9 +1,12 @@
 # Quota Display
 
-Quota Display affiche les limites d’utilisation de **Codex** et de **Claude**
-dans un Companion macOS, dans une extension Chrome et, facultativement, sur un
-mini-écran **LILYGO T-Display S3 Long**. L’extension Chrome est uniquement cliente
-de l’API : un Mac source conserve les sessions et collecte les quotas.
+Quota Display permet de suivre ses quotas depuis Chrome, la barre de menus du Mac ou un mini-écran tactile LILYGO T-Display S3 Long.
+
+**Dans la prochaine version**, une flèche ouvre la deuxième page du tableau de bord sur les trois appareils. Gemini y affiche le quota restant sur cinq heures et sur la semaine. Grok indique les requêtes restantes et la durée de la limite pour chaque mode. Codex et Claude restent sur la première page.
+
+**Chrome 1.2.0 fonctionne aussi sans Mac.** Connectez les services voulus dans les paramètres de l’extension, puis fermez leurs onglets. Tant que Chrome fonctionne, les quotas sont actualisés en arrière-plan toutes les cinq minutes. Le mode **Companion Mac** reste disponible pour retrouver les données de son Mac source. C’est ce dernier qui alimente les mini-écrans.
+
+Ces nouveautés sont en préparation pour le Companion 1.1.18, Chrome 1.2.0 et le firmware 2026.11.17.2. Les téléchargements ci-dessous correspondent aux versions déjà publiées.
 
 [Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
 
