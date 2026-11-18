@@ -5,6 +5,7 @@ const C = {
   screen: "#070a12", cell: "#131b2b", track: "#232e42", text: "#e6edf5",
   muted: "#7c8da4", codex: "#38bdf8", claude: "#d97757",
   codexPanel: "#081d30", claudePanel: "#2b1815",
+  gemini: "#a78bfa", geminiPanel: "#1c1631", grok: "#d1d5db", grokPanel: "#19212c",
   green: "#34d399", amber: "#fbbf24", red: "#f87171",
 };
 const SYSTEM_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -186,7 +187,8 @@ function providerCard(ctx, key, provider, [x, y, width, height], now, frame) {
   const codex = key === "codex", accent = C[key], title = key.toUpperCase();
   roundRect(ctx, [x, y, width, height], 10, C[`${key}Panel`]);
   roundRect(ctx, [x, y, width, 4], 2, accent);
-  providerIcon(ctx, codex, x + 6, y + 8, frame, accent);
+  if (key === 'gemini' || key === 'grok') text(ctx, key === 'gemini' ? '✦' : '𝕏', [x + 8, y + 7, 28, 26], 25, accent, {align: 'center'});
+  else providerIcon(ctx, codex, x + 6, y + 8, frame, accent);
   pixelText(ctx, title, [x + 44, y + 12, title.length * 12, 14], 2);
   const plan = provider?.error_reason === "authentication_required" ? "À CONNECTER" : typeof provider?.plan === "string" ? provider.plan.toUpperCase() : "—";
   ctx.font = `700 9px ${SYSTEM_FONT}`;
@@ -195,10 +197,26 @@ function providerCard(ctx, key, provider, [x, y, width, height], now, frame) {
   roundRect(ctx, [planX, y + 11, planWidth, 18], 9, C.cell);
   text(ctx, plan, [planX + 5, y + 14, planWidth - 10, 12], 9, accent, { align: "center", weight: 700 });
   circle(ctx, x + width - 13.5, y + 20.5, 3.5, provider?.status === "ok" ? C.green : provider?.status === "stale" ? C.amber : C.red);
+  if (key === 'grok') {
+    const limits = Array.isArray(provider?.limits) ? provider.limits.slice(0, 4) : [];
+    limits.forEach((limit, index) => {
+      const top = y + 39 + index * 27;
+      const hours = finite(limit.duration_seconds) ? limit.duration_seconds / 3600 : null;
+      text(ctx, `${limit.label} · ${hours === null ? '—' : hours} h`, [x + 10, top, 148, 12], 9, C.muted, {weight: 700});
+      text(ctx, `${limit.remaining ?? '—'} / ${limit.total ?? '—'} restants`, [x + 152, top, width - 162, 12], 9, accent, {align: 'right', mono: true});
+      bar(ctx, [x + 10, top + 15, width - 20, 5], remaining(limit), accent);
+    });
+    if (!limits.length) text(ctx, provider?.status === 'unavailable' ? 'Connecter Grok dans les paramètres' : 'Quotas non fournis', [x + 10, y + 75, width - 20, 20], 12, C.muted, {align: 'center'});
+    return;
+  }
   const hasFiveHour = remaining(provider?.five_hour) !== null;
   const cellWidth = hasFiveHour ? (width - 28) / 2 : width - 20;
   if (hasFiveHour) quotaCell(ctx, "5 HEURES", provider.five_hour, [x + 10, y + 38, cellWidth, 78], accent, 5 * 3600, 5, now);
   quotaCell(ctx, "SEMAINE", provider?.weekly, [x + 10 + (hasFiveHour ? cellWidth + 8 : 0), y + 38, cellWidth, 78], accent, 7 * 86400, 7, now);
+  if (key === 'gemini') {
+    text(ctx, 'GEMINI · UTILISATION DE L’ABONNEMENT', [x + 10, y + 131, width - 20, 12], 9, accent);
+    return;
+  }
   const count = resetCount(provider), bottom = y + 121;
   if (codex) {
     text(ctx, "RESETS:", [x + 10, bottom, 46, 12], 8, C.muted, { weight: 700 });
@@ -236,7 +254,7 @@ function bankedDetail(ctx, key, provider, now, frame, detailOffset) {
   }
 }
 
-export function drawDashboard(canvas, snapshot, { online = true, detail = null, now = Math.floor(Date.now() / 1000), frame = 0, detailOffset = 0 } = {}) {
+export function drawDashboard(canvas, snapshot, { online = true, detail = null, page = 0, now = Math.floor(Date.now() / 1000), frame = 0, detailOffset = 0 } = {}) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   if (!finite(now)) now = Math.floor(Date.now() / 1000);
@@ -248,10 +266,14 @@ export function drawDashboard(canvas, snapshot, { online = true, detail = null, 
   ctx.clearRect(0, 0, 640, 250);
   roundRect(ctx, [8, 6, 624, 238], 12, C.screen);
   const visible = panels(snapshot);
-  if (detail === "codex" || detail === "claude") bankedDetail(ctx, detail, snapshot?.providers?.[detail], now, frame, detailOffset);
+  if (page === 1) {
+    providerCard(ctx, 'gemini', snapshot?.providers?.gemini, [16, 14, 300, 158], now, frame);
+    providerCard(ctx, 'grok', snapshot?.providers?.grok, [324, 14, 300, 158], now, frame);
+  } else if (detail === "codex" || detail === "claude") bankedDetail(ctx, detail, snapshot?.providers?.[detail], now, frame, detailOffset);
   else for (const key of ["codex", "claude"]) if (visible[key]) providerCard(ctx, key, snapshot?.providers?.[key], visible[key], now, frame);
   ctx.fillStyle = C.track;
   ctx.fillRect(20, 180, 600, 1);
+  text(ctx, page === 1 ? '‹  2 / 2' : '1 / 2  ›', [20, 184, 72, 19], 12, C.text, {align: 'center', weight: 700});
   pixelText(ctx, `Dernière actualisation : ${dateText(snapshot?.refresh?.completed_at, true, now)}`, [20, 187, 569, 12], 1.5, C.muted, "right");
   ctx.fillStyle = C.track;
   ctx.fillRect(20, 208, 600, 1);
@@ -285,9 +307,11 @@ export function drawDashboard(canvas, snapshot, { online = true, detail = null, 
   ctx.fill();
 }
 
-export function hitTest(x, y, snapshot, detail = null) {
+export function hitTest(x, y, snapshot, detail = null, page = 0) {
   if (!finite(x) || !finite(y) || x < 0 || x >= 640 || y < 0 || y >= 250) return null;
   if (x >= 597 && x < 617 && y >= 183 && y < 203) return "refresh";
+  if (x >= 20 && x < 92 && y >= 181 && y < 207) return 'page';
+  if (page === 1) return null;
   if (detail === "codex" || detail === "claude") return "back";
   for (const [key, rect] of Object.entries(panels(snapshot))) {
     if (rect && x >= rect[0] && x < rect[0] + rect[2] && y >= rect[1] && y < rect[1] + rect[3]) return key;
@@ -295,10 +319,14 @@ export function hitTest(x, y, snapshot, detail = null) {
   return null;
 }
 
-export function dashboardSummary(snapshot, { online = true, detail = null } = {}) {
+export function dashboardSummary(snapshot, { online = true, detail = null, page = 0 } = {}) {
   if (!snapshot) return `Chargement des quotas. API ${online ? "en ligne" : "hors ligne"}.`;
   const parts = [], visible = panels(snapshot), now = Math.floor(Date.now() / 1000);
   const web = snapshot.source_mode === "web", location = web ? "dans Chrome" : "sur le Mac source";
+  if (page === 1) {
+    const gemini = snapshot.providers?.gemini, grok = snapshot.providers?.grok;
+    return `Page 2 sur 2. Gemini, forfait ${gemini?.plan ?? 'inconnu'}, 5 heures ${remainingText(gemini?.five_hour)}, semaine ${remainingText(gemini?.weekly)}. Grok, forfait ${grok?.plan ?? 'inconnu'}. ${(grok?.limits || []).map(limit => `${limit.label} : ${limit.remaining} sur ${limit.total} restants, période ${limit.duration_seconds / 3600} heures, reset ${dateText(limit.resets_at, false, now)}`).join('. ')}. ${[gemini, grok].some(value => value?.status !== 'ok') ? 'Certaines données sont indisponibles ou non actualisées.' : ''}`;
+  }
   for (const key of ["codex", "claude"]) {
     if (detail ? detail !== key : !visible[key]) continue;
     const provider = snapshot.providers?.[key], name = key === "codex" ? "Codex" : "Claude";

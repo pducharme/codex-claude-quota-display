@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from zoneinfo import TZPATH, ZoneInfo, ZoneInfoNotFoundError
 from designer import Designer
 
-APP_VERSION = "1.1.17"
+APP_VERSION = "1.1.18"
 DIAGNOSTICS_URL = "https://glitchtip.bestnetwork.cloud/api/5/store/"
 DIAGNOSTICS_KEY = "6825de160b8646f48e7ec8a1bfd3b943"  # Public ingestion key, not an API credential.
 
@@ -274,6 +274,60 @@ def parse_codex_limits(result):
         "expirations": expirations,
     }
     return windows
+
+
+def read_web_quotas(provider, path=None, now=None):
+    """Expose only normalized quotas from the Mac; never its browser session or identity."""
+    if provider not in ("gemini", "grok"):
+        raise ValueError("Unknown web quota provider")
+    unavailable = {"status": "unavailable"}
+    path = path or Path.home() / f"Library/Application Support/Quota Display/{provider}-quotas.json"
+    now = int(time.time()) if now is None else now
+    try:
+        if path.stat().st_size > 65536:
+            return unavailable
+        value = json.loads(path.read_text())
+        if not isinstance(value, dict):
+            return unavailable
+        updated = value.get("updated_at")
+        reason = value.get("error_reason")
+        if reason == "authentication_required":
+            return {**unavailable, "error_reason": reason}
+        if type(updated) is not int or not 0 <= updated <= now + 60:
+            return unavailable
+        result = {"updated_at": updated, "status": "stale" if now - updated > 900 or value.get("status") != "ok" else "ok"}
+        plan = value.get("plan")
+        result["plan"] = plan if plan in ("Pro", "Ultra", "Plus", "Heavy", "SuperGrok", "Lite", "Premium", "Premium+", "Gratuit") else None
+        def window(source):
+            if not isinstance(source, dict):
+                return {"used_percent": None, "resets_at": None}
+            used, reset = source.get("used_percent"), source.get("resets_at")
+            return {"used_percent": used if type(used) is int and 0 <= used <= 100 else None,
+                    "resets_at": reset if type(reset) is int and 0 < reset <= 4294967295 else None}
+        if provider == "gemini":
+            result.update({key: window(value.get(key)) for key in ("five_hour", "weekly")})
+            if all(result[key]["used_percent"] is None for key in ("five_hour", "weekly")):
+                return unavailable
+        else:
+            limits = value.get("limits")
+            if not isinstance(limits, list) or not 1 <= len(limits) <= 4:
+                return unavailable
+            result["limits"] = []
+            seen = set()
+            for limit in limits:
+                if not isinstance(limit, dict) or limit.get("label") not in ("RAPIDE", "EXPERT", "LOURD", "AUTO") or limit["label"] in seen:
+                    return unavailable
+                seen.add(limit["label"])
+                remaining, total, duration = (limit.get(key) for key in ("remaining", "total", "duration_seconds"))
+                if not all(type(n) is int for n in (remaining, total, duration)) or not (0 <= remaining <= total <= 10**9 and total > 0 and 0 < duration <= 31536000):
+                    return unavailable
+                quota = window(limit)
+                if quota["used_percent"] is None:
+                    return unavailable
+                result["limits"].append({**quota, "label": limit["label"], "remaining": remaining, "total": total, "duration_seconds": duration})
+        return result
+    except (OSError, ValueError, TypeError):
+        return unavailable
 
 
 def read_claude_console_credits(path=None, now=None):
@@ -1082,6 +1136,9 @@ class QuotaState:
             providers["claude"]["credits"] = read_claude_console_credits(path)
             path = self.display_path.with_name("openai-api-credits.json") if self.display_path else None
             providers["codex"]["api_credits"] = read_openai_api_credits(path)
+            for name in ("gemini", "grok"):
+                path = self.display_path.with_name(f"{name}-quotas.json") if self.display_path else None
+                providers[name] = read_web_quotas(name, path)
         return {
             "version": 1,
             "app_version": APP_VERSION,

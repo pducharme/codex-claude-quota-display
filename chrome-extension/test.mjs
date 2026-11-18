@@ -241,6 +241,11 @@ test('dashboard interaction follows provider visibility and detail navigation', 
   assert.equal(hitTest(30, 30, quotas, 'codex'), 'back');
   assert.equal(hitTest(-1, 30, quotas), null);
   assert.equal(hitTest(NaN, 30, quotas), null);
+  assert.equal(hitTest(40, 193, quotas, null, 0), 'page');
+  assert.equal(hitTest(40, 193, quotas, null, 1), 'page');
+  assert.equal(hitTest(400, 30, quotas, null, 1), null);
+  assert.match(dashboardSummary(quotas, {page: 1}), /Page 2.*Gemini.*Grok/);
+  assert.doesNotMatch(dashboardSummary(quotas, {page: 1}), /Codex|Claude/);
   assert.match(dashboardSummary(quotas), /Codex.*77%/);
   assert.match(dashboardSummary(quotas, {online: false}), /hors ligne/);
   assert.match(dashboardSummary({source_mode: 'web', providers: {}, web_services: {}}), /aucun service connecté/);
@@ -271,6 +276,8 @@ test('dashboard interaction follows provider visibility and detail navigation', 
   assert.match(dashboardSummary(credits), /Crédits non actualisés/);
   assert.match(dashboardSummary(quotas), /CRÉDITS OPENAI : —/);
   drawDashboard(canvas, credits);
+  drawDashboard(canvas, quotas, {page: 1});
+  drawDashboard(canvas, {providers: {grok: {limits: [{label: 'RAPIDE', remaining: 30, total: 30, duration_seconds: 86400, used_percent: 0}]}}}, {page: 1});
   assert.equal(canvas.width, 640);
   assert.equal(canvas.height, 250);
   assert.ok(fills > 0);

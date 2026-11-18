@@ -44,6 +44,7 @@ install -m 644 "$SCRIPT_DIR/../THIRD_PARTY_NOTICES.md" \
   "$MENU_APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
 install -m 644 "$SPARKLE_ROOT/LICENSE" \
   "$MENU_APP/Contents/Resources/Sparkle-LICENSE.txt"
+install -m 644 "$SCRIPT_DIR/../chrome-extension/web-providers.js" "$MENU_APP/Contents/Resources/web-providers.js"
 codesign --force --deep --sign - "$MENU_APP" >/dev/null
 "$MENU_APP/Contents/MacOS/QuotaDisplayMenu" --self-test
 sed \

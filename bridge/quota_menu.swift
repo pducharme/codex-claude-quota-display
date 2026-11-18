@@ -2,6 +2,7 @@ import AppKit
 import CommonCrypto
 import Darwin
 import Foundation
+import JavaScriptCore
 import LocalAuthentication
 import Security
 import SQLite3
@@ -589,6 +590,39 @@ private func loadChromeConsoleSession(allowPrompt: Bool) throws -> (organization
     return (organization, cookie)
 }
 
+private func loadChromeQuotaCookies(provider: String, bookmarkURL: URL, allowPrompt: Bool) throws -> String {
+    guard ["gemini", "grok"].contains(provider),
+          let encoded = try? String(contentsOf: bookmarkURL, encoding: .utf8),
+          let bookmark = Data(base64Encoded: encoded.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw ClaudeDesktopError.unavailable }
+    var stale = false
+    let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI], relativeTo: nil, bookmarkDataIsStale: &stale)
+    guard !stale, isChromeCookieURL(url) else { throw ClaudeDesktopError.unavailable }
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    let key = try claudeDesktopKey(from: safeStorageKey(service: "Chrome Safe Storage", account: "Chrome", allowPrompt: allowPrompt))
+    let names = provider == "gemini"
+        ? ["__Secure-1PSID", "__Secure-1PSIDTS", "__Secure-1PSIDCC", "__Secure-1PAPISID", "SID", "HSID", "SSID", "APISID", "SAPISID", "SIDCC", "AEC", "SOCS", "NID"]
+        : ["sso", "sso-rw", "cf_clearance"]
+    let hosts = provider == "gemini" ? [".google.com", "gemini.google.com", ".gemini.google.com"] : ["grok.com", ".grok.com"]
+    var cookies: [String: String] = [:]
+    for name in names {
+        if let value = chromiumCookie(name, key: key, urls: [url], hosts: hosts), value.utf8.count <= 16384,
+           value.utf8.allSatisfy({ $0 > 32 && $0 < 127 && $0 != 59 }) { cookies[name] = value }
+    }
+    guard cookies[provider == "gemini" ? "__Secure-1PSID" : "sso"] != nil else { throw ClaudeDesktopError.noAccount }
+    return names.compactMap { name in cookies[name].map { "\(name)=\($0)" } }.joined(separator: "; ")
+}
+
+private func parseWebQuota(_ function: String, arguments: [Any]) throws -> [String: Any] {
+    guard ["parseGeminiUsage", "parseGrokUsage"].contains(function), let context = JSContext() else { throw ClaudeDesktopError.invalidData }
+    let source = Bundle.main.url(forResource: "web-providers", withExtension: "js")
+        ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("chrome-extension/web-providers.js")
+    context.evaluateScript(try String(contentsOf: source, encoding: .utf8).replacingOccurrences(of: "export ", with: ""))
+    guard context.exception == nil, let result = context.objectForKeyedSubscript(function)?.call(withArguments: arguments)?.toDictionary() as? [String: Any],
+          context.exception == nil else { throw ClaudeDesktopError.invalidData }
+    return result
+}
+
 private func decodedClaudeDesktopCache(_ value: Any?, key: Data) -> [String: Any]? {
     guard
         let encoded = value as? String,
@@ -792,6 +826,7 @@ private struct ProviderQuotas {
     var authenticationRequired = false
     var credits: [String: Any]? = nil
     var apiCredits: [String: Any]? = nil
+    var limits: [[String: Any]] = []
 }
 
 private func creditLines(_ provider: ProviderQuotas?, codex: Bool) -> [String] {
@@ -1060,6 +1095,8 @@ private struct QuotaSnapshot {
     let displayCodex: Bool?
     let displayClaude: Bool?
     let sleep: DisplaySleep?
+    var gemini: ProviderQuotas? = nil
+    var grok: ProviderQuotas? = nil
 }
 
 private func shellQuoted(_ value: String) -> String {
@@ -1177,7 +1214,8 @@ private func providerQuotas(_ value: Any?) -> ProviderQuotas? {
             .compactMap { $0["expires_at"] as? Int }.filter { $0 > 0 }.sorted(),
         authenticationRequired: value["error_reason"] as? String == "authentication_required",
         credits: value["credits"] as? [String: Any],
-        apiCredits: value["api_credits"] as? [String: Any]
+        apiCredits: value["api_credits"] as? [String: Any],
+        limits: Array((value["limits"] as? [[String: Any]] ?? []).prefix(4))
     )
 }
 
@@ -1198,7 +1236,8 @@ private func quotaSnapshot(from data: Data) -> QuotaSnapshot? {
         apiAddress: api?["address"] as? String ?? "port 8788",
         displayCodex: display?["codex"] as? Bool,
         displayClaude: display?["claude"] as? Bool,
-        sleep: DisplaySleep.read(display?["sleep"])
+        sleep: DisplaySleep.read(display?["sleep"]),
+        gemini: providerQuotas(providers["gemini"]), grok: providerQuotas(providers["grok"])
     )
 }
 
@@ -1620,6 +1659,8 @@ private final class QuotaDashboardView: NSView {
     let refreshButton = NSButton()
     let bankedResetsButton = NSButton()
     let claudeResetsButton = NSButton()
+    let quotaPageButton = NSButton()
+    private(set) var quotaPage = 0
     private let bankedResetsScroll = NSScrollView()
     private let bankedResetsText = NSTextField(labelWithString: "")
     private(set) var bankedResetProvider: String? = nil
@@ -1696,6 +1737,12 @@ private final class QuotaDashboardView: NSView {
         addSubview(bankedResetsScroll)
         addSubview(bankedResetsButton)
         addSubview(claudeResetsButton)
+        quotaPageButton.frame = NSRect(x: 20, y: 181, width: 72, height: 26)
+        quotaPageButton.isBordered = false
+        quotaPageButton.contentTintColor = textColor
+        quotaPageButton.target = self
+        quotaPageButton.action = #selector(changeQuotaPage)
+        addSubview(quotaPageButton)
         updateBankedResets()
     }
 
@@ -1716,14 +1763,24 @@ private final class QuotaDashboardView: NSView {
         setAccessibilityValue(accessibilitySummary)
     }
 
+    @objc private func changeQuotaPage() {
+        quotaPage = 1 - quotaPage
+        bankedResetProvider = nil
+        updateBankedResets()
+        needsDisplay = true
+        setAccessibilityValue(accessibilitySummary)
+    }
+
     private func updateBankedResets() {
+        quotaPageButton.title = quotaPage == 0 ? "1 / 2  ›" : "‹  2 / 2"
+        quotaPageButton.setAccessibilityLabel(quotaPage == 0 ? "Afficher Gemini et Grok" : "Afficher Codex et Claude")
         let screen = bounds.insetBy(dx: 8, dy: 6)
         let panels = dashboardPanelRects(in: screen, showCodex: showCodex, showClaude: showClaude)
         if bankedResetProvider == "codex" && panels.codex == nil || bankedResetProvider == "claude" && panels.claude == nil {
             bankedResetProvider = nil
         }
         let full = dashboardPanelRects(in: screen, showCodex: true, showClaude: false).codex!
-        bankedResetsButton.isHidden = !showingBankedResets && panels.codex == nil
+        bankedResetsButton.isHidden = quotaPage == 1 || (!showingBankedResets && panels.codex == nil)
         bankedResetsButton.frame = showingBankedResets ? bounds : panels.codex ?? .zero
         let label = showingBankedResets ? "Cliquer n’importe où pour revenir aux quotas" : "Codex : voir les dates d’expiration des resets en banque"
         bankedResetsButton.toolTip = label + "\n" + creditLines(snapshot?.codex, codex: true).joined(separator: "\n")
@@ -1732,7 +1789,7 @@ private final class QuotaDashboardView: NSView {
             + (snapshot?.codex.apiCredits?["status"] as? String == "stale" ? "\nCrédits non actualisés : reconnectez OpenAI Platform sur le Mac source." : "")
         bankedResetsButton.setAccessibilityLabel(bankedResetsButton.toolTip)
         bankedResetsButton.keyEquivalent = showingBankedResets ? "\u{1b}" : ""
-        claudeResetsButton.isHidden = showingBankedResets || panels.claude == nil
+        claudeResetsButton.isHidden = quotaPage == 1 || showingBankedResets || panels.claude == nil
         claudeResetsButton.frame = panels.claude ?? .zero
         claudeResetsButton.toolTip = "Claude : voir les dates d’expiration des resets en banque\n" + creditLines(snapshot?.claude, codex: false).joined(separator: "\n")
             + "\nCrédits API mensuels : montant utilisé / accordé; expiration en UTC."
@@ -1772,6 +1829,9 @@ private final class QuotaDashboardView: NSView {
 
     private var accessibilitySummary: String {
         guard let snapshot else { return "Chargement des quotas" }
+        if quotaPage == 1 {
+            return "Page 2 sur 2. Gemini, forfait \(snapshot.gemini?.plan ?? "inconnu"), 5 heures \(snapshot.gemini.map { remainingText($0.fiveHour) } ?? "—"), semaine \(snapshot.gemini.map { remainingText($0.weekly) } ?? "—"). Grok, forfait \(snapshot.grok?.plan ?? "inconnu"). " + (snapshot.grok?.limits ?? []).map { "\($0["label"] as? String ?? "Quota") : \($0["remaining"] as? Int ?? 0) sur \($0["total"] as? Int ?? 0) restants." }.joined(separator: " ")
+        }
         var parts: [String] = []
         if showingBankedResets {
             parts.append("\(bankedResetProvider == "claude" ? "Claude" : "Codex"), \(resetProviderQuotas?.bankedResets.map(String.init) ?? "—") resets en banque. " + bankedResetRows(resetProviderQuotas).joined(separator: ". "))
@@ -1808,8 +1868,16 @@ private final class QuotaDashboardView: NSView {
             bankedResets: nil,
             bankedResetExpirations: []
         )
-        let panels = dashboardPanelRects(in: screen, showCodex: showingBankedResets || showCodex, showClaude: !showingBankedResets && showClaude)
-        if showingBankedResets, let rect = panels.codex {
+        let panels = dashboardPanelRects(in: screen, showCodex: quotaPage == 1 || showingBankedResets || showCodex, showClaude: quotaPage == 1 || (!showingBankedResets && showClaude))
+        if quotaPage == 1 {
+            for (title, provider, rect, accent, panelColor) in [
+                ("GEMINI", snapshot?.gemini, panels.codex!, NSColor(srgbRed: 167/255, green: 139/255, blue: 250/255, alpha: 1), NSColor(srgbRed: 28/255, green: 22/255, blue: 49/255, alpha: 1)),
+                ("GROK", snapshot?.grok, panels.claude!, NSColor(srgbRed: 209/255, green: 213/255, blue: 219/255, alpha: 1), NSColor(srgbRed: 25/255, green: 33/255, blue: 44/255, alpha: 1))
+            ] {
+                drawProviderCard(title: title, provider: provider ?? empty, rect: rect, panelColor: panelColor,
+                                 accent: accent, codex: false, compactLabel: "", compactWindow: nil, compactCount: nil)
+            }
+        } else if showingBankedResets, let rect = panels.codex {
             drawBankedResets(in: rect)
         } else if let rect = panels.codex {
             drawProviderCard(
@@ -1824,7 +1892,7 @@ private final class QuotaDashboardView: NSView {
                 compactCount: snapshot?.codex.bankedResets
             )
         }
-        if let rect = panels.claude {
+        if quotaPage == 0, let rect = panels.claude {
             drawProviderCard(
                 title: "CLAUDE",
                 provider: snapshot?.claude ?? empty,
@@ -1889,10 +1957,12 @@ private final class QuotaDashboardView: NSView {
             yRadius: 2
         ).fill()
 
-        miniScreenProviderIcon(codex: codex, frame: iconFrame, color: accent, background: screenColor).draw(
+        if title == "GEMINI" || title == "GROK" {
+            drawText(title == "GEMINI" ? "✦" : "𝕏", in: NSRect(x: rect.minX + 8, y: rect.minY + 5, width: 28, height: 28), font: .systemFont(ofSize: 25), color: accent, alignment: .center)
+        } else { miniScreenProviderIcon(codex: codex, frame: iconFrame, color: accent, background: screenColor).draw(
             in: NSRect(x: rect.minX + 6, y: rect.minY + 8, width: 32, height: 26),
             from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil
-        )
+        ) }
         drawMiniScreenText(
             title,
             in: NSRect(x: rect.minX + 44, y: rect.minY + 12, width: CGFloat(title.count * 12), height: 14),
@@ -1917,6 +1987,18 @@ private final class QuotaDashboardView: NSView {
         statusColor(provider.status).setFill()
         NSBezierPath(ovalIn: NSRect(x: rect.maxX - 17, y: rect.minY + 17, width: 7, height: 7)).fill()
 
+        if title == "GROK" {
+            for (index, limit) in provider.limits.enumerated() {
+                let y = rect.minY + 39 + CGFloat(index * 27)
+                let hours = (limit["duration_seconds"] as? Int ?? 0) / 3600
+                drawText("\(limit["label"] as? String ?? "—") · \(hours) h", in: NSRect(x: rect.minX + 10, y: y, width: 148, height: 12), font: .systemFont(ofSize: 9, weight: .bold), color: mutedColor)
+                drawText("\(limit["remaining"] as? Int ?? 0) / \(limit["total"] as? Int ?? 0) restants", in: NSRect(x: rect.minX + 152, y: y, width: rect.width - 162, height: 12), font: .monospacedDigitSystemFont(ofSize: 9, weight: .medium), color: accent, alignment: .right)
+                drawBar(in: NSRect(x: rect.minX + 10, y: y + 15, width: rect.width - 20, height: 5), percent: quotaWindow(limit).remainingPercent, accent: accent)
+            }
+            if provider.limits.isEmpty { drawText("Connecter Grok dans les paramètres", in: NSRect(x: rect.minX + 10, y: rect.minY + 75, width: rect.width - 20, height: 20), font: .systemFont(ofSize: 12), color: mutedColor, alignment: .center) }
+            return
+        }
+
         let cells = dashboardQuotaRects(in: rect, fiveHour: provider.fiveHour)
         if let fiveHourRect = cells.fiveHour {
             drawQuotaCell(
@@ -1936,6 +2018,10 @@ private final class QuotaDashboardView: NSView {
             durationSeconds: 7 * 86_400,
             segmentCount: 7
         )
+        if title == "GEMINI" {
+            drawText("GEMINI · UTILISATION DE L’ABONNEMENT", in: NSRect(x: rect.minX + 10, y: rect.minY + 131, width: rect.width - 20, height: 12), font: .systemFont(ofSize: 9), color: accent)
+            return
+        }
         if let compactWindow {
             var quotaRect = rect
             quotaRect.size.width -= 100
@@ -2202,6 +2288,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     private var quotaRetry: DispatchWorkItem?
     private var refreshingClaudeDesktop = false
     private var refreshingClaudeConsoleCredits = false
+    private var refreshingWebQuotas = Set<String>()
     private var openAICreditsWindow: OpenAICreditsWindow?
     private let openAIPlatformItem = NSMenuItem(title: "Connecter OpenAI Platform…", action: nil, keyEquivalent: "")
     private let claudeConsoleItem = NSMenuItem(title: "Autoriser Claude Console via Chrome…", action: nil, keyEquivalent: "")
@@ -2329,6 +2416,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         refreshClaudeDesktopIfAuthorized()
         refreshClaudeConsoleCredits()
         refreshOpenAICredits()
+        refreshWebQuotas()
         loadAutoLaunchState()
         loadQuotas()
         let iconTimer = Timer(timeInterval: 0.9, target: self, selector: #selector(animateProviderIcons), userInfo: nil, repeats: true)
@@ -2344,6 +2432,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
                 self?.refreshClaudeDesktopIfAuthorized()
                 self?.refreshClaudeConsoleCredits()
                 self?.refreshOpenAICredits()
+                self?.refreshWebQuotas()
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -2467,6 +2556,17 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
         claudeConsoleItem.action = #selector(connectClaudeConsole)
         claudeConsoleItem.toolTip = "Connectez Claude Console dans Chrome sur le Mac source, puis autorisez la lecture de ses soldes."
         connections.addItem(claudeConsoleItem)
+        connections.addItem(.separator())
+        for provider in ["gemini", "grok"] {
+            let item = NSMenuItem(title: "Autoriser \(provider.capitalized) via Chrome…", action: #selector(connectWebQuota(_:)), keyEquivalent: "")
+            item.representedObject = provider
+            item.target = self
+            connections.addItem(item)
+            let disconnect = NSMenuItem(title: "Déconnecter \(provider.capitalized)", action: #selector(disconnectWebQuota(_:)), keyEquivalent: "")
+            disconnect.representedObject = provider
+            disconnect.target = self
+            connections.addItem(disconnect)
+        }
         connectionsItem.submenu = connections
         api.addItem(.separator())
         api.addItem(connectionsItem)
@@ -3395,6 +3495,7 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
     @objc private func refreshQuotas() {
         refreshClaudeConsoleCredits()
         refreshOpenAICredits()
+        refreshWebQuotas()
         setRefreshAnimation(true)
         if !configuredBridgeSource.remote && claudeVisible && !claudeAuthenticationRequired && claudeDesktopAuthorized {
             refreshClaudeDesktop(allowPrompt: false) { [weak self] _, _ in
@@ -3441,6 +3542,105 @@ private final class MenuController: NSObject, NSApplicationDelegate, NSMenuDeleg
             NSApp.activate(ignoringOtherApps: true)
             openAICreditsWindow?.showWindow(nil)
             openAICreditsWindow?.window?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    @objc private func connectWebQuota(_ sender: NSMenuItem) {
+        guard !configuredBridgeSource.remote, let provider = sender.representedObject as? String, ["gemini", "grok"].contains(provider) else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Autoriser \(provider.capitalized) via Chrome"
+        panel.message = "Connectez \(provider.capitalized) dans Chrome, puis sélectionnez le fichier Cookies de ce profil. Seuls les cookies de ce service sont lus en mémoire pour actualiser ses quotas. Aucun onglet ne doit rester ouvert."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.showsHiddenFiles = true
+        let state = (try? Data(contentsOf: chromeConsoleDirectory.appendingPathComponent("Local State")))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let profile = state?["profile"] as? [String: Any]
+        panel.directoryURL = chromeConsoleDirectory.appendingPathComponent(chromeProfileName(profile?["last_used"]) ?? "Default")
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard isChromeCookieURL(url) else { showSourceError("Choisissez le fichier Cookies dans Default ou Profile N de Google/Chrome."); return }
+        do {
+            let bookmark = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess], includingResourceValuesForKeys: nil, relativeTo: nil)
+            try writePrivate(bookmark.base64EncodedString(), to: appSupportURL.appendingPathComponent("chrome-\(provider)-cookies.bookmark"))
+            try? FileManager.default.removeItem(at: appSupportURL.appendingPathComponent("\(provider)-quotas.json"))
+            refreshWebQuotas(showProvider: provider)
+        } catch { showSourceError("macOS n’a pas autorisé la lecture du fichier Cookies.") }
+    }
+
+    @objc private func disconnectWebQuota(_ sender: NSMenuItem) {
+        guard !configuredBridgeSource.remote, let provider = sender.representedObject as? String, ["gemini", "grok"].contains(provider) else { return }
+        for name in ["chrome-\(provider)-cookies.bookmark", "\(provider)-quotas.json"] {
+            try? FileManager.default.removeItem(at: appSupportURL.appendingPathComponent(name))
+        }
+        loadQuotas()
+    }
+
+    private func refreshWebQuotas(showProvider: String? = nil) {
+        guard !configuredBridgeSource.remote else { return }
+        for provider in ["gemini", "grok"] where !refreshingWebQuotas.contains(provider) {
+            let bookmark = appSupportURL.appendingPathComponent("chrome-\(provider)-cookies.bookmark")
+            let cache = appSupportURL.appendingPathComponent("\(provider)-quotas.json")
+            guard FileManager.default.fileExists(atPath: bookmark.path) else { continue }
+            refreshingWebQuotas.insert(provider)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.refreshingWebQuotas.remove(provider) }
+                var identity: String?
+                do {
+                    let cookie = try loadChromeQuotaCookies(provider: provider, bookmarkURL: bookmark, allowPrompt: showProvider == provider)
+                    identity = sha256(Data(cookie.utf8)).base64EncodedString()
+                    let origin = provider == "gemini" ? "https://gemini.google.com" : "https://grok.com"
+                    func read(_ path: String, body: [String: String]? = nil) async throws -> Data {
+                        var request = URLRequest(url: URL(string: origin + path)!, timeoutInterval: 12)
+                        request.cachePolicy = .reloadIgnoringLocalCacheData
+                        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+                        if let body {
+                            request.httpMethod = "POST"
+                            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                        }
+                        let (data, response) = try await claudeResetSession.data(for: request)
+                        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        guard status == 200 else { throw ClaudeDesktopError.http(status) }
+                        guard data.count <= 4_194_304 else { throw ClaudeDesktopError.invalidData }
+                        return data
+                    }
+                    var result: [String: Any]
+                    if provider == "gemini" {
+                        result = try parseWebQuota("parseGeminiUsage", arguments: [String(decoding: try await read("/usage"), as: UTF8.self)])
+                    } else {
+                        var responses: [String: Any] = [:]
+                        for model in ["fast", "expert", "heavy", "auto"] {
+                            do { responses[model] = try JSONSerialization.jsonObject(with: await read("/rest/rate-limits", body: ["modelName": model])) }
+                            catch ClaudeDesktopError.http(let status) where [401, 403, 429].contains(status) { throw ClaudeDesktopError.http(status) }
+                            catch { continue }
+                        }
+                        var subscriptions: Any = NSNull()
+                        do { subscriptions = try JSONSerialization.jsonObject(with: await read("/rest/subscriptions")) }
+                        catch ClaudeDesktopError.http(let status) where [401, 403].contains(status) { throw ClaudeDesktopError.http(status) }
+                        catch { }
+                        result = try parseWebQuota("parseGrokUsage", arguments: [responses, subscriptions])
+                    }
+                    guard !self.configuredBridgeSource.remote, FileManager.default.fileExists(atPath: bookmark.path) else { return }
+                    result["identity"] = identity
+                    try self.writePrivate(String(decoding: JSONSerialization.data(withJSONObject: result), as: UTF8.self), to: cache)
+                } catch {
+                    guard !self.configuredBridgeSource.remote, FileManager.default.fileExists(atPath: bookmark.path) else { return }
+                    var old = (try? Data(contentsOf: cache)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                    let authentication: Bool
+                    if case ClaudeDesktopError.http(let status) = error { authentication = [401, 403].contains(status) }
+                    else { authentication = identity == nil }
+                    if authentication || identity != old["identity"] as? String { old = [:] }
+                    old["status"] = old["updated_at"] == nil ? "unavailable" : "stale"
+                    old["error_reason"] = authentication ? "authentication_required" : "unavailable"
+                    if let data = try? JSONSerialization.data(withJSONObject: old) { try? self.writePrivate(String(decoding: data, as: UTF8.self), to: cache) }
+                    if showProvider == provider {
+                        self.showSourceError("Connectez \(provider.capitalized) dans le profil Chrome choisi, puis réessayez. La lecture des quotas n’a pas abouti.", title: provider.capitalized)
+                    }
+                }
+                self.loadQuotas()
+            }
         }
     }
 
@@ -3919,6 +4119,17 @@ private struct QuotaMenu {
                 precondition(openAICreditSnapshot(["organization_id": "org-test", "grants": [invalid]]) == nil)
             }
             precondition(providerQuotas(["api_credits": ["currency": "USD", "monthly": 96]])?.apiCredits?["monthly"] as? Int == 96)
+            let quotaUsage: [String: Any] = ["data": ["viewer": ["rpcs": ["getUsageInfo": ["subscriptionTier": "TIER1", "pools": [
+                ["poolType": "GXU_FIVE_HOURLY", "percentageUsed": 0], ["poolType": "GXU_WEEKLY", "percentageUsed": 0.0346205]
+            ]]]]]]
+            let quotaChunk = String(decoding: try! JSONSerialization.data(withJSONObject: [quotaUsage]), as: UTF8.self)
+            let quotaEnvelope = String(decoding: try! JSONSerialization.data(withJSONObject: ["events": [["id": "usage:0", "kind": "chunk", "chunk": quotaChunk]]]), as: UTF8.self)
+            let geminiSample = try! parseWebQuota("parseGeminiUsage", arguments: ["<script data-bg3-relay-preload>\(quotaEnvelope)</script>", 1000])
+            precondition((geminiSample["weekly"] as? [String: Any])?["used_percent"] as? Int == 3)
+            precondition((geminiSample["five_hour"] as? [String: Any])?["used_percent"] as? Int == 0)
+            let grokSample = try! parseWebQuota("parseGrokUsage", arguments: [["fast": ["remainingQueries": 30, "totalQueries": 30, "windowSizeSeconds": 86400]], ["subscriptions": []], 1000])
+            precondition(grokSample["plan"] as? String == "Gratuit")
+            precondition((grokSample["limits"] as? [[String: Any]])?.first?["resets_at"] is NSNull)
             let consoleBody: [String: Any] = ["organization_id": "00000000-0000-4000-8000-000000000001",
                 "credits": ["currency": "USD", "amount_without_scoped_credits": 0, "sessionKey": "test-secret",
                     "promo_tranches": [["currency": "USD", "remaining_amount_minor_units": 8765,
@@ -4311,6 +4522,17 @@ private struct QuotaMenu {
                 autoLaunchOn == true, autoLaunchOff == false,
                 parsedLaunchPID == 4321
             else { exit(1) }
+            dashboardView.quotaPageButton.performClick(nil)
+            precondition(dashboardView.quotaPage == 1 && dashboardView.bankedResetsButton.isHidden && dashboardView.claudeResetsButton.isHidden)
+            dashboardView.quotaPageButton.performClick(nil)
+            precondition(dashboardView.quotaPage == 0)
+            if CommandLine.arguments.contains("--more-quotas") {
+                var extraQuotas = quotas!
+                extraQuotas.gemini = providerQuotas(geminiSample)
+                extraQuotas.grok = providerQuotas(grokSample)
+                dashboardView.snapshot = extraQuotas
+                dashboardView.quotaPageButton.performClick(nil)
+            }
             if CommandLine.arguments.contains("--banked-resets") {
                 dashboardView.bankedResetsButton.performClick(nil)
             }

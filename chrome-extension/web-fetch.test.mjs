@@ -43,6 +43,33 @@ const reason = expected => error => {
   return true;
 };
 
+test('Gemini and Grok refresh directly with cookies, no tabs or session values in their results', async () => {
+  const html = await readFile(new URL('./fixtures/gemini-usage.html', import.meta.url), 'utf8');
+  const calls = [];
+  const fetcher = async (url, options) => {
+    calls.push({url, options});
+    assert.equal(options.credentials, 'include');
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.cache, 'no-store');
+    assert.ok(options.signal instanceof AbortSignal);
+    if (url === 'https://gemini.google.com/usage') { assert.equal(options.method, 'GET'); return new Response(html); }
+    if (url === 'https://grok.com/rest/subscriptions') return response({subscriptions: []});
+    assert.equal(url, 'https://grok.com/rest/rate-limits');
+    assert.equal(options.method, 'POST');
+    assert.ok(['fast', 'expert', 'heavy', 'auto'].includes(JSON.parse(options.body).modelName));
+    return response({remainingQueries: 7, totalQueries: 7, windowSizeSeconds: 86400});
+  };
+  for (const key of ['gemini', 'grok']) {
+    const result = await fetchWebService(key, {fetcher, cookies: cookie('private-secret')}, now);
+    assert.equal(result.data.status, 'ok');
+    assert.match(result.identity, /^[a-f0-9]{64}$/);
+    assert.doesNotMatch(JSON.stringify(result), /private-secret/);
+    await assert.rejects(fetchWebService(key, {fetcher, cookies: cookie(null)}, now), reason('authentication_required'));
+    await assert.rejects(fetchWebService(key, {fetcher: async () => response({}, 401), cookies: cookie('private-secret')}, now), reason('authentication_required'));
+  }
+  assert.equal(calls.length, 6);
+});
+
 test('Codex uses browser session then fixed WHAM GETs, and keeps credentials out of results', async () => {
   const {fetcher, calls} = mockFetch([response({accessToken}), response(usage), response({credits: []})]);
   const cookies = {get: async details => {

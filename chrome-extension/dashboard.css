@@ -30,3 +30,5 @@
 .dashboard-action:disabled {
   cursor: progress;
 }
+
+#quota-page { left: 3.125%; top: 72.4%; width: 11.25%; height: 10.4%; }

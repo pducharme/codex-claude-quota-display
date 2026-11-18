@@ -7,6 +7,10 @@ export const WEB_SERVICES = {
     origins: ['https://platform.openai.com/*', 'https://api.openai.com/*'], permissions: ['scripting']},
   claudeCredits: {label: 'Crédits API Claude', connectURL: 'https://platform.claude.com/settings/billing',
     origins: ['https://platform.claude.com/*'], permissions: ['cookies']},
+  gemini: {label: 'Gemini', connectURL: 'https://gemini.google.com/usage',
+    origins: ['https://gemini.google.com/*'], permissions: ['cookies']},
+  grok: {label: 'Grok', connectURL: 'https://grok.com',
+    origins: ['https://grok.com/*'], permissions: ['cookies']},
 };
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -28,6 +32,56 @@ function isoEpoch(value) {
 }
 function expirationList(values) {
   return values.sort((a, b) => a - b).map(expires_at => ({expires_at}));
+}
+
+export function parseGeminiUsage(html, nowSeconds = Math.floor(Date.now() / 1000)) {
+  requireValue(typeof html === 'string' && html.length <= 4194304);
+  // shortcut: read Gemini's quota-only Relay preload until a stable public usage API exists.
+  const chunks = [];
+  for (const match of html.matchAll(/<script\b[^>]*data-bg3-relay-preload[^>]*>([\s\S]*?)<\/script>/gi)) {
+    const events = JSON.parse(match[1]).events;
+    if (events === undefined) continue;
+    requireValue(Array.isArray(events) && events.length <= 1000);
+    for (const event of events) if (event.id === 'usage:0' && event.kind === 'chunk') {
+      requireValue(typeof event.chunk === 'string');
+      chunks.push(event.chunk);
+    }
+  }
+  const results = JSON.parse(chunks.join(''));
+  requireValue(Array.isArray(results) && results.length <= 1000);
+  const usage = results.map(value => value?.data?.viewer?.rpcs?.getUsageInfo).find(object);
+  requireValue(object(usage) && Array.isArray(usage.pools) && usage.pools.length <= 100);
+  const window = type => {
+    const pool = usage.pools.find(value => value?.poolType === type);
+    return numeric(pool?.percentageUsed, 1)
+      ? {used_percent: Math.round(pool.percentageUsed * 100), resets_at: isoEpoch(pool.gxu?.windowRefreshesAt)} : emptyWindow();
+  };
+  const five_hour = window('GXU_FIVE_HOURLY'), weekly = window('GXU_WEEKLY');
+  requireValue(five_hour.used_percent !== null || weekly.used_percent !== null);
+  return {...fresh(nowSeconds), plan: usage.subscriptionTier === 'TIER1' ? 'Pro' : null, five_hour, weekly};
+}
+
+export function parseGrokUsage(responses, subscriptions, nowSeconds = Math.floor(Date.now() / 1000)) {
+  requireValue(object(responses));
+  const limits = [];
+  for (const [model, label] of Object.entries({fast: 'RAPIDE', expert: 'EXPERT', heavy: 'LOURD', auto: 'AUTO'})) {
+    const value = responses[model];
+    if (!object(value) || !Number.isSafeInteger(value.totalQueries) || value.totalQueries <= 0 ||
+      !numeric(value.totalQueries, 1e9) || !Number.isSafeInteger(value.remainingQueries) ||
+      !numeric(value.remainingQueries, value.totalQueries) || !numeric(value.windowSizeSeconds, 31536000) || !value.windowSizeSeconds) continue;
+    limits.push({label, used_percent: Math.round(100 * (value.totalQueries - value.remainingQueries) / value.totalQueries),
+      remaining: value.remainingQueries, total: value.totalQueries, duration_seconds: value.windowSizeSeconds,
+      resets_at: numeric(value.waitTimeSeconds, value.windowSizeSeconds) && value.waitTimeSeconds > 0
+        ? epoch(nowSeconds + value.waitTimeSeconds) : null});
+  }
+  requireValue(limits.length > 0);
+  const tiers = {SUBSCRIPTION_TIER_SUPER_GROK_PRO: 'Heavy', SUBSCRIPTION_TIER_SUPER_GROK_PLUS: 'Plus',
+    SUBSCRIPTION_TIER_GROK_PRO: 'SuperGrok', SUBSCRIPTION_TIER_SUPER_GROK_LITE: 'Lite',
+    SUBSCRIPTION_TIER_X_PREMIUM_PLUS: 'Premium+', SUBSCRIPTION_TIER_X_PREMIUM: 'Premium'};
+  const list = subscriptions?.subscriptions;
+  const active = Array.isArray(list) && list.length <= 100 ? list.filter(value => value?.status === 'SUBSCRIPTION_STATUS_ACTIVE') : null;
+  const tier = active && Object.keys(tiers).find(tier => active.some(value => value.tier === tier));
+  return {...fresh(nowSeconds), plan: tier ? tiers[tier] : active?.length === 0 ? 'Gratuit' : null, limits};
 }
 
 export function parseCodexUsage(usage, resets, nowSeconds = Math.floor(Date.now() / 1000)) {

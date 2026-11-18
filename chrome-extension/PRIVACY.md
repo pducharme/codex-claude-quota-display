@@ -2,7 +2,7 @@
 
 Dernière mise à jour : 17 novembre 2026.
 
-Quota Display affiche vos quotas et crédits Codex et Claude. Vous choisissez
+Quota Display affiche vos quotas et crédits Codex et Claude, ainsi que les quotas Gemini et Grok. Vous choisissez
 entre les sessions web de ce profil Chrome et l’API d’un Companion Mac.
 
 ## Données utilisées
@@ -16,7 +16,7 @@ entre les sessions web de ce profil Chrome et l’API d’un Companion Mac.
   la session du navigateur. Les dernières valeurs peuvent rester visibles avec
   une indication lorsqu’elles ne sont plus actualisées.
 - En mode sessions web, la connexion initiale s’effectue sur les sites officiels.
-  Vous pouvez ensuite fermer les onglets. Pour les quotas Codex et Claude et les
+  Vous pouvez ensuite fermer les onglets. Pour les quotas Codex, Claude, Gemini et Grok et les
   crédits Claude, l’extension utilise les cookies gérés par Chrome. Le jeton
   d’accès ChatGPT nécessaire aux quotas Codex reste uniquement en mémoire
   pendant la lecture; il n’est pas enregistré dans le stockage de l’extension.
@@ -28,7 +28,8 @@ entre les sessions web de ce profil Chrome et l’API d’un Companion Mac.
   uniquement aux requêtes de lecture prévues vers `api.openai.com`, sans suivre
   les redirections. Il n’est jamais envoyé au Companion Mac ni affiché dans
   le tableau de bord ou ses erreurs.
-- L’extension ne collecte ni vos conversations, ni votre historique de navigation,
+- Pour Gemini, la page Utilisation est lue puis seuls ses blocs de quotas sont conservés. Le reste du document est ignoré. Une empreinte irréversible de session permet de séparer les comptes Gemini et Grok; les cookies eux-mêmes ne sont pas enregistrés.
+- L’extension ne conserve ni vos conversations, ni votre historique de navigation,
   ni le contenu des autres pages que vous consultez.
 
 ## Communications et permissions
@@ -36,7 +37,7 @@ entre les sessions web de ce profil Chrome et l’API d’un Companion Mac.
 En mode sessions web, l’extension demande votre autorisation séparément pour
 ChatGPT (`chatgpt.com`), Claude (`claude.ai`), OpenAI Platform
 (`platform.openai.com` et `api.openai.com`) et Claude Console
-(`platform.claude.com`), selon les services que vous connectez. La permission
+(`platform.claude.com`), Gemini (`gemini.google.com`) et Grok (`grok.com`), selon les services que vous connectez. La permission
 `cookies` permet de retrouver les sessions et organisations concernées dans ce
 profil. Pour OpenAI Platform, la permission `scripting` permet uniquement la
 capture initiale de la session sur la page de facturation autorisée; cette

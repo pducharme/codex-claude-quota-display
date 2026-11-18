@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-VERSION=${1:-1.1.17}
+VERSION=${1:-1.1.18}
 if ! printf '%s\n' "$VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "Version invalide: $VERSION" >&2
   exit 2
@@ -43,6 +43,7 @@ done
 /usr/bin/install -m 644 "$SCRIPT_DIR/Assets/QuotaDisplay.icns" "$RESOURCES/QuotaDisplay.icns"
 /usr/bin/install -m 644 "$REPO_DIR/THIRD_PARTY_NOTICES.md" "$RESOURCES/THIRD_PARTY_NOTICES.md"
 /usr/bin/install -m 644 "$SPARKLE_ROOT/LICENSE" "$RESOURCES/Sparkle-LICENSE.txt"
+/usr/bin/install -m 644 "$REPO_DIR/chrome-extension/web-providers.js" "$RESOURCES/web-providers.js"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/bin/sed "s/^APP_VERSION = .*/APP_VERSION = \"$VERSION\"/" "$SCRIPT_DIR/quota_bridge.py" > "$RESOURCES/quota_bridge.py"

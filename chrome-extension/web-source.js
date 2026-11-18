@@ -135,7 +135,8 @@ export async function readWebSnapshot(settings, refresh = false) {
   await chrome.storage.session.set({webCaptures});
   return {version: 1, source_mode: 'web', timestamp: now,
     providers: {codex: {...samples.codex, api_credits: settings.webConnected?.openaiCredits ? samples.openaiCredits : null},
-      claude: {...samples.claude, credits: settings.webConnected?.claudeCredits ? samples.claudeCredits : null}},
+      claude: {...samples.claude, credits: settings.webConnected?.claudeCredits ? samples.claudeCredits : null},
+      gemini: samples.gemini, grok: samples.grok},
     web_services: states, display: {codex: settings.webDisplay?.codex !== false, claude: settings.webDisplay?.claude !== false},
     refresh: {enabled: true, active: false,
       completed_at: Math.max(0, ...Object.values(samples).map(sample => sample.updated_at || 0)) || null}};

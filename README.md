@@ -1,9 +1,9 @@
 # Quota Display
 
-Quota Display affiche les limites d’utilisation de **Codex** et de **Claude**
+Quota Display affiche les limites d’utilisation de **Codex**, **Claude**, **Gemini** et **Grok**
 dans un Companion macOS, dans une extension Chrome et, facultativement, sur un
-mini-écran **LILYGO T-Display S3 Long**. L’extension Chrome est uniquement cliente
-de l’API : un Mac source conserve les sessions et collecte les quotas.
+mini-écran **LILYGO T-Display S3 Long**. L’extension Chrome peut lire les sessions
+web en autonomie, sans onglets ouverts, ou utiliser l’API du Companion Mac.
 
 [Guide du Designer : démarrage, modèles, connexions et dépannage](https://pducharme.github.io/codex-claude-quota-display/)
 
@@ -18,6 +18,11 @@ Les quotas en un coup d’œil, puis le noir pour la nuit :
 [réglez l’horaire de veille dans le Companion](#veille-des-mini-écrans).
 
 ## Fonctionnalités
+
+- Deux pages : Codex + Claude, puis Gemini + Grok, accessibles par une flèche.
+  Sur le mini-écran, le glissement horizontal fonctionne aussi et la météo reste accessible.
+- Gemini : quotas réels sur cinq heures et sur la semaine. Grok : compteurs
+  par mode, avec la durée fournie par le service, sans heure de reset inventée.
 
 - Quotas restants sur 5 heures et sur la semaine.
 - Forfaits Codex et Claude, quotas Fable et resets Codex/Claude en banque lorsque les
@@ -63,6 +68,14 @@ Le projet contient quatre parties :
 - `bridge/quota_bridge.py` : pont API local;
 - `firmware/` : firmware PlatformIO du T-Display S3 Long;
 - `chrome-extension/` : Companion Chrome, client de l’API du Mac source.
+
+Pour Gemini et Grok sur le Mac source, utilisez **Paramètres → API et connexions →
+Connexions → Autoriser Gemini/Grok via Chrome…**, après connexion au site dans Chrome.
+Sélectionnez le fichier Cookies du profil connecté et autorisez Chrome Safe Storage.
+Seuls les cookies du service choisi sont lus en mémoire; seuls les quotas filtrés
+sont transmis aux clients. Fermer les onglets est possible. **Déconnecter** retire
+l’autorisation et le cache du Companion. Dans Chrome autonome, chaque service
+possède son propre bouton **Connecter**.
 
 ## Installer le Companion macOS
 

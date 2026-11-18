@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const source = await readFile(new URL('./web-providers.js', import.meta.url), 'utf8');
-const {WEB_SERVICES, parseCodexUsage, parseClaudeUsage, parseOpenAICredits, parseClaudeCredits} =
+const {WEB_SERVICES, parseCodexUsage, parseClaudeUsage, parseOpenAICredits, parseClaudeCredits, parseGeminiUsage, parseGrokUsage} =
   await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const now = 1794931200;
 const expiry = now + 604800;
@@ -21,9 +21,39 @@ const tranche = {currency: 'USD', remaining_amount_minor_units: 19918, granted_a
   program_id: 'subscription_api_credit', expires_at: iso(expiry)};
 const consoleCredits = {currency: 'USD', amount_without_scoped_credits: 1250, promo_tranches: [tranche]};
 const invalidNumbers = [null, true, false, '', '96', -1, NaN, Infinity, -Infinity, 1e100];
+const geminiHTML = await readFile(new URL('./fixtures/gemini-usage.html', import.meta.url), 'utf8');
+
+test('Gemini joins quota preload chunks, maps fractions, preserves zero and discards unrelated data', () => {
+  const result = parseGeminiUsage(geminiHTML, now);
+  assert.equal(result.plan, 'Pro');
+  assert.equal(result.five_hour.used_percent, 0);
+  assert.equal(result.weekly.used_percent, 3);
+  assert.equal(result.weekly.resets_at, Date.parse('2026-11-18T03:19:19Z') / 1000);
+  assert.doesNotMatch(JSON.stringify(result), /private-secret|upsell/);
+  assert.throws(() => parseGeminiUsage('<html>Sign in</html>', now));
+  assert.throws(() => parseGeminiUsage(geminiHTML.replaceAll('percentageUsed\\\":0', 'percentageUsed\\\":2'), now));
+  assert.throws(() => parseGeminiUsage(geminiHTML.slice(0, -100), now));
+});
+
+test('Grok keeps separate model windows, validates counts and never invents a reset', () => {
+  const usage = {fast: {remainingQueries: 30, totalQueries: 30, windowSizeSeconds: 86400},
+    expert: {remainingQueries: 3, totalQueries: 7, windowSizeSeconds: 86400, waitTimeSeconds: 120},
+    heavy: {remainingQueries: 20, totalQueries: 20, windowSizeSeconds: 7200}};
+  const result = parseGrokUsage(usage, {subscriptions: []}, now);
+  assert.equal(result.plan, 'Gratuit');
+  assert.equal(result.limits.length, 3);
+  assert.equal(result.limits[0].used_percent, 0);
+  assert.equal(result.limits[0].resets_at, null);
+  assert.equal(result.limits[1].resets_at, now + 120);
+  assert.equal(result.limits[2].duration_seconds, 7200);
+  for (const invalid of [-1, 31, '30', true, null, NaN]) {
+    assert.throws(() => parseGrokUsage({fast: {...usage.fast, remainingQueries: invalid}}, null, now));
+  }
+  assert.equal(parseGrokUsage(usage, null, now).plan, null);
+});
 
 test('service metadata requests only the relevant HTTPS sites', () => {
-  assert.deepEqual(Object.keys(WEB_SERVICES), ['codex', 'claude', 'openaiCredits', 'claudeCredits']);
+  assert.deepEqual(Object.keys(WEB_SERVICES), ['codex', 'claude', 'openaiCredits', 'claudeCredits', 'gemini', 'grok']);
   for (const [key, service] of Object.entries(WEB_SERVICES)) {
     assert.deepEqual(service.permissions, [key === 'openaiCredits' ? 'scripting' : 'cookies']);
     assert.ok(service.origins.includes(`${new URL(service.connectURL).origin}/*`));

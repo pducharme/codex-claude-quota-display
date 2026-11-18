@@ -1,4 +1,4 @@
-import {WEB_SERVICES, parseCodexUsage, parseClaudeUsage, parseOpenAICredits, parseClaudeCredits} from './web-providers.js';
+import {WEB_SERVICES, parseCodexUsage, parseClaudeUsage, parseOpenAICredits, parseClaudeCredits, parseGeminiUsage, parseGrokUsage} from './web-providers.js';
 
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value)
   ? value.toLowerCase() : null;
@@ -44,6 +44,32 @@ function tokenAccount(accessToken) {
 export async function fetchWebService(key, {fetcher = fetch, cookies = globalThis.chrome?.cookies, credentials} = {}, nowSeconds = Math.floor(Date.now() / 1000)) {
   if (!Object.hasOwn(WEB_SERVICES, key)) throw failure('unavailable');
   try {
+    if (key === 'gemini' || key === 'grok') {
+      const origin = key === 'gemini' ? 'https://gemini.google.com' : 'https://grok.com';
+      const session = (await cookies?.get({url: origin, name: key === 'gemini' ? '__Secure-1PSID' : 'sso'}))?.value;
+      if (!token(session)) throw failure('authentication_required');
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(session));
+      const identity = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      const read = async (path, body) => {
+        const response = await fetcher(origin + path, {method: body ? 'POST' : 'GET', credentials: 'include',
+          headers: body ? {'Content-Type': 'application/json', Accept: 'application/json'} : {},
+          ...(body ? {body: JSON.stringify(body)} : {}), cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(12000)});
+        if (response.status !== 200) throw failure([401, 403].includes(response.status) ? 'authentication_required' : response.status === 429 ? 'rate_limited' : 'unavailable');
+        const text = await response.text();
+        if (new TextEncoder().encode(text).byteLength > 4194304) throw failure('unavailable');
+        return text;
+      };
+      if (key === 'gemini') return {identity, data: parseGeminiUsage(await read('/usage'), nowSeconds)};
+      const responses = {};
+      for (const modelName of ['fast', 'expert', 'heavy', 'auto']) {
+        try { responses[modelName] = JSON.parse(await read('/rest/rate-limits', {modelName})); }
+        catch (error) { if (error.reason === 'authentication_required' || error.reason === 'rate_limited') throw error; }
+      }
+      let subscriptions = null;
+      try { subscriptions = await jsonGET(fetcher, origin + '/rest/subscriptions'); }
+      catch (error) { if (error.reason === 'authentication_required') throw error; }
+      return {identity, data: parseGrokUsage(responses, subscriptions, nowSeconds)};
+    }
     if (key === 'codex') {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {

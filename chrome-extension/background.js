@@ -118,12 +118,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 function sessionChanged(change) {
   const {cookie, removed, cause} = change;
-  const metadata = ['_account', 'lastActiveOrg'].includes(cookie.name);
+  const metadata = ['_account', 'lastActiveOrg', '__Secure-1PSID', 'sso'].includes(cookie.name);
   const loggedOut = removed && cause !== 'overwrite' && /session|auth/i.test(cookie.name);
   if (!metadata && !loggedOut) return;
   const domain = cookie.domain.replace(/^\./, '');
   const services = domain === 'chatgpt.com' ? ['codex'] : domain === 'claude.ai' ? ['claude'] :
-    domain === 'platform.claude.com' ? ['claudeCredits'] : [];
+    domain === 'platform.claude.com' ? ['claudeCredits'] :
+    domain === 'google.com' || domain === 'gemini.google.com' ? ['gemini'] : domain === 'grok.com' ? ['grok'] : [];
   if (services.length) enqueue({type: 'cookie-change', services}).catch(() => {});
 }
 let watchingCookies = false;

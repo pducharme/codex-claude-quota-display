@@ -117,7 +117,7 @@ uint32_t lastTouchMillis = 0;
 uint32_t touchStarted = 0;
 bool longPressHandled = false;
 
-enum class Page { Dashboard, CodexDetail, ClaudeDetail, Weather, Settings, Designed };
+enum class Page { Dashboard, MoreQuotas, CodexDetail, ClaudeDetail, Weather, Settings, Designed };
 Page currentPage = Page::Dashboard;
 
 struct Window {
@@ -135,6 +135,10 @@ struct Provider {
   String creditLines[2];
   bool creditsStale[2] = {};
   bool creditsAvailable = false;
+  int limitCount = 0;
+  String limitLabels[4];
+  String limitCounts[4];
+  Window limits[4];
 };
 
 struct BankedResets {
@@ -166,6 +170,8 @@ struct Weather {
 
 Provider codex;
 Provider claude;
+Provider gemini;
+Provider grok;
 BankedResets bankedResets;
 BankedResets claudeBankedResets;
 Weather weather;
@@ -447,14 +453,22 @@ void drawProviderCard(int x, int width, const char *name,
   view->fillRoundRect(x, y, width, PANEL_HEIGHT, 11, panelColor);
   view->fillRoundRect(x, y, width, 4, 2, accent);
   int pulse = frame & 1;
-  if (codexLogo) {
+  bool extra = strcmp(name, "GEMINI") == 0 || strcmp(name, "GROK") == 0;
+  if (extra) {
+    if (strcmp(name, "GEMINI") == 0) {
+      view->fillTriangle(x + 22, y + 8, x + 17, y + 21, x + 27, y + 21, accent);
+      view->fillTriangle(x + 22, y + 34, x + 17, y + 21, x + 27, y + 21, accent);
+      view->fillTriangle(x + 9, y + 21, x + 22, y + 16, x + 22, y + 26, accent);
+      view->fillTriangle(x + 35, y + 21, x + 22, y + 16, x + 22, y + 26, accent);
+    } else { text(x + 16, y + 12, "X", accent, 3); }
+  } else if (codexLogo) {
     drawCodexLogo(x + 22, y + 21, pulse);
   } else {
     drawClaudeMascot(x + 22, y + 21, frame);
   }
   text(x + 44, y + 12, name, COLOR_TEXT, 2);
   int planX = x + 52 + strlen(name) * 12;
-  int planWidth = provider.plan.length() * 6 + 12;
+  int planWidth = min(int(provider.plan.length() * 6 + 12), x + width - 28 - planX);
   view->fillRoundRect(planX, y + 11, planWidth, 16, 7, COLOR_CELL);
   text(planX + 6, y + 15, provider.plan, accent, 1);
 
@@ -464,12 +478,30 @@ void drawProviderCard(int x, int width, const char *name,
       provider.status == "stale" ? COLOR_AMBER : COLOR_RED;
   view->fillCircle(x + width - 19, y + 19, 4, providerStatus);
 
+  if (strcmp(name, "GROK") == 0) {
+    for (int index = 0; index < provider.limitCount; ++index) {
+      int top = y + 41 + index * 28;
+      text(x + 12, top, provider.limitLabels[index], COLOR_MUTED, 1);
+      text(x + width - 12 - provider.limitCounts[index].length() * 6, top, provider.limitCounts[index], accent, 1);
+      int barWidth = width - 24;
+      view->fillRoundRect(x + 12, top + 14, barWidth, 5, 2, COLOR_TRACK);
+      int fill = barWidth * (100 - provider.limits[index].used) / 100;
+      if (fill > 0) view->fillRoundRect(x + 12, top + 14, fill, 5, 2, accent);
+    }
+    if (!provider.limitCount) text(x + 12, y + 78, "CONNECTER SUR LE MAC", COLOR_MUTED, 1);
+    return;
+  }
+
   if (hasFiveHour) {
     drawQuotaCell(x + 12, y + 39, cellWidth, "5 HEURES",
                   provider.fiveHour, accent, 5UL * 3600UL, 5);
   }
   drawQuotaCell(x + 12 + (hasFiveHour ? cellWidth + 8 : 0), y + 39, cellWidth, "SEMAINE",
                 provider.weekly, accent, 7UL * 24UL * 3600UL, 7);
+  if (extra) {
+    text(x + 12, y + 137, "GEMINI - ABONNEMENT", accent, 1);
+    return;
+  }
   if (codexLogo) {
     drawCompactResets(x + 12, y + 125);
   } else {
@@ -511,6 +543,23 @@ void drawGesture(int pull, bool refreshing, int frame) {
 
 void drawPageDots(int active);
 
+void drawQuotaArrow(bool back) {
+  int x = back ? 14 : 626;
+  view->fillRoundRect(back ? 2 : 610, 156, 28, 24, 5, COLOR_BG);
+  view->drawLine(x + (back ? 5 : -5), 161, x + (back ? -3 : 3), 168, COLOR_TEXT);
+  view->drawLine(x + (back ? -3 : 3), 168, x + (back ? 5 : -5), 175, COLOR_TEXT);
+}
+
+void drawMoreQuotas(int pull = 0, bool refreshing = false, int frame = 0) {
+  view->fillScreen(COLOR_BG);
+  drawProviderCard(7, 310, "GEMINI", gemini, rgb(28, 22, 49), rgb(167, 139, 250), false, frame);
+  drawProviderCard(323, 310, "GROK", grok, rgb(25, 33, 44), rgb(209, 213, 219), false, frame);
+  drawPageDots(1);
+  drawQuotaArrow(true);
+  drawGesture(pull, refreshing, frame);
+  present();
+}
+
 void drawDashboard(int pull = 0, bool refreshing = false, int frame = 0) {
   view->fillScreen(COLOR_BG);
   bool showCodex;
@@ -526,13 +575,14 @@ void drawDashboard(int pull = 0, bool refreshing = false, int frame = 0) {
                      COLOR_CLAUDE_PANEL, COLOR_CLAUDE, false, frame);
   }
   drawPageDots(0);
+  drawQuotaArrow(false);
   drawGesture(pull, refreshing, frame);
   present();
 }
 
 void drawPageDots(int active) {
-  for (int index = 0; index < 2; ++index) {
-    view->fillCircle(315 + index * 10, 171, index == active ? 3 : 2,
+  for (int index = 0; index < 3; ++index) {
+    view->fillCircle(310 + index * 10, 171, index == active ? 3 : 2,
                      index == active ? COLOR_TEXT : COLOR_TRACK);
   }
 }
@@ -701,7 +751,7 @@ void drawWeatherPage(int pull = 0, bool refreshing = false, int frame = 0) {
       }
     }
   }
-  drawPageDots(1);
+  drawPageDots(2);
   drawGesture(pull, refreshing, frame);
   present();
 }
@@ -719,6 +769,8 @@ void drawCurrentPage(int pull = 0, bool refreshing = false, int frame = 0) {
     drawResetDetail(pull, refreshing, frame);
   } else if (currentPage == Page::Weather) {
     drawWeatherPage(pull, refreshing, frame);
+  } else if (currentPage == Page::MoreQuotas) {
+    drawMoreQuotas(pull, refreshing, frame);
   } else {
     drawDashboard(pull, refreshing, frame);
   }
@@ -1067,12 +1119,29 @@ String creditAmount(JsonVariantConst value, bool dollars = true) {
 void readProvider(JsonObjectConst providers, const char *name,
                   Provider &provider) {
   JsonObjectConst source = providers[name].as<JsonObjectConst>();
+  provider = Provider();
   if (source.isNull()) return;
   provider.status = source["status"] | "error";
   provider.plan = source["plan"] | "--";
   provider.fiveHour = jsonWindow(source["five_hour"]);
   provider.weekly = jsonWindow(source["weekly"]);
   provider.fableWeekly = jsonWindow(source["fable_weekly"]);
+  if (strcmp(name, "gemini") == 0 || strcmp(name, "grok") == 0) {
+    for (JsonObjectConst limit : source["limits"].as<JsonArrayConst>()) {
+      if (provider.limitCount >= 4) break;
+      Window window = jsonWindow(limit);
+      if (!window.available || !limit["remaining"].is<uint32_t>() || !limit["total"].is<uint32_t>() || !limit["duration_seconds"].is<uint32_t>()) continue;
+      uint32_t remaining = limit["remaining"], total = limit["total"], duration = limit["duration_seconds"];
+      String label = limit["label"] | "";
+      if (!total || remaining > total || total > 1000000000 || !duration || duration > 31536000 ||
+          (label != "RAPIDE" && label != "EXPERT" && label != "LOURD" && label != "AUTO")) continue;
+      int index = provider.limitCount++;
+      provider.limitLabels[index] = label + " " + String(duration / 3600) + "H";
+      provider.limitCounts[index] = String(remaining) + "/" + String(total);
+      provider.limits[index] = window;
+    }
+    return;
+  }
   JsonObjectConst credits = source["credits"].as<JsonObjectConst>();
   provider.creditsAvailable = !credits.isNull();
   provider.creditsStale[0] = credits["status"] == "stale";
@@ -1191,6 +1260,8 @@ bool fetchQuotas() {
   }
   readProvider(providers, "codex", codex);
   readProvider(providers, "claude", claude);
+  readProvider(providers, "gemini", gemini);
+  readProvider(providers, "grok", grok);
   readBankedResets(providers["codex"].as<JsonObjectConst>(), bankedResets);
   readBankedResets(providers["claude"].as<JsonObjectConst>(), claudeBankedResets);
   serverEpochAtFetch = document["server_time"].as<uint32_t>();
@@ -1500,15 +1571,31 @@ void handleTouch() {
   } else if (shouldRefresh) {
     animateGestureRefresh();
   } else if (horizontal) {
-    if (designerDocument["pages"].size()) {
+    bool nativeQuota = currentPage == Page::Designed && String(designerDocument["pages"][designerIndex]["kind"] | "") == "native-quotas";
+    if (currentPage == Page::MoreQuotas) {
+      if (designerDocument["pages"].size()) {
+        if (deltaX < 0) {
+          designerNavigate(1);
+          drawCurrentPage();
+        } else animatePageTransition(Page::Designed, false);
+      }
+      else animatePageTransition(deltaX < 0 ? Page::Weather : Page::Dashboard, deltaX < 0);
+    } else if ((currentPage == Page::Dashboard || nativeQuota) && deltaX < 0) {
+      animatePageTransition(Page::MoreQuotas, true);
+    } else if (designerDocument["pages"].size()) {
       designerNavigate(deltaX < 0 ? 1 : -1);
       drawCurrentPage();
     } else {
-      Page nextPage = deltaX < 0 ? Page::Weather : Page::Dashboard;
+      Page nextPage = currentPage == Page::Weather && deltaX > 0 ? Page::MoreQuotas : Page::Dashboard;
       animatePageTransition(nextPage, deltaX < 0);
     }
   } else if (tap) {
-    if (currentPage == Page::Designed) {
+    bool nativeQuota = currentPage == Page::Designed && String(designerDocument["pages"][designerIndex]["kind"] | "") == "native-quotas";
+    if ((currentPage == Page::Dashboard || nativeQuota) && swipeStartY >= 156 && swipeStartX >= 600) {
+      animatePageTransition(Page::MoreQuotas, true);
+    } else if (currentPage == Page::MoreQuotas && swipeStartY >= 156 && swipeStartX <= 40) {
+      animatePageTransition(designerDocument["pages"].size() ? Page::Designed : Page::Dashboard, false);
+    } else if (currentPage == Page::Designed) {
       designerTap(swipeStartX, swipeStartY);
       drawCurrentPage();
     } else if (currentPage == Page::Dashboard && swipeStartY >= CONTENT_TOP) {

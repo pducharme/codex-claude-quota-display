@@ -4,7 +4,7 @@ import {WEB_SERVICES} from './web-providers.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('dashboard');
-let snapshot = null, online = false, detail = null, detailOffset = 0, frame = 0;
+let snapshot = null, online = false, detail = null, detailOffset = 0, frame = 0, page = 0;
 let connection = null, busy = false, sourceRevision = 0, lastRead = 0;
 let sourceMode = 'web', webConnected = {};
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -21,12 +21,13 @@ function status(message = '') {
 function paint() {
   if (detail && snapshot?.display?.[detail] === false) detail = null;
   const shown = snapshot || (sourceMode === 'web' ? {source_mode: 'web'} : null);
-  drawDashboard(canvas, shown, {online, detail, frame, detailOffset});
-  canvas.setAttribute('aria-label', dashboardSummary(shown, {online, detail}));
+  drawDashboard(canvas, shown, {online, detail, frame, detailOffset, page});
+  canvas.setAttribute('aria-label', dashboardSummary(shown, {online, detail, page}));
+  $('quota-page').setAttribute('aria-label', page ? 'Afficher Codex et Claude' : 'Afficher Gemini et Grok');
   const codex = snapshot?.display?.codex !== false, claude = snapshot?.display?.claude !== false;
   for (const [name, shown, x] of [['codex', codex, 16], ['claude', claude, codex ? 324 : 16]]) {
     const button = $(`${name}-details`);
-    button.hidden = !!detail || !shown;
+    button.hidden = page === 1 || !!detail || !shown;
     Object.assign(button.style, {left: `${x / 6.4}%`, top: '5.6%', width: `${(codex && claude ? 300 : 608) / 6.4}%`, height: '63.2%'});
   }
   $('back').hidden = !detail;
@@ -100,9 +101,9 @@ async function read() {
       }
     } else {
       for (const [name, provider] of Object.entries(snapshot?.providers || {})) {
-        if (provider.error_reason === 'authentication_required') reasons.push(`Reconnectez ${name === 'claude' ? 'Claude' : 'Codex'} sur le Mac source.`);
+        if (provider.error_reason === 'authentication_required') reasons.push(`Reconnectez ${WEB_SERVICES[name]?.label || name} sur le Mac source.`);
         else if (provider.error_reason === 'desktop_refresh_required') reasons.push('Ouvrez Claude Desktop sur le Mac source pour actualiser sa session.');
-        else if (provider.status === 'stale' || provider.status === 'error') reasons.push(`${name === 'claude' ? 'Claude' : 'Codex'} : ${provider.status === 'stale' ? 'dernières données conservées' : 'quotas indisponibles'}. Vérifiez le Companion Mac.`);
+        else if (provider.status === 'stale' || provider.status === 'error') reasons.push(`${WEB_SERVICES[name]?.label || name} : ${provider.status === 'stale' ? 'dernières données conservées' : 'quotas indisponibles'}. Vérifiez le Companion Mac.`);
       }
     }
     status(reasons.join(' '));
@@ -129,6 +130,7 @@ function details(name) {
 }
 for (const name of ['codex', 'claude']) $(`${name}-details`).onclick = () => details(name);
 $('back').onclick = () => details(null);
+$('quota-page').onclick = () => { page = 1 - page; detail = null; paint(); };
 for (const section of document.querySelectorAll('.settings-content > details')) {
   section.addEventListener('toggle', () => {
     if (section.open) for (const other of document.querySelectorAll('.settings-content > details')) {
@@ -138,6 +140,9 @@ for (const section of document.querySelectorAll('.settings-content > details')) 
 }
 for (const id of ['refresh', 'canvas-refresh']) $(id).onclick = () => action('refresh');
 document.addEventListener('keydown', event => {
+  if (!event.target.matches('input, textarea, select') && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    event.preventDefault(); page = event.key === 'ArrowRight' ? 1 : 0; detail = null; paint();
+  }
   if (detail && event.key === 'Escape') { event.preventDefault(); details(null); }
   if (detail && ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp'].includes(event.key)) {
     event.preventDefault(); scrollDetails(event.key.endsWith('Down') ? 1 : -1);
@@ -152,8 +157,9 @@ canvas.parentElement.addEventListener('wheel', event => {
 }, {passive: false});
 canvas.addEventListener('click', event => {
   const rect = canvas.getBoundingClientRect();
-  const target = hitTest((event.clientX - rect.left) * 640 / rect.width, (event.clientY - rect.top) * 250 / rect.height, snapshot, detail);
+  const target = hitTest((event.clientX - rect.left) * 640 / rect.width, (event.clientY - rect.top) * 250 / rect.height, snapshot, detail, page);
   if (target === 'refresh') action('refresh');
+  else if (target === 'page') $('quota-page').click();
   else if (target) details(target === 'back' ? null : target);
 });
 

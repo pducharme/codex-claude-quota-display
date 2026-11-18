@@ -16,6 +16,7 @@
       <button id="claude-details" class="dashboard-action" aria-label="Voir les resets Claude en banque"></button>
       <button id="back" class="dashboard-action" aria-label="Revenir aux quotas" hidden></button>
       <button id="canvas-refresh" class="dashboard-action" aria-label="Actualiser les quotas"></button>
+      <button id="quota-page" class="dashboard-action" aria-label="Afficher Gemini et Grok"></button>
     </div>
     <p id="status" role="status" aria-live="polite" hidden></p>
     <details id="settings">
@@ -57,6 +58,16 @@
           </label>
           <div id="web-connections">
             <p class="hint">Connexion initiale, puis actualisation en arrière-plan. Vous pouvez fermer les onglets.</p>
+            <div class="service-row" role="group" aria-label="Quotas Gemini">
+              <span>Gemini · quotas <small id="state-gemini"></small></span>
+              <button id="connect-gemini" type="button">Connecter</button>
+              <button id="disconnect-gemini" type="button" hidden>Déconnecter</button>
+            </div>
+            <div class="service-row" role="group" aria-label="Quotas Grok">
+              <span>Grok · quotas <small id="state-grok"></small></span>
+              <button id="connect-grok" type="button">Connecter</button>
+              <button id="disconnect-grok" type="button" hidden>Déconnecter</button>
+            </div>
             <div class="service-row" role="group" aria-label="Quotas Codex">
               <span>Codex · quotas <small id="state-codex"></small></span>
               <button id="connect-codex" type="button">Connecter</button>
