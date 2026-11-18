@@ -67,7 +67,7 @@ Le projet contient quatre parties :
 - `bridge/quota_menu.swift` : Companion macOS natif;
 - `bridge/quota_bridge.py` : pont API local;
 - `firmware/` : firmware PlatformIO du T-Display S3 Long;
-- `chrome-extension/` : Companion Chrome, client de l’API du Mac source.
+- `chrome-extension/` : Companion Chrome autonome ou client de l’API du Mac source.
 
 Pour Gemini et Grok sur le Mac source, utilisez **Paramètres → API et connexions →
 Connexions → Autoriser Gemini/Grok via Chrome…**, après connexion au site dans Chrome.
